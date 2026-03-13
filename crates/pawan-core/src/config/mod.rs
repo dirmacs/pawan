@@ -74,6 +74,10 @@ pub struct PawanConfig {
 
     /// TUI configuration
     pub tui: TuiConfig,
+
+    /// MCP server configurations
+    #[serde(default)]
+    pub mcp: HashMap<String, McpServerEntry>,
 }
 
 impl Default for PawanConfig {
@@ -111,6 +115,7 @@ impl Default for PawanConfig {
             healing: HealingConfig::default(),
             targets,
             tui: TuiConfig::default(),
+            mcp: HashMap::new(),
         }
     }
 }
@@ -195,6 +200,26 @@ impl Default for TuiConfig {
             max_history: 1000,
         }
     }
+}
+
+/// Configuration for an MCP server in pawan.toml
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerEntry {
+    /// Command to run
+    pub command: String,
+    /// Command arguments
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment variables
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    /// Whether this server is enabled
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl PawanConfig {

@@ -14,16 +14,19 @@ name = "pawan"
 path = "src/main.rs"
 
 [features]
-default = ["tui"]
+default = ["tui", "mcp"]
 tui = ["dep:ratatui", "dep:crossterm", "dep:tui-textarea"]
+mcp = ["dep:pawan-mcp"]
 
 [dependencies]
 # Internal
 pawan-core = { workspace = true }
+pawan-mcp = { workspace = true, optional = true }
 
 # Core from workspace
 tokio = { workspace = true }
 serde_json = { workspace = true }
+toml = { workspace = true }
 
 # CLI
 clap = { version = "4.5", features = ["derive", "color", "env"] }

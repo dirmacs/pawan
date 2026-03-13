@@ -1,0 +1,21 @@
+[package]
+name = "pawan-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Pawan MCP client integration — connect to MCP servers and bridge tools"
+keywords = ["mcp", "tools", "ai", "agent"]
+
+[dependencies]
+pawan-core = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+
+# MCP client
+rmcp = { version = "0.12", features = ["client", "transport-io", "transport-child-process"] }

@@ -122,6 +122,18 @@ enum Commands {
     /// List saved sessions
     Sessions,
 
+    /// MCP server management
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
+
+    /// Configuration management
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+
     /// Headless single-prompt execution (for scripting and orchestration)
     Run {
         /// The prompt to execute
@@ -147,6 +159,20 @@ enum Commands {
         #[arg(long)]
         save: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum McpAction {
+    /// List connected MCP servers and their tools
+    List,
+}
+
+#[derive(Subcommand)]
+enum ConfigAction {
+    /// Show the resolved configuration
+    Show,
+    /// Generate a pawan.toml template
+    Init,
 }
 
 #[tokio::main]
@@ -195,6 +221,13 @@ async fn run() -> Result<()> {
             run_interactive(config, workspace, cli.no_tui, Some(id)).await
         }
         Some(Commands::Sessions) => run_sessions().await,
+        Some(Commands::Mcp { action }) => match action {
+            McpAction::List => run_mcp_list(config).await,
+        },
+        Some(Commands::Config { action }) => match action {
+            ConfigAction::Show => run_config_show(config),
+            ConfigAction::Init => run_config_init(),
+        },
         Some(Commands::Heal {
             errors_only,
             warnings_only,
@@ -655,6 +688,112 @@ async fn run_sessions() -> Result<()> {
     }
 
     println!("\n{}", "Resume with: pawan chat --resume <ID>".dimmed());
+
+    Ok(())
+}
+
+/// Show resolved configuration
+fn run_config_show(config: PawanConfig) -> Result<()> {
+    let toml_str = toml::to_string_pretty(&config)
+        .map_err(|e| PawanError::Config(format!("Failed to serialize config: {}", e)))?;
+    println!("{}", toml_str);
+    Ok(())
+}
+
+/// Generate pawan.toml template
+fn run_config_init() -> Result<()> {
+    let path = std::path::Path::new("pawan.toml");
+    if path.exists() {
+        return Err(PawanError::Config(
+            "pawan.toml already exists. Remove it first.".into(),
+        ));
+    }
+
+    let template = r#"# Pawan configuration
+# See: https://github.com/dirmacs/pawan
+
+# LLM provider: nvidia, ollama, openai
+# provider = "nvidia"
+
+# Model to use (provider-specific ID)
+model = "mistralai/devstral-2-123b-instruct-2512"
+
+# Generation parameters
+temperature = 0.6
+# top_p = 0.95
+# max_tokens = 8192
+
+# Self-healing settings
+[healing]
+fix_errors = true
+fix_warnings = true
+fix_tests = true
+auto_commit = false
+
+# MCP servers (uncomment to enable)
+# [mcp.daedra]
+# command = "daedra"
+# args = ["serve", "--transport", "stdio", "--quiet"]
+"#;
+
+    std::fs::write(path, template).map_err(PawanError::Io)?;
+    println!("{} Created pawan.toml", "✓".green());
+    Ok(())
+}
+
+/// List connected MCP servers and their tools
+async fn run_mcp_list(config: PawanConfig) -> Result<()> {
+    #[cfg(feature = "mcp")]
+    {
+        use pawan_mcp::{McpManager, McpServerConfig};
+
+        if config.mcp.is_empty() {
+            println!("{}", "No MCP servers configured in pawan.toml.".dimmed());
+            println!(
+                "\n{}",
+                "Add servers under [mcp.<name>] with command and args.".dimmed()
+            );
+            return Ok(());
+        }
+
+        let configs: Vec<McpServerConfig> = config
+            .mcp
+            .iter()
+            .map(|(name, entry)| McpServerConfig {
+                name: name.clone(),
+                command: entry.command.clone(),
+                args: entry.args.clone(),
+                env: entry.env.clone(),
+                enabled: entry.enabled,
+            })
+            .collect();
+
+        println!("{}", "Connecting to MCP servers...".dimmed());
+        let manager = McpManager::connect(&configs).await?;
+
+        println!("\n{}", "MCP Servers".green().bold());
+        println!("{}", "═".repeat(50).dimmed());
+
+        for (name, count) in manager.summary() {
+            println!("  {} {} ({} tools)", "●".green(), name.cyan(), count);
+        }
+
+        // Register to get full tool list
+        let mut registry = pawan::tools::ToolRegistry::new();
+        let total = manager.register_tools(&mut registry);
+        println!("\n{}", "Available Tools".green().bold());
+        println!("{}", "─".repeat(50).dimmed());
+        for name in registry.tool_names() {
+            println!("  {}", name);
+        }
+        println!("\n  Total: {} MCP tools", total);
+    }
+
+    #[cfg(not(feature = "mcp"))]
+    {
+        let _ = config;
+        println!("MCP support not enabled. Build with --features mcp");
+    }
 
     Ok(())
 }

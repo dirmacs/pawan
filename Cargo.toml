@@ -13,6 +13,7 @@ authors = ["Dirmacs <build@dirmacs.com>"]
 [workspace.dependencies]
 # Internal crates
 pawan-core = { version = "0.1.0", path = "crates/pawan-core" }
+pawan-mcp = { version = "0.1.0", path = "crates/pawan-mcp" }
 
 # Async runtime
 tokio = { version = "1.48", features = ["full"] }
