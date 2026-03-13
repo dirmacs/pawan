@@ -1,6 +1,9 @@
 model = "mistralai/devstral-2-123b-instruct-2512"
 temperature = 0.6
 
+# [permissions]
+# write_file = "deny"  # Uncomment to disable write_file tool
+
 [mcp.daedra]
 command = "daedra"
 args = ["serve", "--transport", "stdio", "--quiet"]
