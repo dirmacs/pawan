@@ -92,7 +92,10 @@ impl ToolRegistry {
         registry.register(Arc::new(git::GitStatusTool::new(workspace_root.clone())));
         registry.register(Arc::new(git::GitDiffTool::new(workspace_root.clone())));
         registry.register(Arc::new(git::GitAddTool::new(workspace_root.clone())));
-        registry.register(Arc::new(git::GitCommitTool::new(workspace_root)));
+        registry.register(Arc::new(git::GitCommitTool::new(workspace_root.clone())));
+        registry.register(Arc::new(git::GitLogTool::new(workspace_root.clone())));
+        registry.register(Arc::new(git::GitBlameTool::new(workspace_root.clone())));
+        registry.register(Arc::new(git::GitBranchTool::new(workspace_root)));
 
         registry
     }

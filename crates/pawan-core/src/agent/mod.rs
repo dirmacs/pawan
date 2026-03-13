@@ -82,6 +82,14 @@ pub struct ToolCallRecord {
     pub duration_ms: u64,
 }
 
+/// Token usage from an LLM response
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TokenUsage {
+    pub prompt_tokens: u64,
+    pub completion_tokens: u64,
+    pub total_tokens: u64,
+}
+
 /// LLM response from a generation request
 #[derive(Debug, Clone)]
 pub struct LLMResponse {
@@ -91,6 +99,8 @@ pub struct LLMResponse {
     pub tool_calls: Vec<ToolCallRequest>,
     /// Reason the response finished
     pub finish_reason: String,
+    /// Token usage (if available)
+    pub usage: Option<TokenUsage>,
 }
 
 /// Result from a complete agent execution
@@ -102,8 +112,8 @@ pub struct AgentResponse {
     pub tool_calls: Vec<ToolCallRecord>,
     /// Number of iterations taken
     pub iterations: usize,
-    /// Total tokens used (if available)
-    pub tokens_used: Option<u64>,
+    /// Cumulative token usage across all iterations
+    pub usage: TokenUsage,
 }
 
 /// Callback for receiving streaming tokens
@@ -264,6 +274,7 @@ impl PawanAgent {
         });
 
         let mut all_tool_calls = Vec::new();
+        let mut total_usage = TokenUsage::default();
         let mut iterations = 0;
         let max_iterations = self.config.max_tool_iterations;
 
@@ -282,6 +293,13 @@ impl PawanAgent {
                 .generate(&self.history, &tool_defs, None)
                 .await?;
 
+            // Accumulate token usage
+            if let Some(ref usage) = response.usage {
+                total_usage.prompt_tokens += usage.prompt_tokens;
+                total_usage.completion_tokens += usage.completion_tokens;
+                total_usage.total_tokens += usage.total_tokens;
+            }
+
             if response.tool_calls.is_empty() {
                 self.history.push(Message {
                     role: Role::Assistant,
@@ -294,7 +312,7 @@ impl PawanAgent {
                     content: response.content,
                     tool_calls: all_tool_calls,
                     iterations,
-                    tokens_used: None,
+                    usage: total_usage,
                 });
             }
 

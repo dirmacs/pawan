@@ -1,7 +1,6 @@
 //! Git operation tools
 //!
-//! Tools for git status, diff, add, and commit operations.
-//! Uses direct command execution for reliability.
+//! Tools for git operations: status, diff, add, commit, log, blame, branch.
 
 use super::Tool;
 use async_trait::async_trait;
@@ -11,6 +10,31 @@ use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
+/// Run a git command in a workspace directory
+async fn run_git(workspace: &PathBuf, args: &[&str]) -> crate::Result<(bool, String, String)> {
+    let mut cmd = Command::new("git");
+    cmd.args(args)
+        .current_dir(workspace)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
+
+    let mut child = cmd.spawn().map_err(crate::PawanError::Io)?;
+
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+
+    if let Some(mut handle) = child.stdout.take() {
+        handle.read_to_string(&mut stdout).await.ok();
+    }
+    if let Some(mut handle) = child.stderr.take() {
+        handle.read_to_string(&mut stderr).await.ok();
+    }
+
+    let status = child.wait().await.map_err(crate::PawanError::Io)?;
+    Ok((status.success(), stdout, stderr))
+}
+
 /// Tool for checking git status
 pub struct GitStatusTool {
     workspace_root: PathBuf,
@@ -19,32 +43,6 @@ pub struct GitStatusTool {
 impl GitStatusTool {
     pub fn new(workspace_root: PathBuf) -> Self {
         Self { workspace_root }
-    }
-
-    async fn run_git(&self, args: &[&str]) -> crate::Result<(bool, String, String)> {
-        let mut cmd = Command::new("git");
-        cmd.args(args)
-            .current_dir(&self.workspace_root)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .stdin(Stdio::null());
-
-        let mut child = cmd.spawn().map_err(crate::PawanError::Io)?;
-
-        let mut stdout = String::new();
-        let mut stderr = String::new();
-
-        if let Some(mut stdout_handle) = child.stdout.take() {
-            stdout_handle.read_to_string(&mut stdout).await.ok();
-        }
-
-        if let Some(mut stderr_handle) = child.stderr.take() {
-            stderr_handle.read_to_string(&mut stderr).await.ok();
-        }
-
-        let status = child.wait().await.map_err(crate::PawanError::Io)?;
-
-        Ok((status.success(), stdout, stderr))
     }
 }
 
@@ -79,7 +77,7 @@ impl Tool for GitStatusTool {
             git_args.push("-s");
         }
 
-        let (success, stdout, stderr) = self.run_git(&git_args).await?;
+        let (success, stdout, stderr) = run_git(&self.workspace_root, &git_args).await?;
 
         if !success {
             return Err(crate::PawanError::Git(format!(
@@ -89,11 +87,12 @@ impl Tool for GitStatusTool {
         }
 
         // Also get branch info
-        let (_, branch_output, _) = self.run_git(&["branch", "--show-current"]).await?;
+        let (_, branch_output, _) =
+            run_git(&self.workspace_root, &["branch", "--show-current"]).await?;
         let branch = branch_output.trim().to_string();
 
         // Check if repo is clean
-        let (_, porcelain, _) = self.run_git(&["status", "--porcelain"]).await?;
+        let (_, porcelain, _) = run_git(&self.workspace_root, &["status", "--porcelain"]).await?;
         let is_clean = porcelain.trim().is_empty();
 
         Ok(json!({
@@ -113,32 +112,6 @@ pub struct GitDiffTool {
 impl GitDiffTool {
     pub fn new(workspace_root: PathBuf) -> Self {
         Self { workspace_root }
-    }
-
-    async fn run_git(&self, args: &[&str]) -> crate::Result<(bool, String, String)> {
-        let mut cmd = Command::new("git");
-        cmd.args(args)
-            .current_dir(&self.workspace_root)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .stdin(Stdio::null());
-
-        let mut child = cmd.spawn().map_err(crate::PawanError::Io)?;
-
-        let mut stdout = String::new();
-        let mut stderr = String::new();
-
-        if let Some(mut stdout_handle) = child.stdout.take() {
-            stdout_handle.read_to_string(&mut stdout).await.ok();
-        }
-
-        if let Some(mut stderr_handle) = child.stderr.take() {
-            stderr_handle.read_to_string(&mut stderr).await.ok();
-        }
-
-        let status = child.wait().await.map_err(crate::PawanError::Io)?;
-
-        Ok((status.success(), stdout, stderr))
     }
 }
 
@@ -202,7 +175,7 @@ impl Tool for GitDiffTool {
             git_args.push(f);
         }
 
-        let (success, stdout, stderr) = self.run_git(&git_args).await?;
+        let (success, stdout, stderr) = run_git(&self.workspace_root, &git_args).await?;
 
         if !success {
             return Err(crate::PawanError::Git(format!(
@@ -241,32 +214,6 @@ pub struct GitAddTool {
 impl GitAddTool {
     pub fn new(workspace_root: PathBuf) -> Self {
         Self { workspace_root }
-    }
-
-    async fn run_git(&self, args: &[&str]) -> crate::Result<(bool, String, String)> {
-        let mut cmd = Command::new("git");
-        cmd.args(args)
-            .current_dir(&self.workspace_root)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .stdin(Stdio::null());
-
-        let mut child = cmd.spawn().map_err(crate::PawanError::Io)?;
-
-        let mut stdout = String::new();
-        let mut stderr = String::new();
-
-        if let Some(mut stdout_handle) = child.stdout.take() {
-            stdout_handle.read_to_string(&mut stdout).await.ok();
-        }
-
-        if let Some(mut stderr_handle) = child.stderr.take() {
-            stderr_handle.read_to_string(&mut stderr).await.ok();
-        }
-
-        let status = child.wait().await.map_err(crate::PawanError::Io)?;
-
-        Ok((status.success(), stdout, stderr))
     }
 }
 
@@ -319,7 +266,7 @@ impl Tool for GitAddTool {
             }
         }
 
-        let (success, _, stderr) = self.run_git(&git_args).await?;
+        let (success, _, stderr) = run_git(&self.workspace_root, &git_args).await?;
 
         if !success {
             return Err(crate::PawanError::Git(format!(
@@ -329,7 +276,7 @@ impl Tool for GitAddTool {
         }
 
         // Get status after adding
-        let (_, status_output, _) = self.run_git(&["status", "-s"]).await?;
+        let (_, status_output, _) = run_git(&self.workspace_root, &["status", "-s"]).await?;
         let staged_count = status_output
             .lines()
             .filter(|l| l.starts_with('A') || l.starts_with('M') || l.starts_with('D'))
@@ -355,32 +302,6 @@ pub struct GitCommitTool {
 impl GitCommitTool {
     pub fn new(workspace_root: PathBuf) -> Self {
         Self { workspace_root }
-    }
-
-    async fn run_git(&self, args: &[&str]) -> crate::Result<(bool, String, String)> {
-        let mut cmd = Command::new("git");
-        cmd.args(args)
-            .current_dir(&self.workspace_root)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .stdin(Stdio::null());
-
-        let mut child = cmd.spawn().map_err(crate::PawanError::Io)?;
-
-        let mut stdout = String::new();
-        let mut stderr = String::new();
-
-        if let Some(mut stdout_handle) = child.stdout.take() {
-            stdout_handle.read_to_string(&mut stdout).await.ok();
-        }
-
-        if let Some(mut stderr_handle) = child.stderr.take() {
-            stderr_handle.read_to_string(&mut stderr).await.ok();
-        }
-
-        let status = child.wait().await.map_err(crate::PawanError::Io)?;
-
-        Ok((status.success(), stdout, stderr))
     }
 }
 
@@ -419,7 +340,7 @@ impl Tool for GitCommitTool {
         let body = args["body"].as_str();
 
         // Check if there are staged changes
-        let (_, staged, _) = self.run_git(&["diff", "--cached", "--stat"]).await?;
+        let (_, staged, _) = run_git(&self.workspace_root, &["diff", "--cached", "--stat"]).await?;
         if staged.trim().is_empty() {
             return Err(crate::PawanError::Git(
                 "No staged changes to commit. Use git_add first.".into(),
@@ -433,7 +354,8 @@ impl Tool for GitCommitTool {
             message.to_string()
         };
 
-        let (success, stdout, stderr) = self.run_git(&["commit", "-m", &full_message]).await?;
+        let (success, stdout, stderr) =
+            run_git(&self.workspace_root, &["commit", "-m", &full_message]).await?;
 
         if !success {
             return Err(crate::PawanError::Git(format!(
@@ -443,7 +365,8 @@ impl Tool for GitCommitTool {
         }
 
         // Get the commit hash
-        let (_, hash_output, _) = self.run_git(&["rev-parse", "--short", "HEAD"]).await?;
+        let (_, hash_output, _) =
+            run_git(&self.workspace_root, &["rev-parse", "--short", "HEAD"]).await?;
         let commit_hash = hash_output.trim().to_string();
 
         Ok(json!({
@@ -451,6 +374,239 @@ impl Tool for GitCommitTool {
             "commit_hash": commit_hash,
             "message": message,
             "output": stdout.trim()
+        }))
+    }
+}
+
+/// Tool for viewing git log
+pub struct GitLogTool {
+    workspace_root: PathBuf,
+}
+
+impl GitLogTool {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
+    }
+}
+
+#[async_trait]
+impl Tool for GitLogTool {
+    fn name(&self) -> &str {
+        "git_log"
+    }
+
+    fn description(&self) -> &str {
+        "Show git commit history. Supports limiting count, filtering by file, and custom format."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer",
+                    "description": "Number of commits to show (default: 10)"
+                },
+                "file": {
+                    "type": "string",
+                    "description": "Show commits for a specific file"
+                },
+                "oneline": {
+                    "type": "boolean",
+                    "description": "Use compact one-line format (default: false)"
+                }
+            },
+            "required": []
+        })
+    }
+
+    async fn execute(&self, args: Value) -> crate::Result<Value> {
+        let count = args["count"].as_u64().unwrap_or(10);
+        let file = args["file"].as_str();
+        let oneline = args["oneline"].as_bool().unwrap_or(false);
+
+        let count_str = count.to_string();
+        let mut git_args = vec!["log", "-n", &count_str];
+
+        if oneline {
+            git_args.push("--oneline");
+        } else {
+            git_args.extend_from_slice(&["--pretty=format:%h %an %ar %s"]);
+        }
+
+        if let Some(f) = file {
+            git_args.push("--");
+            git_args.push(f);
+        }
+
+        let (success, stdout, stderr) = run_git(&self.workspace_root, &git_args).await?;
+
+        if !success {
+            return Err(crate::PawanError::Git(format!(
+                "git log failed: {}",
+                stderr
+            )));
+        }
+
+        let commit_count = stdout.lines().count();
+
+        Ok(json!({
+            "log": stdout.trim(),
+            "commit_count": commit_count,
+            "success": true
+        }))
+    }
+}
+
+/// Tool for git blame
+pub struct GitBlameTool {
+    workspace_root: PathBuf,
+}
+
+impl GitBlameTool {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
+    }
+}
+
+#[async_trait]
+impl Tool for GitBlameTool {
+    fn name(&self) -> &str {
+        "git_blame"
+    }
+
+    fn description(&self) -> &str {
+        "Show line-by-line authorship of a file. Useful for understanding who changed what."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "file": {
+                    "type": "string",
+                    "description": "File to blame (required)"
+                },
+                "lines": {
+                    "type": "string",
+                    "description": "Line range, e.g., '10,20' for lines 10-20"
+                }
+            },
+            "required": ["file"]
+        })
+    }
+
+    async fn execute(&self, args: Value) -> crate::Result<Value> {
+        let file = args["file"]
+            .as_str()
+            .ok_or_else(|| crate::PawanError::Tool("file is required for git_blame".into()))?;
+        let lines = args["lines"].as_str();
+
+        let mut git_args = vec!["blame", "--porcelain"];
+
+        let line_range;
+        if let Some(l) = lines {
+            line_range = format!("-L{}", l);
+            git_args.push(&line_range);
+        }
+
+        git_args.push(file);
+
+        let (success, stdout, stderr) = run_git(&self.workspace_root, &git_args).await?;
+
+        if !success {
+            return Err(crate::PawanError::Git(format!(
+                "git blame failed: {}",
+                stderr
+            )));
+        }
+
+        // Truncate if too large
+        let max_size = 50_000;
+        let output = if stdout.len() > max_size {
+            format!(
+                "{}...\n[truncated, {} bytes total]",
+                &stdout[..max_size],
+                stdout.len()
+            )
+        } else {
+            stdout
+        };
+
+        Ok(json!({
+            "blame": output.trim(),
+            "success": true
+        }))
+    }
+}
+
+/// Tool for listing and managing branches
+pub struct GitBranchTool {
+    workspace_root: PathBuf,
+}
+
+impl GitBranchTool {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
+    }
+}
+
+#[async_trait]
+impl Tool for GitBranchTool {
+    fn name(&self) -> &str {
+        "git_branch"
+    }
+
+    fn description(&self) -> &str {
+        "List branches or get current branch name. Shows local and optionally remote branches."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "all": {
+                    "type": "boolean",
+                    "description": "Show both local and remote branches (default: false)"
+                }
+            },
+            "required": []
+        })
+    }
+
+    async fn execute(&self, args: Value) -> crate::Result<Value> {
+        let all = args["all"].as_bool().unwrap_or(false);
+
+        // Get current branch
+        let (_, current, _) = run_git(&self.workspace_root, &["branch", "--show-current"]).await?;
+        let current_branch = current.trim().to_string();
+
+        // List branches
+        let mut git_args = vec!["branch", "--format=%(refname:short)"];
+        if all {
+            git_args.push("-a");
+        }
+
+        let (success, stdout, stderr) = run_git(&self.workspace_root, &git_args).await?;
+
+        if !success {
+            return Err(crate::PawanError::Git(format!(
+                "git branch failed: {}",
+                stderr
+            )));
+        }
+
+        let branches: Vec<&str> = stdout
+            .lines()
+            .map(|l| l.trim())
+            .filter(|l| !l.is_empty())
+            .collect();
+
+        Ok(json!({
+            "current": current_branch,
+            "branches": branches,
+            "count": branches.len(),
+            "success": true
         }))
     }
 }
