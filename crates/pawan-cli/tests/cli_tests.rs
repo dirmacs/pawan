@@ -389,3 +389,50 @@ fn test_improve_tests_target() {
         .assert()
         .success();
 }
+
+// ============================================================================
+// Run Command Tests
+// ============================================================================
+
+#[test]
+fn test_run_help() {
+    pawan_cmd()
+        .args(["run", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Headless"))
+        .stdout(predicate::str::contains("--output"))
+        .stdout(predicate::str::contains("--timeout"))
+        .stdout(predicate::str::contains("--file"));
+}
+
+#[test]
+fn test_run_requires_prompt_or_file() {
+    pawan_cmd().arg("run").assert().failure();
+}
+
+#[test]
+fn test_run_with_nonexistent_file() {
+    pawan_cmd()
+        .args(["run", "-f", "/nonexistent/prompt.md"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_run_output_format_default() {
+    pawan_cmd()
+        .args(["run", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[default: text]"));
+}
+
+#[test]
+fn test_run_timeout_default() {
+    pawan_cmd()
+        .args(["run", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[default: 300]"));
+}
