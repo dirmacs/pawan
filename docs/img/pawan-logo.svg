@@ -1,0 +1,55 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#f97316;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#ea580c;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="windGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#fff7ed;stop-opacity:0.9" />
+      <stop offset="100%" style="stop-color:#fdba74;stop-opacity:0.4" />
+    </linearGradient>
+    <linearGradient id="codeGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#fed7aa;stop-opacity:0.9" />
+    </linearGradient>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="256" cy="240" r="180" fill="url(#bgGrad)" />
+  <circle cx="256" cy="240" r="172" fill="none" stroke="#fdba74" stroke-width="1.5" stroke-opacity="0.4" />
+
+  <!-- Wind streaks (representing pawan = wind) -->
+  <g stroke="url(#windGrad)" stroke-width="4" stroke-linecap="round" fill="none">
+    <!-- Top wind streak -->
+    <path d="M140 160 Q200 155 240 160 Q280 165 310 155 Q340 145 360 155" />
+    <!-- Middle wind streaks -->
+    <path d="M120 200 Q180 195 230 200 Q280 205 330 195 Q360 188 380 195" stroke-width="5" />
+    <path d="M130 230 Q190 225 250 232 Q300 238 340 228 Q370 220 390 228" stroke-width="3.5" />
+    <!-- Bottom wind streaks -->
+    <path d="M150 265 Q200 260 260 268 Q310 275 350 265 Q370 258 385 262" stroke-width="3" />
+    <path d="M160 295 Q210 290 270 296 Q320 302 355 295" stroke-width="2.5" stroke-opacity="0.7" />
+  </g>
+
+  <!-- Code brackets overlay (representing coding agent) -->
+  <g fill="none" stroke="url(#codeGrad)" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Left bracket < -->
+    <polyline points="210,185 175,230 210,275" />
+    <!-- Right bracket > -->
+    <polyline points="302,185 337,230 302,275" />
+  </g>
+
+  <!-- Cursor/underscore (blinking cursor metaphor) -->
+  <line x1="240" y1="268" x2="272" y2="268" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-opacity="0.9" />
+
+  <!-- Healing pulse (self-healing dot) -->
+  <circle cx="256" cy="230" r="5" fill="#ffffff" fill-opacity="0.85" />
+  <circle cx="256" cy="230" r="12" fill="none" stroke="#ffffff" stroke-width="1.5" stroke-opacity="0.3" />
+
+  <!-- Text: PAWAN -->
+  <text x="256" y="395" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif"
+        font-size="44" font-weight="800" fill="#e6edf3" letter-spacing="10">PAWAN</text>
+
+  <!-- Subtitle -->
+  <text x="256" y="425" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif"
+        font-size="13" font-weight="400" fill="#9ca3af" letter-spacing="4">CLI CODING AGENT</text>
+</svg>
