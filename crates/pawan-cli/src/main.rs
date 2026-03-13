@@ -113,7 +113,14 @@ enum Commands {
     Status,
 
     /// Interactive chat mode (same as running without subcommand)
-    Chat,
+    Chat {
+        /// Resume a saved session by ID
+        #[arg(long)]
+        resume: Option<String>,
+    },
+
+    /// List saved sessions
+    Sessions,
 
     /// Headless single-prompt execution (for scripting and orchestration)
     Run {
@@ -135,6 +142,10 @@ enum Commands {
         /// Maximum tool iterations
         #[arg(long)]
         max_iterations: Option<usize>,
+
+        /// Save session after completion
+        #[arg(long)]
+        save: bool,
     },
 }
 
@@ -177,10 +188,13 @@ async fn run() -> Result<()> {
     }
 
     match cli.command {
-        None | Some(Commands::Chat) => {
-            // Interactive mode
-            run_interactive(config, workspace, cli.no_tui).await
+        None | Some(Commands::Chat { resume: None }) => {
+            run_interactive(config, workspace, cli.no_tui, None).await
         }
+        Some(Commands::Chat { resume: Some(id) }) => {
+            run_interactive(config, workspace, cli.no_tui, Some(id)).await
+        }
+        Some(Commands::Sessions) => run_sessions().await,
         Some(Commands::Heal {
             errors_only,
             warnings_only,
@@ -212,6 +226,7 @@ async fn run() -> Result<()> {
             output,
             timeout,
             max_iterations,
+            save,
         }) => {
             run_headless(
                 config,
@@ -221,6 +236,7 @@ async fn run() -> Result<()> {
                 &output,
                 timeout,
                 max_iterations,
+                save,
                 cli.verbose,
             )
             .await
@@ -229,8 +245,20 @@ async fn run() -> Result<()> {
 }
 
 /// Run interactive mode
-async fn run_interactive(config: PawanConfig, workspace: PathBuf, no_tui: bool) -> Result<()> {
-    let agent = PawanAgent::new(config.clone(), workspace);
+async fn run_interactive(
+    config: PawanConfig,
+    workspace: PathBuf,
+    no_tui: bool,
+    resume_id: Option<String>,
+) -> Result<()> {
+    let mut agent = PawanAgent::new(config.clone(), workspace);
+
+    if let Some(id) = resume_id {
+        agent.resume_session(&id)?;
+        if !no_tui {
+            eprintln!("Resumed session: {}", id);
+        }
+    }
 
     #[cfg(feature = "tui")]
     {
@@ -591,6 +619,46 @@ async fn run_status(config: PawanConfig, workspace: PathBuf) -> Result<()> {
     Ok(())
 }
 
+/// List saved sessions
+async fn run_sessions() -> Result<()> {
+    use pawan::agent::session::Session;
+
+    let sessions = Session::list()?;
+
+    if sessions.is_empty() {
+        println!("{}", "No saved sessions.".dimmed());
+        return Ok(());
+    }
+
+    println!("{}", "Saved Sessions".green().bold());
+    println!("{}", "═".repeat(60).dimmed());
+    println!(
+        "  {:<10} {:<30} {:<6} {}",
+        "ID".cyan(),
+        "Model".cyan(),
+        "Msgs".cyan(),
+        "Updated".cyan()
+    );
+    println!("{}", "─".repeat(60).dimmed());
+
+    for s in &sessions {
+        let model_short = if s.model.len() > 28 {
+            format!("...{}", &s.model[s.model.len() - 25..])
+        } else {
+            s.model.clone()
+        };
+        let updated = &s.updated_at[..19]; // trim timezone
+        println!(
+            "  {:<10} {:<30} {:<6} {}",
+            s.id, model_short, s.message_count, updated
+        );
+    }
+
+    println!("\n{}", "Resume with: pawan chat --resume <ID>".dimmed());
+
+    Ok(())
+}
+
 /// Headless single-prompt execution (replaces oh-my-opencode `run`)
 #[allow(clippy::too_many_arguments)]
 async fn run_headless(
@@ -601,6 +669,7 @@ async fn run_headless(
     output_format: &str,
     timeout_secs: u64,
     max_iterations: Option<usize>,
+    save_session: bool,
     verbose: bool,
 ) -> Result<()> {
     // Resolve prompt from argument or file
@@ -707,6 +776,24 @@ async fn run_headless(
                     eprintln!("  [{}] {} ({}ms)", s, tc.name, tc.duration_ms);
                 }
             }
+        }
+    }
+
+    // Save session if requested
+    if save_session {
+        match agent.save_session() {
+            Ok(id) => {
+                if output_format == "json" {
+                    // Already printed JSON above — add session id to stderr
+                    eprintln!("Session saved: {}", id);
+                } else {
+                    eprintln!(
+                        "Session saved: {} (resume with: pawan chat --resume {})",
+                        id, id
+                    );
+                }
+            }
+            Err(e) => eprintln!("Warning: failed to save session: {}", e),
         }
     }
 
