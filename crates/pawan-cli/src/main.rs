@@ -286,6 +286,9 @@ async fn run_interactive(
 ) -> Result<()> {
     let mut agent = PawanAgent::new(config.clone(), workspace);
 
+    #[cfg(feature = "mcp")]
+    setup_mcp_tools(&mut agent, &config).await;
+
     if let Some(id) = resume_id {
         agent.resume_session(&id)?;
         if !no_tui {
@@ -426,7 +429,12 @@ async fn run_task(
     println!("{} {}", "Task:".cyan().bold(), description);
     println!();
 
+    let config_ref = config.clone();
     let mut agent = PawanAgent::new(config, workspace);
+
+    #[cfg(feature = "mcp")]
+    setup_mcp_tools(&mut agent, &config_ref).await;
+
     let response = agent.task(description).await?;
 
     println!("{}", response.content);
@@ -692,6 +700,42 @@ async fn run_sessions() -> Result<()> {
     Ok(())
 }
 
+/// Set up MCP tools on an agent (if configured)
+#[cfg(feature = "mcp")]
+async fn setup_mcp_tools(agent: &mut PawanAgent, config: &PawanConfig) {
+    use pawan_mcp::{McpManager, McpServerConfig};
+
+    if config.mcp.is_empty() {
+        return;
+    }
+
+    let configs: Vec<McpServerConfig> = config
+        .mcp
+        .iter()
+        .map(|(name, entry)| McpServerConfig {
+            name: name.clone(),
+            command: entry.command.clone(),
+            args: entry.args.clone(),
+            env: entry.env.clone(),
+            enabled: entry.enabled,
+        })
+        .collect();
+
+    match McpManager::connect(&configs).await {
+        Ok(manager) => {
+            let count = manager.register_tools(agent.tools_mut());
+            if count > 0 {
+                eprintln!("Loaded {} MCP tools", count);
+            }
+            // Leak manager to keep connections alive for the process lifetime
+            Box::leak(Box::new(manager));
+        }
+        Err(e) => {
+            eprintln!("Warning: MCP setup failed: {}", e);
+        }
+    }
+}
+
 /// Show resolved configuration
 fn run_config_show(config: PawanConfig) -> Result<()> {
     let toml_str = toml::to_string_pretty(&config)
@@ -828,7 +872,11 @@ async fn run_headless(
         config.max_tool_iterations = max_iter;
     }
 
+    let config_ref = config.clone();
     let mut agent = PawanAgent::new(config, workspace);
+
+    #[cfg(feature = "mcp")]
+    setup_mcp_tools(&mut agent, &config_ref).await;
 
     if verbose && output_format != "json" {
         eprintln!("Model: {}", agent.config().model);

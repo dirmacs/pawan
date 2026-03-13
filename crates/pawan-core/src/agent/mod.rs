@@ -193,6 +193,11 @@ impl PawanAgent {
         self
     }
 
+    /// Get mutable access to the tool registry (for registering MCP tools)
+    pub fn tools_mut(&mut self) -> &mut ToolRegistry {
+        &mut self.tools
+    }
+
     /// Create with a custom backend
     pub fn with_backend(mut self, backend: Box<dyn LlmBackend>) -> Self {
         self.backend = backend;
