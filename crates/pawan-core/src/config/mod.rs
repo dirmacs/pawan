@@ -266,11 +266,36 @@ impl PawanConfig {
         self.targets.get(name)
     }
 
-    /// Get the system prompt, with reasoning mode prefix for DeepSeek/thinking models
+    /// Get the system prompt, with optional PAWAN.md context injection
     pub fn get_system_prompt(&self) -> String {
-        self.system_prompt
+        let base = self
+            .system_prompt
             .clone()
-            .unwrap_or_else(|| DEFAULT_SYSTEM_PROMPT.to_string())
+            .unwrap_or_else(|| DEFAULT_SYSTEM_PROMPT.to_string());
+
+        // Try to load PAWAN.md from current directory for project context
+        let context = Self::load_context_file();
+        if let Some(ctx) = context {
+            format!("{}\n\n## Project Context (from PAWAN.md)\n\n{}", base, ctx)
+        } else {
+            base
+        }
+    }
+
+    /// Load PAWAN.md context file from current directory (if it exists)
+    fn load_context_file() -> Option<String> {
+        // Check PAWAN.md first, then .pawan/context.md
+        for path in &["PAWAN.md", ".pawan/context.md"] {
+            let p = PathBuf::from(path);
+            if p.exists() {
+                if let Ok(content) = std::fs::read_to_string(&p) {
+                    if !content.trim().is_empty() {
+                        return Some(content);
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Check if thinking mode should be enabled (for DeepSeek models)
