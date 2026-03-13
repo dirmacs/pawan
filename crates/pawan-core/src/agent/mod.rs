@@ -7,6 +7,7 @@
 //! - Supports multiple LLM backends (NVIDIA API, Ollama, OpenAI)
 
 pub mod backend;
+pub mod session;
 
 use crate::config::{LlmProvider, PawanConfig};
 use crate::tools::{ToolDefinition, ToolRegistry};
@@ -201,6 +202,21 @@ impl PawanAgent {
     /// Get the current conversation history
     pub fn history(&self) -> &[Message] {
         &self.history
+    }
+
+    /// Save current conversation as a session, returns session ID
+    pub fn save_session(&self) -> Result<String> {
+        let mut session = session::Session::new(&self.config.model);
+        session.messages = self.history.clone();
+        session.save()?;
+        Ok(session.id)
+    }
+
+    /// Resume a saved session by ID
+    pub fn resume_session(&mut self, session_id: &str) -> Result<()> {
+        let session = session::Session::load(session_id)?;
+        self.history = session.messages;
+        Ok(())
     }
 
     /// Get the configuration

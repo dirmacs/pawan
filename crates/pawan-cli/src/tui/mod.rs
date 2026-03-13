@@ -1,18 +1,14 @@
 //! Terminal User Interface for Pawan
 //!
-//! Provides a rich TUI experience using ratatui with:
-//! - Streaming response display
-//! - Syntax highlighting for code
-//! - Message history with scrolling
-//! - Multi-line input
-//! - Tool execution visualization
+//! Non-blocking TUI: agent runs on a spawned tokio task,
+//! events stream back to the UI via mpsc channel.
 
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use pawan::agent::{PawanAgent, Role, ToolCallRecord};
+use pawan::agent::{AgentResponse, PawanAgent, Role, ToolCallRecord};
 use pawan::config::TuiConfig;
 use pawan::{PawanError, Result};
 use ratatui::{
@@ -24,32 +20,18 @@ use ratatui::{
     Frame, Terminal,
 };
 use std::io::{self, Stdout};
+use tokio::sync::mpsc;
 use tui_textarea::{Input, TextArea};
 
-/// Application state
-pub struct App<'a> {
-    /// Agent for handling requests
-    agent: PawanAgent,
-    /// TUI configuration
-    config: TuiConfig,
-    /// Message history for display
-    messages: Vec<DisplayMessage>,
-    /// Current input textarea
-    input: TextArea<'a>,
-    /// Scroll position for messages
-    scroll: usize,
-    /// Whether currently processing
-    processing: bool,
-    /// Current streaming content
-    current_stream: String,
-    /// Tool calls in progress
-    tool_calls: Vec<ToolCallRecord>,
-    /// Should quit
-    should_quit: bool,
-    /// Status message
-    status: String,
-    /// Focused panel
-    focus: Panel,
+/// Events sent from the agent task back to the TUI
+enum AgentEvent {
+    Complete(std::result::Result<AgentResponse, PawanError>),
+}
+
+/// Commands sent from the TUI to the agent task
+enum AgentCommand {
+    Execute(String),
+    Quit,
 }
 
 /// A message for display in the TUI
@@ -67,41 +49,58 @@ pub enum Panel {
     Messages,
 }
 
+/// Application state
+struct App<'a> {
+    config: TuiConfig,
+    model_name: String,
+    messages: Vec<DisplayMessage>,
+    input: TextArea<'a>,
+    scroll: usize,
+    processing: bool,
+    should_quit: bool,
+    status: String,
+    focus: Panel,
+    /// Channel to send commands to the agent task
+    cmd_tx: mpsc::UnboundedSender<AgentCommand>,
+    /// Channel to receive events from the agent task
+    event_rx: mpsc::UnboundedReceiver<AgentEvent>,
+}
+
 impl<'a> App<'a> {
-    /// Create a new App
-    pub fn new(agent: PawanAgent, config: TuiConfig) -> Self {
+    pub fn new(
+        config: TuiConfig,
+        model_name: String,
+        cmd_tx: mpsc::UnboundedSender<AgentCommand>,
+        event_rx: mpsc::UnboundedReceiver<AgentEvent>,
+    ) -> Self {
         let mut input = TextArea::default();
         input.set_cursor_line_style(Style::default());
         input.set_placeholder_text("Type your message... (Ctrl+Enter to send, Ctrl+C to quit)");
 
         Self {
-            agent,
             config,
+            model_name,
             messages: Vec::new(),
             input,
             scroll: 0,
             processing: false,
-            current_stream: String::new(),
-            tool_calls: Vec::new(),
             should_quit: false,
             status: "Ready".to_string(),
             focus: Panel::Input,
+            cmd_tx,
+            event_rx,
         }
     }
 
-    /// Run the TUI application
     pub async fn run(&mut self) -> Result<()> {
-        // Setup terminal
         enable_raw_mode().map_err(PawanError::Io)?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture).map_err(PawanError::Io)?;
         let backend = CrosstermBackend::new(stdout);
         let mut terminal = Terminal::new(backend).map_err(PawanError::Io)?;
 
-        // Main loop
         let result = self.main_loop(&mut terminal).await;
 
-        // Restore terminal
         disable_raw_mode().ok();
         execute!(
             terminal.backend_mut(),
@@ -114,19 +113,46 @@ impl<'a> App<'a> {
         result
     }
 
-    /// Main event loop
     async fn main_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         loop {
-            // Draw UI
             terminal.draw(|f| self.ui(f)).map_err(PawanError::Io)?;
 
-            // Handle events with timeout for non-blocking
-            if event::poll(std::time::Duration::from_millis(100)).map_err(PawanError::Io)? {
+            // Non-blocking: check for agent events first
+            while let Ok(event) = self.event_rx.try_recv() {
+                match event {
+                    AgentEvent::Complete(result) => {
+                        self.processing = false;
+                        match result {
+                            Ok(resp) => {
+                                self.messages.push(DisplayMessage {
+                                    role: Role::Assistant,
+                                    content: resp.content,
+                                    tool_calls: resp.tool_calls,
+                                });
+                                self.status = format!("Done ({} iterations)", resp.iterations);
+                                self.scroll = self.messages.len().saturating_sub(1);
+                            }
+                            Err(e) => {
+                                self.status = format!("Error: {}", e);
+                                self.messages.push(DisplayMessage {
+                                    role: Role::Assistant,
+                                    content: format!("Error: {}", e),
+                                    tool_calls: vec![],
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Handle terminal events with short poll timeout
+            if event::poll(std::time::Duration::from_millis(50)).map_err(PawanError::Io)? {
                 let event = event::read().map_err(PawanError::Io)?;
-                self.handle_event(event).await?;
+                self.handle_event(event);
             }
 
             if self.should_quit {
+                let _ = self.cmd_tx.send(AgentCommand::Quit);
                 break;
             }
         }
@@ -134,62 +160,45 @@ impl<'a> App<'a> {
         Ok(())
     }
 
-    /// Handle input events
-    async fn handle_event(&mut self, event: Event) -> Result<()> {
+    fn handle_event(&mut self, event: Event) {
         match event {
             Event::Key(key) => {
-                // Global shortcuts
                 match (key.modifiers, key.code) {
                     (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
                         self.should_quit = true;
-                        return Ok(());
+                        return;
                     }
                     (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
                         self.messages.clear();
-                        self.agent.clear_history();
-                        self.status = "Cleared history".to_string();
-                        return Ok(());
+                        self.status = "Cleared".to_string();
+                        return;
                     }
                     _ => {}
                 }
 
                 match self.focus {
                     Panel::Input => {
-                        // Submit on Ctrl+Enter
                         if key.modifiers.contains(KeyModifiers::CONTROL)
                             && key.code == KeyCode::Enter
                         {
-                            self.submit_input().await?;
-                        }
-                        // Tab to switch focus
-                        else if key.code == KeyCode::Tab {
+                            self.submit_input();
+                        } else if key.code == KeyCode::Tab {
                             self.focus = Panel::Messages;
-                        }
-                        // Pass to textarea
-                        else {
-                            let input = Input::from(key);
-                            self.input.input(input);
+                        } else {
+                            self.input.input(Input::from(key));
                         }
                     }
                     Panel::Messages => match key.code {
-                        KeyCode::Tab => {
-                            self.focus = Panel::Input;
-                        }
+                        KeyCode::Tab => self.focus = Panel::Input,
                         KeyCode::Up | KeyCode::Char('k') => {
                             self.scroll = self.scroll.saturating_sub(1);
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
                             self.scroll = self.scroll.saturating_add(1);
                         }
-                        KeyCode::PageUp => {
-                            self.scroll = self.scroll.saturating_sub(10);
-                        }
-                        KeyCode::PageDown => {
-                            self.scroll = self.scroll.saturating_add(10);
-                        }
-                        KeyCode::Home => {
-                            self.scroll = 0;
-                        }
+                        KeyCode::PageUp => self.scroll = self.scroll.saturating_sub(10),
+                        KeyCode::PageDown => self.scroll = self.scroll.saturating_add(10),
+                        KeyCode::Home => self.scroll = 0,
                         KeyCode::End => {
                             self.scroll = self.messages.len().saturating_sub(1);
                         }
@@ -212,74 +221,40 @@ impl<'a> App<'a> {
             }
             _ => {}
         }
-
-        Ok(())
     }
 
-    /// Submit the current input
-    async fn submit_input(&mut self) -> Result<()> {
+    /// Submit input — non-blocking: sends command to agent task
+    fn submit_input(&mut self) {
         let content: String = self.input.lines().join("\n");
         if content.trim().is_empty() {
-            return Ok(());
+            return;
         }
 
-        // Clear input
         self.input = TextArea::default();
         self.input.set_cursor_line_style(Style::default());
         self.input
             .set_placeholder_text("Type your message... (Ctrl+Enter to send, Ctrl+C to quit)");
 
-        // Add user message
         self.messages.push(DisplayMessage {
             role: Role::User,
             content: content.clone(),
             tool_calls: vec![],
         });
 
-        // Process
         self.processing = true;
         self.status = "Processing...".to_string();
-        self.current_stream.clear();
-        self.tool_calls.clear();
 
-        // Execute agent
-        let response = self.agent.execute(&content).await;
-
-        self.processing = false;
-
-        match response {
-            Ok(resp) => {
-                self.messages.push(DisplayMessage {
-                    role: Role::Assistant,
-                    content: resp.content,
-                    tool_calls: resp.tool_calls,
-                });
-                self.status = format!("Done ({} iterations)", resp.iterations);
-                // Scroll to bottom
-                self.scroll = self.messages.len().saturating_sub(1);
-            }
-            Err(e) => {
-                self.status = format!("Error: {}", e);
-                self.messages.push(DisplayMessage {
-                    role: Role::Assistant,
-                    content: format!("Error: {}", e),
-                    tool_calls: vec![],
-                });
-            }
-        }
-
-        Ok(())
+        let _ = self.cmd_tx.send(AgentCommand::Execute(content));
     }
 
-    /// Render the UI
     fn ui(&self, f: &mut Frame) {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
             .constraints([
-                Constraint::Min(3),    // Messages
-                Constraint::Length(6), // Input
-                Constraint::Length(1), // Status
+                Constraint::Min(3),
+                Constraint::Length(6),
+                Constraint::Length(1),
             ])
             .split(f.area());
 
@@ -288,7 +263,6 @@ impl<'a> App<'a> {
         self.render_status(f, chunks[2]);
     }
 
-    /// Render the message list
     fn render_messages(&self, f: &mut Frame, area: Rect) {
         let mut items: Vec<ListItem> = Vec::new();
 
@@ -310,52 +284,33 @@ impl<'a> App<'a> {
                 Role::Tool => ("Tool: ", Style::default().fg(Color::Magenta)),
             };
 
-            // Add message
-            let header = Line::from(vec![Span::styled(prefix, style)]);
-            items.push(ListItem::new(header));
+            items.push(ListItem::new(Line::from(vec![Span::styled(prefix, style)])));
 
-            // Add content lines
             for line in msg.content.lines() {
-                let line = Line::from(Span::raw(format!("  {}", line)));
-                items.push(ListItem::new(line));
+                items.push(ListItem::new(Line::from(Span::raw(format!("  {}", line)))));
             }
 
-            // Add tool calls
             for tc in &msg.tool_calls {
-                let status_icon = if tc.success { "✓" } else { "✗" };
-                let tc_line = Line::from(vec![
+                let icon = if tc.success { "✓" } else { "✗" };
+                let color = if tc.success { Color::Green } else { Color::Red };
+                items.push(ListItem::new(Line::from(vec![
+                    Span::styled(format!("  {} ", icon), Style::default().fg(color)),
                     Span::styled(
-                        format!("  {} ", status_icon),
-                        Style::default().fg(if tc.success { Color::Green } else { Color::Red }),
-                    ),
-                    Span::styled(
-                        format!("{}({}) ", tc.name, tc.duration_ms),
+                        format!("{}({}ms) ", tc.name, tc.duration_ms),
                         Style::default().fg(Color::Magenta),
                     ),
-                ]);
-                items.push(ListItem::new(tc_line));
+                ])));
             }
 
-            // Separator
             items.push(ListItem::new(Line::from("")));
         }
 
-        // Add streaming content if processing
-        if self.processing && !self.current_stream.is_empty() {
-            let header = Line::from(vec![Span::styled(
-                "Pawan: ",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            )]);
-            items.push(ListItem::new(header));
-
-            for line in self.current_stream.lines() {
-                items.push(ListItem::new(Line::from(format!("  {}", line))));
-            }
+        if self.processing {
             items.push(ListItem::new(Line::from(vec![Span::styled(
-                "  ▌",
-                Style::default().fg(Color::Green),
+                "  Pawan is thinking...",
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::ITALIC),
             )])));
         }
 
@@ -371,11 +326,9 @@ impl<'a> App<'a> {
             .title(" Messages (Tab to focus, j/k to scroll) ");
 
         let list = List::new(items).block(messages_block);
-
         f.render_widget(list, area);
     }
 
-    /// Render the input area
     fn render_input(&self, f: &mut Frame, area: Rect) {
         let border_style = if self.focus == Panel::Input {
             Style::default().fg(Color::Cyan)
@@ -396,12 +349,9 @@ impl<'a> App<'a> {
 
         let inner = block.inner(area);
         f.render_widget(block, area);
-
-        // Render textarea inside (pass reference directly per updated API)
         f.render_widget(&self.input, inner);
     }
 
-    /// Render the status bar
     fn render_status(&self, f: &mut Frame, area: Rect) {
         let status_style = if self.processing {
             Style::default().fg(Color::Yellow)
@@ -411,10 +361,9 @@ impl<'a> App<'a> {
             Style::default().fg(Color::DarkGray)
         };
 
-        let model = &self.agent.config().model;
         let status = Paragraph::new(Line::from(vec![
             Span::styled("Model: ", Style::default().fg(Color::DarkGray)),
-            Span::styled(model, Style::default().fg(Color::Cyan)),
+            Span::styled(&self.model_name, Style::default().fg(Color::Cyan)),
             Span::raw(" | "),
             Span::styled(&self.status, status_style),
             Span::raw(" | "),
@@ -427,9 +376,36 @@ impl<'a> App<'a> {
     }
 }
 
+/// Spawn the agent task that listens for commands and sends back events
+async fn agent_task(
+    mut agent: PawanAgent,
+    mut cmd_rx: mpsc::UnboundedReceiver<AgentCommand>,
+    event_tx: mpsc::UnboundedSender<AgentEvent>,
+) {
+    while let Some(cmd) = cmd_rx.recv().await {
+        match cmd {
+            AgentCommand::Execute(prompt) => {
+                let result = agent.execute(&prompt).await;
+                let _ = event_tx.send(AgentEvent::Complete(result));
+            }
+            AgentCommand::Quit => break,
+        }
+    }
+}
+
 /// Run the TUI with the given agent
 pub async fn run_tui(agent: PawanAgent, config: TuiConfig) -> Result<()> {
-    let mut app = App::new(agent, config);
+    let model_name = agent.config().model.clone();
+
+    // Create channels
+    let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+    let (event_tx, event_rx) = mpsc::unbounded_channel();
+
+    // Spawn agent on a separate task
+    tokio::spawn(agent_task(agent, cmd_rx, event_tx));
+
+    // Run the TUI on the current task
+    let mut app = App::new(config, model_name, cmd_tx, event_rx);
     app.run().await
 }
 
@@ -452,28 +428,23 @@ pub async fn run_simple(mut agent: PawanAgent) -> Result<()> {
         stdin.lock().read_line(&mut line).ok();
 
         let line = line.trim();
-
         if line.is_empty() {
             continue;
         }
-
         if line == "quit" || line == "exit" {
             break;
         }
-
         if line == "clear" {
             agent.clear_history();
             println!("History cleared.");
             continue;
         }
 
-        // Execute
         println!("\nProcessing...\n");
 
         match agent.execute(line).await {
             Ok(response) => {
                 println!("{}\n", response.content);
-
                 if !response.tool_calls.is_empty() {
                     println!("Tool calls made:");
                     for tc in &response.tool_calls {
@@ -483,9 +454,7 @@ pub async fn run_simple(mut agent: PawanAgent) -> Result<()> {
                     println!();
                 }
             }
-            Err(e) => {
-                println!("Error: {}\n", e);
-            }
+            Err(e) => println!("Error: {}\n", e),
         }
     }
 
