@@ -1,7 +1,9 @@
 //! OpenAI-compatible LLM backend (NVIDIA NIM, OpenAI, DeepSeek, etc.)
 
 use super::LlmBackend;
-use crate::agent::{LLMResponse, Message, Role, TokenCallback, ToolCallRequest, ToolDefinition};
+use crate::agent::{
+    LLMResponse, Message, Role, TokenCallback, TokenUsage, ToolCallRequest, ToolDefinition,
+};
 use crate::{PawanError, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
@@ -252,10 +254,12 @@ impl OpenAiCompatBackend {
             finish_reason = "tool_calls".to_string();
         }
 
+        // Streaming responses don't include usage in individual chunks
         Ok(LLMResponse {
             content,
             tool_calls,
             finish_reason,
+            usage: None,
         })
     }
 
@@ -321,10 +325,26 @@ impl OpenAiCompatBackend {
             }
         }
 
+        // Parse usage from response
+        let usage = Self::parse_usage(json);
+
         Ok(LLMResponse {
             content,
             tool_calls,
             finish_reason,
+            usage,
+        })
+    }
+
+    fn parse_usage(json: &Value) -> Option<TokenUsage> {
+        let u = json.get("usage")?;
+        Some(TokenUsage {
+            prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+            completion_tokens: u
+                .get("completion_tokens")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0),
+            total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
         })
     }
 }

@@ -206,6 +206,7 @@ impl OllamaBackend {
             content,
             tool_calls,
             finish_reason,
+            usage: None,
         })
     }
 
@@ -251,6 +252,7 @@ impl OllamaBackend {
             content,
             tool_calls,
             finish_reason,
+            usage: None,
         })
     }
 }

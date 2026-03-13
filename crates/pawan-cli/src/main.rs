@@ -942,6 +942,11 @@ async fn run_headless(
                 "iterations": response.iterations,
                 "tool_calls": tool_calls,
                 "tool_call_count": response.tool_calls.len(),
+                "usage": {
+                    "prompt_tokens": response.usage.prompt_tokens,
+                    "completion_tokens": response.usage.completion_tokens,
+                    "total_tokens": response.usage.total_tokens,
+                }
             });
             println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
@@ -954,9 +959,10 @@ async fn run_headless(
 
             if verbose {
                 eprintln!(
-                    "\n--- {} iterations, {} tool calls ---",
+                    "\n--- {} iterations, {} tool calls, {} tokens ---",
                     response.iterations,
-                    response.tool_calls.len()
+                    response.tool_calls.len(),
+                    response.usage.total_tokens
                 );
                 for tc in &response.tool_calls {
                     let s = if tc.success { "ok" } else { "FAIL" };
