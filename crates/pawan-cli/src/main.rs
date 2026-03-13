@@ -114,6 +114,28 @@ enum Commands {
 
     /// Interactive chat mode (same as running without subcommand)
     Chat,
+
+    /// Headless single-prompt execution (for scripting and orchestration)
+    Run {
+        /// The prompt to execute
+        prompt: Option<String>,
+
+        /// Read prompt from file instead of argument
+        #[arg(short = 'f', long)]
+        file: Option<PathBuf>,
+
+        /// Output format: text (default), json
+        #[arg(short, long, default_value = "text")]
+        output: String,
+
+        /// Maximum time in seconds before aborting
+        #[arg(long, default_value = "300")]
+        timeout: u64,
+
+        /// Maximum tool iterations
+        #[arg(long)]
+        max_iterations: Option<usize>,
+    },
 }
 
 #[tokio::main]
@@ -181,6 +203,25 @@ async fn run() -> Result<()> {
             run_improve(config, workspace, &target, file, cli.verbose).await
         }
         Some(Commands::Status) => run_status(config, workspace).await,
+        Some(Commands::Run {
+            prompt,
+            file,
+            output,
+            timeout,
+            max_iterations,
+        }) => {
+            run_headless(
+                config,
+                workspace,
+                prompt,
+                file,
+                &output,
+                timeout,
+                max_iterations,
+                cli.verbose,
+            )
+            .await
+        }
     }
 }
 
@@ -542,6 +583,128 @@ async fn run_status(config: PawanConfig, workspace: PathBuf) -> Result<()> {
             "{}",
             "Run 'pawan heal' to automatically fix issues".yellow()
         );
+    }
+
+    Ok(())
+}
+
+/// Headless single-prompt execution (replaces oh-my-opencode `run`)
+#[allow(clippy::too_many_arguments)]
+async fn run_headless(
+    mut config: PawanConfig,
+    workspace: PathBuf,
+    prompt: Option<String>,
+    file: Option<PathBuf>,
+    output_format: &str,
+    timeout_secs: u64,
+    max_iterations: Option<usize>,
+    verbose: bool,
+) -> Result<()> {
+    // Resolve prompt from argument or file
+    let prompt_text = match (prompt, file) {
+        (Some(p), _) => p,
+        (None, Some(f)) => std::fs::read_to_string(&f).map_err(|e| {
+            PawanError::Config(format!("Failed to read prompt file {}: {}", f.display(), e))
+        })?,
+        (None, None) => {
+            return Err(PawanError::Config(
+                "Either a prompt argument or --file is required for `run`".into(),
+            ));
+        }
+    };
+
+    if let Some(max_iter) = max_iterations {
+        config.max_tool_iterations = max_iter;
+    }
+
+    let mut agent = PawanAgent::new(config, workspace);
+
+    if verbose && output_format != "json" {
+        eprintln!("Model: {}", agent.config().model);
+        eprintln!("Prompt: {}", &prompt_text[..prompt_text.len().min(100)]);
+    }
+
+    // Execute with timeout
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(timeout_secs),
+        agent.execute(&prompt_text),
+    )
+    .await;
+
+    let response = match result {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(e)) => {
+            if output_format == "json" {
+                let err_json = serde_json::json!({
+                    "success": false,
+                    "error": e.to_string(),
+                });
+                println!("{}", serde_json::to_string_pretty(&err_json).unwrap());
+            } else {
+                eprintln!("{} {}", "Error:".red().bold(), e);
+            }
+            std::process::exit(1);
+        }
+        Err(_) => {
+            if output_format == "json" {
+                let err_json = serde_json::json!({
+                    "success": false,
+                    "error": format!("Timed out after {}s", timeout_secs),
+                });
+                println!("{}", serde_json::to_string_pretty(&err_json).unwrap());
+            } else {
+                eprintln!(
+                    "{} Timed out after {}s",
+                    "Error:".red().bold(),
+                    timeout_secs
+                );
+            }
+            std::process::exit(1);
+        }
+    };
+
+    match output_format {
+        "json" => {
+            let tool_calls: Vec<serde_json::Value> = response
+                .tool_calls
+                .iter()
+                .map(|tc| {
+                    serde_json::json!({
+                        "name": tc.name,
+                        "success": tc.success,
+                        "duration_ms": tc.duration_ms,
+                    })
+                })
+                .collect();
+
+            let output = serde_json::json!({
+                "success": true,
+                "content": response.content,
+                "iterations": response.iterations,
+                "tool_calls": tool_calls,
+                "tool_call_count": response.tool_calls.len(),
+            });
+            println!("{}", serde_json::to_string_pretty(&output).unwrap());
+        }
+        _ => {
+            // Text output: just the content
+            print!("{}", response.content);
+            if !response.content.ends_with('\n') {
+                println!();
+            }
+
+            if verbose {
+                eprintln!(
+                    "\n--- {} iterations, {} tool calls ---",
+                    response.iterations,
+                    response.tool_calls.len()
+                );
+                for tc in &response.tool_calls {
+                    let s = if tc.success { "ok" } else { "FAIL" };
+                    eprintln!("  [{}] {} ({}ms)", s, tc.name, tc.duration_ms);
+                }
+            }
+        }
     }
 
     Ok(())
