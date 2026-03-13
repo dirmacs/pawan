@@ -147,6 +147,9 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
+    // Auto-load .env file if present (silent on missing)
+    dotenvy::dotenv().ok();
+
     let cli = Cli::parse();
 
     // Determine workspace root
