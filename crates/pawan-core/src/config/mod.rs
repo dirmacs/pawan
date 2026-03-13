@@ -78,6 +78,20 @@ pub struct PawanConfig {
     /// MCP server configurations
     #[serde(default)]
     pub mcp: HashMap<String, McpServerEntry>,
+
+    /// Tool permission overrides (tool_name -> permission)
+    #[serde(default)]
+    pub permissions: HashMap<String, ToolPermission>,
+}
+
+/// Permission level for a tool
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolPermission {
+    /// Always allow (default for most tools)
+    Allow,
+    /// Deny — tool is disabled
+    Deny,
 }
 
 impl Default for PawanConfig {
@@ -116,6 +130,7 @@ impl Default for PawanConfig {
             targets,
             tui: TuiConfig::default(),
             mcp: HashMap::new(),
+            permissions: HashMap::new(),
         }
     }
 }

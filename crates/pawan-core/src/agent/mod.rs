@@ -324,6 +324,37 @@ impl PawanAgent {
             });
 
             for tool_call in &response.tool_calls {
+                // Check permission
+                if let Some(crate::config::ToolPermission::Deny) =
+                    self.config.permissions.get(&tool_call.name)
+                {
+                    let record = ToolCallRecord {
+                        id: tool_call.id.clone(),
+                        name: tool_call.name.clone(),
+                        arguments: tool_call.arguments.clone(),
+                        result: json!({"error": "Tool denied by permission policy"}),
+                        success: false,
+                        duration_ms: 0,
+                    };
+
+                    if let Some(ref callback) = on_tool {
+                        callback(&record);
+                    }
+                    all_tool_calls.push(record);
+
+                    self.history.push(Message {
+                        role: Role::Tool,
+                        content: "{\"error\": \"Tool denied by permission policy\"}".to_string(),
+                        tool_calls: vec![],
+                        tool_result: Some(ToolResultMessage {
+                            tool_call_id: tool_call.id.clone(),
+                            content: json!({"error": "Tool denied by permission policy"}),
+                            success: false,
+                        }),
+                    });
+                    continue;
+                }
+
                 let start = std::time::Instant::now();
 
                 let result = self
