@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Getting Started — Pawan</title>
+  <meta name="description" content="Self-healing CLI coding agent">
+  <link rel="stylesheet" href="https://dirmacs.github.io/pawan/style.css">
+</head>
+<body>
+  <nav>
+    <a href="https:&#x2F;&#x2F;dirmacs.github.io&#x2F;pawan" class="logo">पवन pawan</a>
+    <div class="nav-links">
+      <a href="https:&#x2F;&#x2F;dirmacs.github.io&#x2F;pawan">Home</a>
+      <a href="https://dirmacs.github.io/pawan/guide/">Guide</a>
+      <a href="https://dirmacs.github.io/pawan/commands/">Commands</a>
+      <a href="https://dirmacs.github.io/pawan/tools/">Tools</a>
+      <a href="https:&#x2F;&#x2F;github.com&#x2F;dirmacs&#x2F;pawan">GitHub</a>
+    </div>
+  </nav>
+  <main>
+    
+<article>
+  <h1>Getting Started</h1>
+  <h2 id="install">Install</h2>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">git</span><span> clone https://github.com/dirmacs/pawan &amp;&amp; </span><span style="color:#96b5b4;">cd</span><span> pawan
+</span><span style="color:#bf616a;">cargo</span><span> install</span><span style="color:#bf616a;"> --path</span><span> crates/pawan-cli
+</span></code></pre>
+<h2 id="setup">Setup</h2>
+<p>Set your NVIDIA NIM API key (free tier available at <a href="https://build.nvidia.com">build.nvidia.com</a>):</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#b48ead;">export </span><span style="color:#bf616a;">NVIDIA_API_KEY</span><span>=</span><span style="color:#a3be8c;">nvapi-...
+</span></code></pre>
+<p>Or create a <code>.env</code> file in your project:</p>
+<pre style="background-color:#2b303b;color:#c0c5ce;"><code><span>NVIDIA_API_KEY=nvapi-...
+</span></code></pre>
+<p>Verify your setup:</p>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">pawan</span><span> doctor
+</span></code></pre>
+<h2 id="initialize-a-project">Initialize a project</h2>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#96b5b4;">cd</span><span> your-project
+</span><span style="color:#bf616a;">pawan</span><span> init
+</span></code></pre>
+<p>This creates:</p>
+<ul>
+<li><code>pawan.toml</code> — configuration file</li>
+<li><code>PAWAN.md</code> — project context (pawan reads this to understand your codebase)</li>
+<li><code>.pawan/</code> — local pawan directory</li>
+</ul>
+<h2 id="first-run">First run</h2>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># Interactive TUI
+</span><span style="color:#bf616a;">pawan
+</span><span>
+</span><span style="color:#65737e;"># Or try a quick task
+</span><span style="color:#bf616a;">pawan</span><span> explain src/main.rs
+</span></code></pre>
+<h2 id="configuration">Configuration</h2>
+<p>Priority: CLI flags &gt; environment variables &gt; pawan.toml &gt; defaults</p>
+<h3 id="environment-variables">Environment variables</h3>
+<table><thead><tr><th>Variable</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>PAWAN_MODEL</code></td><td>Model override (e.g., <code>qwen/qwen3.5-397b-a17b</code>)</td></tr>
+<tr><td><code>PAWAN_PROVIDER</code></td><td>Provider: <code>nvidia</code>, <code>ollama</code>, <code>openai</code></td></tr>
+<tr><td><code>PAWAN_TEMPERATURE</code></td><td>Temperature (0.0-2.0)</td></tr>
+<tr><td><code>PAWAN_MAX_TOKENS</code></td><td>Max output tokens</td></tr>
+<tr><td><code>PAWAN_MAX_ITERATIONS</code></td><td>Max tool-calling iterations</td></tr>
+</tbody></table>
+<h3 id="pawan-toml">pawan.toml</h3>
+<pre data-lang="toml" style="background-color:#2b303b;color:#c0c5ce;" class="language-toml "><code class="language-toml" data-lang="toml"><span style="color:#bf616a;">provider </span><span>= &quot;</span><span style="color:#a3be8c;">nvidia</span><span>&quot;
+</span><span style="color:#bf616a;">model </span><span>= &quot;</span><span style="color:#a3be8c;">mistralai/devstral-2-123b-instruct-2512</span><span>&quot;
+</span><span style="color:#bf616a;">temperature </span><span>= </span><span style="color:#d08770;">1.0
+</span><span style="color:#bf616a;">max_tokens </span><span>= </span><span style="color:#d08770;">8192
+</span><span style="color:#bf616a;">max_tool_iterations </span><span>= </span><span style="color:#d08770;">15
+</span><span>
+</span><span>[mcp.daedra]
+</span><span style="color:#bf616a;">command </span><span>= &quot;</span><span style="color:#a3be8c;">daedra</span><span>&quot;
+</span><span style="color:#bf616a;">args </span><span>= [&quot;</span><span style="color:#a3be8c;">serve</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">--transport</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">stdio</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">--quiet</span><span>&quot;]
+</span></code></pre>
+<h2 id="common-workflows">Common workflows</h2>
+<h3 id="fix-a-broken-build">Fix a broken build</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#bf616a;">pawan</span><span> heal
+</span></code></pre>
+<h3 id="ai-powered-commit">AI-powered commit</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># Stage all, generate message, confirm, commit
+</span><span style="color:#bf616a;">pawan</span><span> commit</span><span style="color:#bf616a;"> -a
+</span><span>
+</span><span style="color:#65737e;"># Just preview the message
+</span><span style="color:#bf616a;">pawan</span><span> commit</span><span style="color:#bf616a;"> --dry-run
+</span><span>
+</span><span style="color:#65737e;"># Skip confirmation
+</span><span style="color:#bf616a;">pawan</span><span> commit</span><span style="color:#bf616a;"> -a -y
+</span></code></pre>
+<h3 id="code-review">Code review</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># Review all changes
+</span><span style="color:#bf616a;">pawan</span><span> review
+</span><span>
+</span><span style="color:#65737e;"># Review only staged changes
+</span><span style="color:#bf616a;">pawan</span><span> review</span><span style="color:#bf616a;"> --staged
+</span></code></pre>
+<h3 id="continuous-healing">Continuous healing</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># Check every 10 seconds, auto-commit fixes
+</span><span style="color:#bf616a;">pawan</span><span> watch</span><span style="color:#bf616a;"> --interval</span><span> 10</span><span style="color:#bf616a;"> --commit
+</span></code></pre>
+<h3 id="headless-scripting">Headless scripting</h3>
+<pre data-lang="bash" style="background-color:#2b303b;color:#c0c5ce;" class="language-bash "><code class="language-bash" data-lang="bash"><span style="color:#65737e;"># Single prompt
+</span><span style="color:#bf616a;">pawan</span><span> run &quot;</span><span style="color:#a3be8c;">add error handling to the config parser</span><span>&quot;
+</span><span>
+</span><span style="color:#65737e;"># From file
+</span><span style="color:#bf616a;">pawan</span><span> run</span><span style="color:#bf616a;"> -f</span><span> task.md</span><span style="color:#bf616a;"> --timeout</span><span> 300</span><span style="color:#bf616a;"> --output</span><span> json
+</span></code></pre>
+
+</article>
+
+  </main>
+  <footer>
+    <p>MIT License &middot; <a href="https:&#x2F;&#x2F;github.com&#x2F;dirmacs&#x2F;pawan">dirmacs/pawan</a></p>
+  </footer>
+</body>
+</html>

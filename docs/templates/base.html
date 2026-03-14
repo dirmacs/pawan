@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}{{ config.title }}{% endblock %}</title>
+  <meta name="description" content="{{ config.description }}">
+  <link rel="stylesheet" href="{{ get_url(path='style.css') }}">
+</head>
+<body>
+  <nav>
+    <a href="{{ config.base_url }}" class="logo">पवन pawan</a>
+    <div class="nav-links">
+      <a href="{{ config.base_url }}">Home</a>
+      <a href="{{ get_url(path='@/guide.md') }}">Guide</a>
+      <a href="{{ get_url(path='@/commands.md') }}">Commands</a>
+      <a href="{{ get_url(path='@/tools.md') }}">Tools</a>
+      <a href="{{ config.extra.repo }}">GitHub</a>
+    </div>
+  </nav>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <footer>
+    <p>MIT License &middot; <a href="{{ config.extra.repo }}">dirmacs/pawan</a></p>
+  </footer>
+</body>
+</html>

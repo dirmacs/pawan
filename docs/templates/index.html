@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Pawan — Self-healing CLI coding agent{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <h1>पवन pawan</h1>
+  <p class="tagline">Self-healing CLI coding agent</p>
+  <p class="sub">Rust-native. 17 tools. 18 commands. No subscription.</p>
+  <div class="cta">
+    <a href="{{ get_url(path='@/guide.md') }}" class="btn primary">Get Started</a>
+    <a href="{{ config.extra.repo }}" class="btn secondary">GitHub</a>
+  </div>
+</section>
+
+<section class="features">
+  <div class="grid">
+    <div class="card">
+      <h3>Self-Healing</h3>
+      <p><code>pawan heal</code> fixes compilation errors, clippy warnings, and failing tests automatically.</p>
+    </div>
+    <div class="card">
+      <h3>AI Commit</h3>
+      <p><code>pawan commit -a</code> stages files, generates a message from the diff, confirms and commits.</p>
+    </div>
+    <div class="card">
+      <h3>Code Review</h3>
+      <p><code>pawan review</code> reviews your changes with severity levels and actionable fixes.</p>
+    </div>
+    <div class="card">
+      <h3>Watch Mode</h3>
+      <p><code>pawan watch</code> polls your project and auto-heals on errors. Set it and forget it.</p>
+    </div>
+    <div class="card">
+      <h3>Headless</h3>
+      <p><code>pawan run "prompt"</code> executes tasks non-interactively for scripting and CI.</p>
+    </div>
+    <div class="card">
+      <h3>Streaming TUI</h3>
+      <p>Markdown rendering, vim keybindings, live token streaming, tool progress indicators.</p>
+    </div>
+  </div>
+</section>
+
+<section class="install">
+  <h2>Install</h2>
+  <pre><code>git clone https://github.com/dirmacs/pawan && cd pawan
+cargo install --path crates/pawan-cli
+export NVIDIA_API_KEY=nvapi-...
+pawan doctor  # verify setup</code></pre>
+</section>
+{% endblock %}
