@@ -286,8 +286,16 @@ impl<'a> App<'a> {
 
             items.push(ListItem::new(Line::from(vec![Span::styled(prefix, style)])));
 
-            for line in msg.content.lines() {
-                items.push(ListItem::new(Line::from(Span::raw(format!("  {}", line)))));
+            if msg.role == Role::Assistant {
+                for line in markdown_to_lines(&msg.content) {
+                    let mut spans: Vec<Span<'static>> = vec![Span::raw("  ".to_string())];
+                    spans.extend(line.spans);
+                    items.push(ListItem::new(Line::from(spans)));
+                }
+            } else {
+                for line in msg.content.lines() {
+                    items.push(ListItem::new(Line::from(Span::raw(format!("  {}", line)))));
+                }
             }
 
             for tc in &msg.tool_calls {
@@ -407,6 +415,134 @@ pub async fn run_tui(agent: PawanAgent, config: TuiConfig) -> Result<()> {
     // Run the TUI on the current task
     let mut app = App::new(config, model_name, cmd_tx, event_rx);
     app.run().await
+}
+
+/// Parse markdown text into styled ratatui Lines
+fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
+    text.lines()
+        .map(|line| {
+            if let Some(rest) = line.strip_prefix("### ") {
+                Line::from(Span::styled(
+                    rest.to_string(),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ))
+            } else if let Some(rest) = line.strip_prefix("## ") {
+                Line::from(Span::styled(
+                    rest.to_string(),
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                ))
+            } else if let Some(rest) = line.strip_prefix("# ") {
+                Line::from(Span::styled(
+                    rest.to_string(),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                ))
+            } else if let Some(rest) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* "))
+            {
+                let mut spans = vec![Span::raw("• ".to_string())];
+                spans.extend(parse_inline_markdown(rest));
+                Line::from(spans)
+            } else if let Some(rest) = line.strip_prefix("> ") {
+                Line::from(Span::styled(
+                    format!("│ {}", rest),
+                    Style::default()
+                        .fg(Color::DarkGray)
+                        .add_modifier(Modifier::ITALIC),
+                ))
+            } else if line.starts_with("```") {
+                Line::from(Span::styled(
+                    line.to_string(),
+                    Style::default().fg(Color::DarkGray),
+                ))
+            } else {
+                Line::from(parse_inline_markdown(line))
+            }
+        })
+        .collect()
+}
+
+/// Parse inline markdown: **bold**, `code`, *italic*
+fn parse_inline_markdown(text: &str) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let mut remaining = text;
+
+    while !remaining.is_empty() {
+        // Find the next markdown marker
+        let next_bold = remaining.find("**");
+        let next_code = remaining.find('`');
+        let next_italic = remaining.find('*').filter(|&pos| {
+            // Not a ** (bold) marker
+            next_bold != Some(pos)
+        });
+
+        // Find earliest marker
+        let earliest = [next_bold, next_code, next_italic]
+            .into_iter()
+            .flatten()
+            .min();
+
+        match earliest {
+            None => {
+                spans.push(Span::raw(remaining.to_string()));
+                break;
+            }
+            Some(pos) => {
+                if pos > 0 {
+                    spans.push(Span::raw(remaining[..pos].to_string()));
+                }
+
+                if Some(pos) == next_bold {
+                    let after = &remaining[pos + 2..];
+                    if let Some(end) = after.find("**") {
+                        spans.push(Span::styled(
+                            after[..end].to_string(),
+                            Style::default().add_modifier(Modifier::BOLD),
+                        ));
+                        remaining = &after[end + 2..];
+                    } else {
+                        spans.push(Span::raw("**".to_string()));
+                        remaining = after;
+                    }
+                } else if Some(pos) == next_code {
+                    let after = &remaining[pos + 1..];
+                    if let Some(end) = after.find('`') {
+                        spans.push(Span::styled(
+                            after[..end].to_string(),
+                            Style::default().fg(Color::Yellow),
+                        ));
+                        remaining = &after[end + 1..];
+                    } else {
+                        spans.push(Span::raw("`".to_string()));
+                        remaining = after;
+                    }
+                } else {
+                    // italic *...*
+                    let after = &remaining[pos + 1..];
+                    if let Some(end) = after.find('*') {
+                        spans.push(Span::styled(
+                            after[..end].to_string(),
+                            Style::default().add_modifier(Modifier::ITALIC),
+                        ));
+                        remaining = &after[end + 1..];
+                    } else {
+                        spans.push(Span::raw("*".to_string()));
+                        remaining = after;
+                    }
+                }
+            }
+        }
+    }
+
+    if spans.is_empty() {
+        spans.push(Span::raw(String::new()));
+    }
+
+    spans
 }
 
 /// Simple non-TUI interactive mode (fallback)
