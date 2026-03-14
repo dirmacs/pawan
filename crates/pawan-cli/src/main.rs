@@ -936,9 +936,10 @@ async fn run_headless(
                 })
                 .collect();
 
+            let clean_content = strip_thinking_tags(&response.content);
             let output = serde_json::json!({
                 "success": true,
-                "content": response.content,
+                "content": clean_content,
                 "iterations": response.iterations,
                 "tool_calls": tool_calls,
                 "tool_call_count": response.tool_calls.len(),
@@ -951,11 +952,9 @@ async fn run_headless(
             println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
         _ => {
-            // Text output: just the content
-            print!("{}", response.content);
-            if !response.content.ends_with('\n') {
-                println!();
-            }
+            // Text output: clean thinking tags, render markdown
+            let content = strip_thinking_tags(&response.content);
+            termimad::print_text(&content);
 
             if verbose {
                 eprintln!(
@@ -991,6 +990,23 @@ async fn run_headless(
     }
 
     Ok(())
+}
+
+/// Strip <think>...</think> tags from thinking model responses
+fn strip_thinking_tags(content: &str) -> String {
+    let mut result = content.to_string();
+    // Remove <think>...</think> blocks (including multiline)
+    while let Some(start) = result.find("<think>") {
+        if let Some(end) = result.find("</think>") {
+            let end = end + "</think>".len();
+            result = format!("{}{}", &result[..start], &result[end..]);
+        } else {
+            // Unclosed <think> tag — remove from <think> to end
+            result = result[..start].to_string();
+            break;
+        }
+    }
+    result.trim().to_string()
 }
 
 /// Simple non-TUI interactive mode (fallback when TUI feature is disabled)
