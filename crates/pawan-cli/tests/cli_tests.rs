@@ -96,8 +96,8 @@ fn test_commit_help() {
         .args(["commit", "--help"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("commit message"))
-        .stdout(predicate::str::contains("--with-body"));
+        .stdout(predicate::str::contains("commit"))
+        .stdout(predicate::str::contains("--all"));
 }
 
 #[test]

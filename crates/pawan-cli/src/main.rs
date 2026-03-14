@@ -92,11 +92,20 @@ enum Commands {
         description: String,
     },
 
-    /// Generate a commit message for current changes
+    /// AI-powered commit: stage files, generate message, and commit
+    #[command(alias = "ai-commit")]
     Commit {
-        /// Include body with detailed changes
+        /// Stage all unstaged and untracked files before committing
+        #[arg(short, long)]
+        all: bool,
+
+        /// Only generate the message, don't commit
         #[arg(long)]
-        with_body: bool,
+        dry_run: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     /// Improve the codebase
@@ -259,7 +268,9 @@ async fn run() -> Result<()> {
         Some(Commands::Task { description }) => {
             run_task(config, workspace, &description, cli.verbose).await
         }
-        Some(Commands::Commit { with_body }) => run_commit(config, workspace, with_body).await,
+        Some(Commands::Commit { all, dry_run, yes }) => {
+            run_commit(config, workspace, all, dry_run, yes).await
+        }
         Some(Commands::Improve { target, file }) => {
             run_improve(config, workspace, &target, file, cli.verbose).await
         }
@@ -476,38 +487,235 @@ async fn run_task(
 }
 
 /// Generate commit message
-async fn run_commit(config: PawanConfig, workspace: PathBuf, _with_body: bool) -> Result<()> {
+async fn run_commit(
+    config: PawanConfig,
+    workspace: PathBuf,
+    stage_all: bool,
+    dry_run: bool,
+    auto_yes: bool,
+) -> Result<()> {
+    use dialoguer::{Confirm, MultiSelect};
+
+    // 1. Show current git status
+    let status_output = std::process::Command::new("git")
+        .args(["status", "--porcelain"])
+        .current_dir(&workspace)
+        .output()
+        .map_err(PawanError::Io)?;
+    let status_text = String::from_utf8_lossy(&status_output.stdout);
+
+    if status_text.trim().is_empty() {
+        println!("{}", "Nothing to commit — working tree clean.".dimmed());
+        return Ok(());
+    }
+
+    // Parse files into categories
+    let mut staged: Vec<String> = Vec::new();
+    let mut unstaged: Vec<String> = Vec::new();
+    let mut untracked: Vec<String> = Vec::new();
+
+    for line in status_text.lines() {
+        if line.len() < 4 {
+            continue;
+        }
+        let index_status = line.chars().next().unwrap_or(' ');
+        let worktree_status = line.chars().nth(1).unwrap_or(' ');
+        let file = line[3..].trim().to_string();
+
+        if index_status == '?' {
+            untracked.push(file);
+        } else {
+            if index_status != ' ' && index_status != '?' {
+                staged.push(file.clone());
+            }
+            if worktree_status != ' ' && worktree_status != '?' {
+                unstaged.push(file);
+            }
+        }
+    }
+
+    // Display status summary
+    if !staged.is_empty() {
+        println!("{}", "Staged:".green().bold());
+        for f in &staged {
+            println!("  {} {}", "✓".green(), f);
+        }
+    }
+    if !unstaged.is_empty() {
+        println!("{}", "Unstaged:".yellow().bold());
+        for f in &unstaged {
+            println!("  {} {}", "~".yellow(), f);
+        }
+    }
+    if !untracked.is_empty() {
+        println!("{}", "Untracked:".red().bold());
+        for f in &untracked {
+            println!("  {} {}", "?".red(), f);
+        }
+    }
+    println!();
+
+    // 2. Stage files
+    let needs_staging = !unstaged.is_empty() || !untracked.is_empty();
+
+    if needs_staging {
+        if stage_all {
+            // Stage everything
+            println!("{}", "Staging all files...".cyan());
+            let output = std::process::Command::new("git")
+                .args(["add", "-A"])
+                .current_dir(&workspace)
+                .output()
+                .map_err(PawanError::Io)?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(PawanError::Git(format!("git add -A failed: {}", stderr)));
+            }
+        } else if staged.is_empty() {
+            // Nothing staged yet — prompt user to select files
+            let mut all_files: Vec<String> = Vec::new();
+            all_files.extend(unstaged.iter().map(|f| format!("~ {}", f)));
+            all_files.extend(untracked.iter().map(|f| format!("? {}", f)));
+
+            let selections = MultiSelect::new()
+                .with_prompt("Select files to stage (space to toggle, enter to confirm)")
+                .items(&all_files)
+                .defaults(&vec![true; all_files.len()])
+                .interact()
+                .unwrap_or_default();
+
+            if selections.is_empty() {
+                println!("{}", "No files selected. Aborting.".dimmed());
+                return Ok(());
+            }
+
+            let mut files_to_add: Vec<String> = Vec::new();
+            for idx in selections {
+                let raw = &all_files[idx];
+                // Strip the "~ " or "? " prefix
+                files_to_add.push(raw[2..].to_string());
+            }
+
+            let file_refs: Vec<&str> = files_to_add.iter().map(|s| s.as_str()).collect();
+            let mut args = vec!["add", "--"];
+            args.extend(file_refs);
+
+            let output = std::process::Command::new("git")
+                .args(&args)
+                .current_dir(&workspace)
+                .output()
+                .map_err(PawanError::Io)?;
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(PawanError::Git(format!("git add failed: {}", stderr)));
+            }
+
+            println!(
+                "{}",
+                format!("Staged {} file(s).", files_to_add.len()).green()
+            );
+        }
+    }
+
+    // 3. Generate AI commit message from staged diff
     println!("{}", "Generating commit message...".cyan());
 
-    let mut agent = PawanAgent::new(config, workspace);
-    let message = agent.generate_commit_message().await?;
+    let diff_output = std::process::Command::new("git")
+        .args(["diff", "--cached", "--stat"])
+        .current_dir(&workspace)
+        .output()
+        .map_err(PawanError::Io)?;
+    let diff_stat = String::from_utf8_lossy(&diff_output.stdout);
 
-    println!("\n{}", "Suggested commit message:".green().bold());
-    println!("{}", "─".repeat(40).dimmed());
+    let diff_output = std::process::Command::new("git")
+        .args(["diff", "--cached"])
+        .current_dir(&workspace)
+        .output()
+        .map_err(PawanError::Io)?;
+    let diff_full = String::from_utf8_lossy(&diff_output.stdout);
+
+    if diff_full.trim().is_empty() && staged.is_empty() {
+        println!(
+            "{}",
+            "No staged changes to commit. Use -a to stage all.".dimmed()
+        );
+        return Ok(());
+    }
+
+    // Truncate diff if too long to avoid token waste
+    let diff_for_prompt = if diff_full.len() > 8000 {
+        format!("{}...\n\n[diff truncated, {} total bytes]", &diff_full[..8000], diff_full.len())
+    } else {
+        diff_full.to_string()
+    };
+
+    let prompt = format!(
+        r#"Generate a concise git commit message for the following changes.
+
+Rules:
+- Use conventional commits format (feat:, fix:, refactor:, chore:, docs:, test:)
+- First line under 72 chars
+- Add a blank line then a brief body (2-4 bullet points) if the changes are non-trivial
+- Output ONLY the commit message, nothing else — no markdown fences, no explanation
+
+Diff stat:
+{diff_stat}
+
+Full diff:
+{diff_for_prompt}"#
+    );
+
+    let mut agent = PawanAgent::new(config, workspace.clone());
+    let response = agent.execute(&prompt).await?;
+    let message = response.content.trim().to_string();
+
+    // Strip markdown code fences if the model wraps the output
+    let message = message
+        .strip_prefix("```")
+        .unwrap_or(&message)
+        .strip_suffix("```")
+        .unwrap_or(&message)
+        .trim()
+        .to_string();
+
+    println!("\n{}", "Commit message:".green().bold());
+    println!("{}", "─".repeat(50).dimmed());
     println!("{}", message);
-    println!("{}", "─".repeat(40).dimmed());
+    println!("{}", "─".repeat(50).dimmed());
 
-    // Ask if they want to use it
-    use dialoguer::Confirm;
+    if dry_run {
+        println!("\n{}", "(dry run — not committing)".dimmed());
+        return Ok(());
+    }
 
-    if Confirm::new()
-        .with_prompt("Use this commit message?")
-        .default(false)
-        .interact()
-        .unwrap_or(false)
-    {
-        // Stage and commit
+    // 4. Confirm and commit
+    let should_commit = auto_yes
+        || Confirm::new()
+            .with_prompt("Commit with this message?")
+            .default(true)
+            .interact()
+            .unwrap_or(false);
+
+    if should_commit {
         let output = std::process::Command::new("git")
             .args(["commit", "-m", &message])
+            .current_dir(&workspace)
             .output()
             .map_err(PawanError::Io)?;
 
         if output.status.success() {
-            println!("{}", "✓ Committed successfully!".green());
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            println!("{} {}", "✓".green(), "Committed!".green().bold());
+            // Extract and show commit hash
+            if let Some(line) = stdout.lines().next() {
+                println!("  {}", line.dimmed());
+            }
         } else {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            println!("{} {}", "Commit failed:".red(), stderr);
+            return Err(PawanError::Git(format!("git commit failed: {}", stderr)));
         }
+    } else {
+        println!("{}", "Aborted.".dimmed());
     }
 
     Ok(())
