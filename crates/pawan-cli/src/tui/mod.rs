@@ -670,6 +670,24 @@ fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
             let mut spans = vec![Span::raw("• ".to_string())];
             spans.extend(parse_inline_markdown(rest));
             lines_out.push(Line::from(spans));
+        } else if line.len() > 2
+            && line.as_bytes()[0].is_ascii_digit()
+            && (line.contains(". ") || line.contains(") "))
+        {
+            // Numbered list: "1. text" or "1) text"
+            if let Some(pos) = line.find(". ").or_else(|| line.find(") ")) {
+                let num = &line[..=pos];
+                let rest = &line[pos + 2..];
+                let mut spans = vec![Span::styled(
+                    num.to_string(),
+                    Style::default().add_modifier(Modifier::BOLD),
+                )];
+                spans.push(Span::raw(" ".to_string()));
+                spans.extend(parse_inline_markdown(rest));
+                lines_out.push(Line::from(spans));
+            } else {
+                lines_out.push(Line::from(parse_inline_markdown(line)));
+            }
         } else if let Some(rest) = line.strip_prefix("> ") {
             lines_out.push(Line::from(Span::styled(
                 format!("│ {}", rest),

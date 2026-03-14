@@ -118,6 +118,17 @@ enum Commands {
         file: Option<PathBuf>,
     },
 
+    /// Run tests and AI-analyze any failures
+    Test {
+        /// Specific test name or pattern to run
+        #[arg(short, long)]
+        filter: Option<String>,
+
+        /// Auto-fix failing tests
+        #[arg(long)]
+        fix: bool,
+    },
+
     /// AI-powered code review of current changes
     Review {
         /// Review staged changes only (default: all changes)
@@ -302,6 +313,7 @@ async fn run() -> Result<()> {
         Some(Commands::Improve { target, file }) => {
             run_improve(config, workspace, &target, file, cli.verbose).await
         }
+        Some(Commands::Test { filter, fix }) => run_test(config, workspace, filter, fix).await,
         Some(Commands::Review { staged, file }) => {
             run_review(config, workspace, staged, file).await
         }
@@ -752,6 +764,135 @@ Full diff:
     } else {
         println!("{}", "Aborted.".dimmed());
     }
+
+    Ok(())
+}
+
+/// AI-powered test runner and failure analysis
+async fn run_test(
+    config: PawanConfig,
+    workspace: PathBuf,
+    filter: Option<String>,
+    auto_fix: bool,
+) -> Result<()> {
+    // Run cargo test
+    let mut test_args = vec!["test", "--workspace"];
+    let filter_owned;
+    if let Some(ref f) = filter {
+        filter_owned = f.clone();
+        test_args.push("--");
+        test_args.push(&filter_owned);
+    }
+
+    println!(
+        "{} {}",
+        "Running".cyan(),
+        if let Some(ref f) = filter {
+            format!("tests matching '{}'...", f)
+        } else {
+            "all tests...".to_string()
+        }
+    );
+
+    let output = std::process::Command::new("cargo")
+        .args(&test_args)
+        .current_dir(&workspace)
+        .output()
+        .map_err(PawanError::Io)?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{}\n{}", stdout, stderr);
+
+    // Count results
+    let passed = combined.matches("test result: ok.").count();
+    let has_failures = combined.contains("FAILED") || combined.contains("failures:");
+
+    if !has_failures {
+        println!(
+            "{} {} {}",
+            "✓".green(),
+            "All tests passed!".green().bold(),
+            format!("({} suite(s))", passed).dimmed()
+        );
+        return Ok(());
+    }
+
+    // Extract failure info
+    let failure_lines: Vec<&str> = combined
+        .lines()
+        .filter(|l| {
+            l.contains("FAILED")
+                || l.contains("panicked at")
+                || l.contains("assertion")
+                || l.contains("failures:")
+                || l.contains("---- ")
+        })
+        .collect();
+
+    println!(
+        "\n{} {}",
+        "✗".red(),
+        "Test failures detected:".red().bold()
+    );
+    for line in &failure_lines {
+        println!("  {}", line);
+    }
+
+    if !auto_fix {
+        println!(
+            "\n{}",
+            "Run with --fix to auto-fix failures.".dimmed()
+        );
+        return Ok(());
+    }
+
+    // AI-powered fix
+    println!("\n{}", "Analyzing and fixing failures...".cyan());
+
+    let test_output = if combined.len() > 8000 {
+        format!("{}...\n[truncated, {} bytes total]", &combined[..8000], combined.len())
+    } else {
+        combined.to_string()
+    };
+
+    let prompt = format!(
+        r#"The following test failures occurred in the project at {}:
+
+```
+{}
+```
+
+Please:
+1. Analyze each failure to understand the root cause
+2. Read the relevant source and test files
+3. Fix each failure — prefer fixing the implementation over the test unless the test is clearly wrong
+4. Run `cargo test` to verify your fixes work"#,
+        workspace.display(),
+        test_output
+    );
+
+    let mut agent = PawanAgent::new(config, workspace);
+
+    let on_token: pawan::agent::TokenCallback = Box::new(|token: &str| {
+        use std::io::Write;
+        print!("{}", token);
+        std::io::stdout().flush().ok();
+    });
+
+    let response = agent
+        .execute_with_callbacks(&prompt, Some(on_token), None, None)
+        .await?;
+
+    if !response.content.ends_with('\n') {
+        println!();
+    }
+
+    println!(
+        "\n{} {}",
+        "Done.".green(),
+        format!("({} iterations, {} tool calls)", response.iterations, response.tool_calls.len()).dimmed()
+    );
 
     Ok(())
 }
