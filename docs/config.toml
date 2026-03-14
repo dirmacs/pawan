@@ -1,0 +1,14 @@
+base_url = "https://dirmacs.github.io/pawan"
+title = "Pawan"
+description = "Self-healing CLI coding agent"
+compile_sass = true
+build_search_index = false
+generate_feeds = false
+
+[markdown]
+highlight_code = true
+highlight_theme = "base16-ocean-dark"
+
+[extra]
+author = "dirmacs"
+repo = "https://github.com/dirmacs/pawan"

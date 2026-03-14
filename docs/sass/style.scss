@@ -1,0 +1,226 @@
+:root {
+  --bg: #0d1117;
+  --fg: #c9d1d9;
+  --accent: #58a6ff;
+  --accent2: #f78166;
+  --muted: #8b949e;
+  --card: #161b22;
+  --border: #30363d;
+  --code-bg: #1e1e2e;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  line-height: 1.6;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 2rem;
+  border-bottom: 1px solid var(--border);
+
+  .logo {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 1.5rem;
+
+    a {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      &:hover { color: var(--fg); }
+    }
+  }
+}
+
+main {
+  max-width: 48rem;
+  margin: 0 auto;
+  padding: 2rem;
+  flex: 1;
+  width: 100%;
+}
+
+// Hero
+.hero {
+  text-align: center;
+  padding: 4rem 0 3rem;
+
+  h1 {
+    font-size: 3rem;
+    color: var(--accent);
+    margin-bottom: 0.5rem;
+  }
+
+  .tagline {
+    font-size: 1.3rem;
+    color: var(--fg);
+    margin-bottom: 0.3rem;
+  }
+
+  .sub {
+    color: var(--muted);
+    margin-bottom: 2rem;
+  }
+
+  .cta {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+  }
+}
+
+.btn {
+  padding: 0.6rem 1.5rem;
+  border-radius: 6px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.9rem;
+
+  &.primary {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  &.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--accent);
+  }
+}
+
+// Features grid
+.features {
+  padding: 2rem 0;
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+    gap: 1rem;
+  }
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.2rem;
+
+  h3 {
+    color: var(--accent2);
+    margin-bottom: 0.5rem;
+    font-size: 1rem;
+  }
+
+  p { color: var(--muted); font-size: 0.85rem; }
+
+  code {
+    background: var(--code-bg);
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    color: var(--accent);
+  }
+}
+
+// Install
+.install {
+  padding: 2rem 0;
+
+  h2 { margin-bottom: 1rem; color: var(--fg); }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem;
+    overflow-x: auto;
+
+    code {
+      color: var(--fg);
+      font-size: 0.85rem;
+      font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    }
+  }
+}
+
+// Article pages
+article {
+  h1 { color: var(--accent); margin-bottom: 1.5rem; font-size: 2rem; }
+  h2 { color: var(--fg); margin: 2rem 0 0.8rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  h3 { color: var(--accent2); margin: 1.5rem 0 0.5rem; }
+
+  p { margin-bottom: 1rem; }
+
+  code {
+    background: var(--code-bg);
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-size: 0.85rem;
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1rem;
+    margin: 1rem 0;
+    overflow-x: auto;
+
+    code { padding: 0; background: none; }
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+    font-size: 0.85rem;
+
+    th, td {
+      padding: 0.5rem 0.8rem;
+      border: 1px solid var(--border);
+      text-align: left;
+    }
+
+    th { background: var(--card); color: var(--accent); }
+    td { color: var(--muted); }
+
+    code { font-size: 0.8rem; }
+  }
+
+  ul, ol {
+    margin: 0.5rem 0 1rem 1.5rem;
+    li { margin-bottom: 0.3rem; color: var(--muted); }
+  }
+}
+
+footer {
+  text-align: center;
+  padding: 2rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+  border-top: 1px solid var(--border);
+
+  a { color: var(--accent); text-decoration: none; }
+}
+
+@media (max-width: 640px) {
+  nav { flex-direction: column; gap: 0.5rem; }
+  .hero h1 { font-size: 2rem; }
+  .cta { flex-direction: column; align-items: center; }
+}

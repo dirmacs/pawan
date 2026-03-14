@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tools — Pawan</title>
+  <meta name="description" content="Self-healing CLI coding agent">
+  <link rel="stylesheet" href="https://dirmacs.github.io/pawan/style.css">
+</head>
+<body>
+  <nav>
+    <a href="https:&#x2F;&#x2F;dirmacs.github.io&#x2F;pawan" class="logo">पवन pawan</a>
+    <div class="nav-links">
+      <a href="https:&#x2F;&#x2F;dirmacs.github.io&#x2F;pawan">Home</a>
+      <a href="https://dirmacs.github.io/pawan/guide/">Guide</a>
+      <a href="https://dirmacs.github.io/pawan/commands/">Commands</a>
+      <a href="https://dirmacs.github.io/pawan/tools/">Tools</a>
+      <a href="https:&#x2F;&#x2F;github.com&#x2F;dirmacs&#x2F;pawan">GitHub</a>
+    </div>
+  </nav>
+  <main>
+    
+<article>
+  <h1>Tools</h1>
+  <p>Pawan has 17 built-in tools plus dynamic MCP tool discovery.</p>
+<h2 id="file-tools">File Tools</h2>
+<table><thead><tr><th>Tool</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>read_file</code></td><td>Read file contents (supports line offset/limit)</td></tr>
+<tr><td><code>write_file</code></td><td>Create or overwrite a file</td></tr>
+<tr><td><code>edit_file</code></td><td>Precise string replacement (old_string → new_string, supports replace_all)</td></tr>
+<tr><td><code>list_directory</code></td><td>List directory contents with file metadata</td></tr>
+</tbody></table>
+<h2 id="search-tools">Search Tools</h2>
+<table><thead><tr><th>Tool</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>glob_search</code></td><td>Find files by glob pattern (e.g., <code>**/*.rs</code>)</td></tr>
+<tr><td><code>grep_search</code></td><td>Search file contents by regex pattern</td></tr>
+</tbody></table>
+<h2 id="shell">Shell</h2>
+<table><thead><tr><th>Tool</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>bash</code></td><td>Execute shell commands with configurable timeout</td></tr>
+</tbody></table>
+<h2 id="git-tools">Git Tools</h2>
+<table><thead><tr><th>Tool</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>git_status</code></td><td>Repository status (staged, unstaged, untracked)</td></tr>
+<tr><td><code>git_diff</code></td><td>Show changes (supports staged, file-specific)</td></tr>
+<tr><td><code>git_add</code></td><td>Stage files for commit</td></tr>
+<tr><td><code>git_commit</code></td><td>Create a commit with message</td></tr>
+<tr><td><code>git_log</code></td><td>View commit history (configurable count, format)</td></tr>
+<tr><td><code>git_blame</code></td><td>Line-by-line authorship for a file</td></tr>
+<tr><td><code>git_branch</code></td><td>List branches, show current branch</td></tr>
+<tr><td><code>git_checkout</code></td><td>Switch branches, create branches, restore files</td></tr>
+<tr><td><code>git_stash</code></td><td>Stash operations: push, pop, list, drop, show</td></tr>
+</tbody></table>
+<h2 id="agent">Agent</h2>
+<table><thead><tr><th>Tool</th><th>Description</th></tr></thead><tbody>
+<tr><td><code>spawn_agent</code></td><td>Spawn a sub-agent for delegated tasks</td></tr>
+</tbody></table>
+<h2 id="mcp-tools">MCP Tools</h2>
+<p>Pawan connects to MCP servers configured in <code>pawan.toml</code>:</p>
+<pre data-lang="toml" style="background-color:#2b303b;color:#c0c5ce;" class="language-toml "><code class="language-toml" data-lang="toml"><span>[mcp.daedra]
+</span><span style="color:#bf616a;">command </span><span>= &quot;</span><span style="color:#a3be8c;">daedra</span><span>&quot;
+</span><span style="color:#bf616a;">args </span><span>= [&quot;</span><span style="color:#a3be8c;">serve</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">--transport</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">stdio</span><span>&quot;, &quot;</span><span style="color:#a3be8c;">--quiet</span><span>&quot;]
+</span></code></pre>
+<p>MCP tools are namespaced as <code>mcp_&lt;server&gt;_&lt;tool&gt;</code> (e.g., <code>mcp_daedra_search_duckduckgo</code>).</p>
+<p>List discovered tools: <code>pawan mcp list</code></p>
+
+</article>
+
+  </main>
+  <footer>
+    <p>MIT License &middot; <a href="https:&#x2F;&#x2F;github.com&#x2F;dirmacs&#x2F;pawan">dirmacs/pawan</a></p>
+  </footer>
+</body>
+</html>
