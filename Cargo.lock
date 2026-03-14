@@ -1573,6 +1573,7 @@ dependencies = [
  "async-trait",
  "pawan-core",
  "rmcp",
+ "schemars",
  "serde",
  "serde_json",
  "thiserror 2.0.18",

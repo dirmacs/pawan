@@ -44,6 +44,7 @@ pub struct HealRequest {
 #[derive(Clone)]
 pub struct PawanServer {
     config: PawanConfig,
+    #[allow(dead_code)]
     tool_router: ToolRouter<Self>,
 }
 
@@ -141,33 +142,31 @@ impl PawanServer {
 }
 
 impl ServerHandler for PawanServer {
-    fn initialize(
+    async fn initialize(
         &self,
         request: InitializeRequestParam,
         context: RequestContext<RoleServer>,
-    ) -> impl std::future::Future<Output = Result<InitializeResult, McpError>> + Send + '_ {
-        async move {
-            context.peer.set_peer_info(request);
-            Ok(InitializeResult {
-                protocol_version: ProtocolVersion::V_2024_11_05,
-                capabilities: ServerCapabilities {
-                    tools: Some(ToolsCapability {
-                        list_changed: None,
-                    }),
-                    ..Default::default()
-                },
-                server_info: Implementation {
-                    name: "pawan".into(),
-                    title: Some("Pawan CLI Coding Agent".into()),
-                    version: env!("CARGO_PKG_VERSION").into(),
-                    icons: None,
-                    website_url: Some("https://github.com/dirmacs/pawan".into()),
-                },
-                instructions: Some(
-                    "Pawan is a self-healing CLI coding agent. Use pawan_run for general prompts, pawan_task for coding tasks, pawan_heal to fix compilation errors.".into(),
-                ),
-            })
-        }
+    ) -> Result<InitializeResult, McpError> {
+        context.peer.set_peer_info(request);
+        Ok(InitializeResult {
+            protocol_version: ProtocolVersion::V_2024_11_05,
+            capabilities: ServerCapabilities {
+                tools: Some(ToolsCapability {
+                    list_changed: None,
+                }),
+                ..Default::default()
+            },
+            server_info: Implementation {
+                name: "pawan".into(),
+                title: Some("Pawan CLI Coding Agent".into()),
+                version: env!("CARGO_PKG_VERSION").into(),
+                icons: None,
+                website_url: Some("https://github.com/dirmacs/pawan".into()),
+            },
+            instructions: Some(
+                "Pawan is a self-healing CLI coding agent. Use pawan_run for general prompts, pawan_task for coding tasks, pawan_heal to fix compilation errors.".into(),
+            ),
+        })
     }
 }
 
