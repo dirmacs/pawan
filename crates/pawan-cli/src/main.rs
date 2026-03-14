@@ -118,6 +118,23 @@ enum Commands {
         file: Option<PathBuf>,
     },
 
+    /// AI-powered code review of current changes
+    Review {
+        /// Review staged changes only (default: all changes)
+        #[arg(long)]
+        staged: bool,
+
+        /// Review a specific file
+        #[arg(short, long)]
+        file: Option<PathBuf>,
+    },
+
+    /// AI-powered explanation of a file, function, or concept
+    Explain {
+        /// What to explain: file path, function name, or concept
+        query: String,
+    },
+
     /// Show project status (errors, warnings, test failures)
     Status,
 
@@ -274,6 +291,10 @@ async fn run() -> Result<()> {
         Some(Commands::Improve { target, file }) => {
             run_improve(config, workspace, &target, file, cli.verbose).await
         }
+        Some(Commands::Review { staged, file }) => {
+            run_review(config, workspace, staged, file).await
+        }
+        Some(Commands::Explain { query }) => run_explain(config, workspace, &query).await,
         Some(Commands::Status) => run_status(config, workspace).await,
         Some(Commands::Run {
             prompt,
@@ -721,6 +742,158 @@ Full diff:
     Ok(())
 }
 
+/// AI-powered explanation
+async fn run_explain(config: PawanConfig, workspace: PathBuf, query: &str) -> Result<()> {
+    println!("{} {}", "Explaining:".cyan(), query);
+
+    let prompt = if std::path::Path::new(query).exists() || query.contains('/') || query.contains('.') {
+        format!(
+            r#"Read the file at `{query}` and explain it concisely:
+1. What it does (purpose)
+2. Key types/functions and their roles
+3. How it fits into the broader codebase
+4. Any notable patterns, dependencies, or gotchas
+
+Be concise — aim for 10-20 lines. Skip obvious things."#
+        )
+    } else {
+        format!(
+            "In the context of this codebase at {}, explain: {}\n\n\
+             If this is a function/type name, find it in the code first.\n\
+             Be concise — aim for 10-20 lines.",
+            workspace.display(),
+            query
+        )
+    };
+
+    let mut agent = PawanAgent::new(config, workspace);
+
+    let on_token: pawan::agent::TokenCallback = Box::new(|token: &str| {
+        use std::io::Write;
+        print!("{}", token);
+        std::io::stdout().flush().ok();
+    });
+
+    let response = agent
+        .execute_with_callbacks(&prompt, Some(on_token), None, None)
+        .await?;
+
+    if !response.content.ends_with('\n') {
+        println!();
+    }
+
+    Ok(())
+}
+
+/// AI-powered code review
+async fn run_review(
+    config: PawanConfig,
+    workspace: PathBuf,
+    staged_only: bool,
+    file: Option<PathBuf>,
+) -> Result<()> {
+    // Get the diff
+    let mut diff_args: Vec<String> = if staged_only {
+        vec!["diff".into(), "--cached".into()]
+    } else {
+        vec!["diff".into(), "HEAD".into()]
+    };
+
+    if let Some(ref f) = file {
+        diff_args.push("--".into());
+        diff_args.push(f.to_string_lossy().into_owned());
+    }
+
+    let diff_args_ref: Vec<&str> = diff_args.iter().map(|s| s.as_str()).collect();
+    let diff_output = std::process::Command::new("git")
+        .args(&diff_args_ref)
+        .current_dir(&workspace)
+        .output()
+        .map_err(PawanError::Io)?;
+
+    let diff = String::from_utf8_lossy(&diff_output.stdout);
+
+    if diff.trim().is_empty() {
+        // Try unstaged diff if HEAD diff is empty
+        let fallback = std::process::Command::new("git")
+            .args(["diff"])
+            .current_dir(&workspace)
+            .output()
+            .map_err(PawanError::Io)?;
+        let fallback_diff = String::from_utf8_lossy(&fallback.stdout);
+
+        if fallback_diff.trim().is_empty() {
+            println!("{}", "No changes to review.".dimmed());
+            return Ok(());
+        }
+        // Use unstaged diff
+        return run_review_with_diff(config, workspace, &fallback_diff).await;
+    }
+
+    run_review_with_diff(config, workspace, &diff).await
+}
+
+async fn run_review_with_diff(
+    config: PawanConfig,
+    workspace: PathBuf,
+    diff: &str,
+) -> Result<()> {
+    println!(
+        "{} {}",
+        "Reviewing".cyan(),
+        format!("({} lines of diff)...", diff.lines().count()).dimmed()
+    );
+
+    let diff_text = if diff.len() > 12000 {
+        format!(
+            "{}...\n\n[diff truncated, {} total bytes]",
+            &diff[..12000],
+            diff.len()
+        )
+    } else {
+        diff.to_string()
+    };
+
+    let prompt = format!(
+        r#"Review the following code changes. Be concise and actionable.
+
+For each issue found, output:
+- **Severity**: 🔴 critical / 🟡 warning / 🔵 suggestion
+- **Location**: file and line
+- **Issue**: what's wrong
+- **Fix**: how to fix it
+
+At the end, give an overall assessment: LGTM ✅, needs fixes 🔧, or needs rework ❌.
+
+Focus on: bugs, security issues, performance, error handling, edge cases, code style.
+Do NOT nitpick formatting or suggest adding comments.
+
+```diff
+{diff_text}
+```"#
+    );
+
+    let mut agent = PawanAgent::new(config, workspace);
+
+    // Stream the review output
+    let on_token: pawan::agent::TokenCallback = Box::new(|token: &str| {
+        use std::io::Write;
+        print!("{}", token);
+        std::io::stdout().flush().ok();
+    });
+
+    let response = agent
+        .execute_with_callbacks(&prompt, Some(on_token), None, None)
+        .await?;
+
+    // Ensure final newline
+    if !response.content.ends_with('\n') {
+        println!();
+    }
+
+    Ok(())
+}
+
 /// Run improvement task
 async fn run_improve(
     config: PawanConfig,
@@ -1116,7 +1289,7 @@ async fn run_headless(
     // Execute with timeout and optional streaming
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
-        agent.execute_with_callbacks(&prompt_text, on_token, None),
+        agent.execute_with_callbacks(&prompt_text, on_token, None, None),
     )
     .await;
 
