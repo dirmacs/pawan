@@ -1,0 +1,44 @@
+# Pawan configuration example
+# Copy to pawan.toml in your project root and customize.
+# See: https://github.com/dirmacs/pawan
+
+# LLM provider: nvidia (default), ollama, openai
+# provider = "nvidia"
+
+# Model to use (provider-specific ID)
+model = "mistralai/devstral-2-123b-instruct-2512"
+
+# Generation parameters
+temperature = 0.6
+# top_p = 0.95
+# max_tokens = 8192
+
+# Maximum tool-calling iterations per prompt
+# max_tool_iterations = 50
+
+# Enable reasoning/thinking mode for DeepSeek models
+# reasoning_mode = true
+
+# Self-healing settings
+[healing]
+fix_errors = true
+fix_warnings = true
+fix_tests = true
+auto_commit = false
+
+# Tool permission overrides
+# [permissions]
+# write_file = "deny"    # Disable file writing
+# bash = "deny"          # Disable shell execution
+# git_commit = "deny"    # Disable committing
+
+# TUI settings
+[tui]
+syntax_highlighting = true
+mouse_support = true
+scroll_speed = 3
+
+# MCP servers
+# [mcp.daedra]
+# command = "daedra"
+# args = ["serve", "--transport", "stdio", "--quiet"]
