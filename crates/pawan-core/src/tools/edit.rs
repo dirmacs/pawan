@@ -32,9 +32,12 @@ impl Tool for EditFileTool {
     }
 
     fn description(&self) -> &str {
-        "Edit a file by replacing an exact string with a new string. \
-         The old_string must match exactly (including whitespace). \
-         Use replace_all to replace all occurrences."
+        "Edit a file by replacing an exact string with new text. \
+         PREFER edit_file_lines for most edits — it is more reliable because it \
+         uses line numbers instead of exact string matching. \
+         Use edit_file only when the target string is short, unique, and trivially \
+         identifiable (e.g. a one-line change in a small file). \
+         Fails if old_string is not found or appears more than once (use replace_all for the latter)."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -159,10 +162,12 @@ impl Tool for EditFileLinesTool {
     }
 
     fn description(&self) -> &str {
-        "Edit a file by replacing a range of lines with new content. \
-         Use read_file first to see line numbers, then specify start_line and end_line \
-         (1-based, inclusive). More reliable than edit_file for large files where \
-         exact string matching is error-prone. To delete lines, set new_content to \"\"."
+        "PREFERRED edit tool. Replace a range of lines in a file with new content. \
+         Workflow: (1) read_file to see line numbers, (2) call this tool with \
+         start_line and end_line (1-based, inclusive). \
+         More reliable than edit_file because it never fails due to exact string \
+         matching — use it for any edit in a file longer than ~20 lines. \
+         Set new_content to \"\" to delete lines."
     }
 
     fn parameters_schema(&self) -> Value {
