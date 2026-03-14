@@ -114,10 +114,7 @@ impl OpenAiCompatBackend {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(PawanError::Llm(format!(
-                "API request failed ({}): {}",
-                status, text
-            )));
+            return Err(PawanError::Llm(Self::format_api_error(status, &text)));
         }
 
         let response_json: Value = response
@@ -141,10 +138,7 @@ impl OpenAiCompatBackend {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
-            return Err(PawanError::Llm(format!(
-                "API request failed ({}): {}",
-                status, text
-            )));
+            return Err(PawanError::Llm(Self::format_api_error(status, &text)));
         }
 
         let mut content = String::new();
@@ -334,6 +328,37 @@ impl OpenAiCompatBackend {
             finish_reason,
             usage,
         })
+    }
+
+    /// Parse API error response body for a user-friendly message
+    fn format_api_error(status: reqwest::StatusCode, body: &str) -> String {
+        // Try to extract message from JSON error body
+        let detail = serde_json::from_str::<Value>(body)
+            .ok()
+            .and_then(|json| {
+                // Common patterns: { "error": { "message": "..." } } or { "detail": "..." } or { "message": "..." }
+                json.get("error")
+                    .and_then(|e| e.get("message"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from)
+                    .or_else(|| json.get("detail").and_then(|v| v.as_str()).map(String::from))
+                    .or_else(|| json.get("message").and_then(|v| v.as_str()).map(String::from))
+            });
+
+        let hint = match status.as_u16() {
+            401 => " (check your API key)",
+            403 => " (forbidden — check API key permissions)",
+            404 => " (model not found or endpoint incorrect)",
+            429 => " (rate limited — try again shortly)",
+            500..=599 => " (server error — retry later)",
+            _ => "",
+        };
+
+        match detail {
+            Some(msg) => format!("API error {}{}: {}", status, hint, msg),
+            None if body.is_empty() => format!("API error {}{}", status, hint),
+            None => format!("API error {}{}: {}", status, hint, body),
+        }
     }
 
     fn parse_usage(json: &Value) -> Option<TokenUsage> {
