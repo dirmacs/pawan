@@ -252,7 +252,10 @@ async fn run() -> Result<()> {
     // Load configuration
     let mut config = PawanConfig::load(cli.config.as_ref())?;
 
-    // Apply CLI overrides
+    // Apply environment variable overrides (PAWAN_MODEL, PAWAN_PROVIDER, etc.)
+    config.apply_env_overrides();
+
+    // Apply CLI overrides (highest priority)
     if let Some(model) = cli.model {
         config.model = model;
     }

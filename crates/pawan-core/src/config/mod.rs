@@ -301,6 +301,36 @@ impl PawanConfig {
         }
     }
 
+    /// Apply environment variable overrides (PAWAN_MODEL, PAWAN_PROVIDER, etc.)
+    pub fn apply_env_overrides(&mut self) {
+        if let Ok(model) = std::env::var("PAWAN_MODEL") {
+            self.model = model;
+        }
+        if let Ok(provider) = std::env::var("PAWAN_PROVIDER") {
+            match provider.to_lowercase().as_str() {
+                "nvidia" | "nim" => self.provider = LlmProvider::Nvidia,
+                "ollama" => self.provider = LlmProvider::Ollama,
+                "openai" => self.provider = LlmProvider::OpenAI,
+                _ => eprintln!("Warning: unknown PAWAN_PROVIDER '{}', ignoring", provider),
+            }
+        }
+        if let Ok(temp) = std::env::var("PAWAN_TEMPERATURE") {
+            if let Ok(t) = temp.parse::<f32>() {
+                self.temperature = t;
+            }
+        }
+        if let Ok(tokens) = std::env::var("PAWAN_MAX_TOKENS") {
+            if let Ok(t) = tokens.parse::<usize>() {
+                self.max_tokens = t;
+            }
+        }
+        if let Ok(iters) = std::env::var("PAWAN_MAX_ITERATIONS") {
+            if let Ok(i) = iters.parse::<usize>() {
+                self.max_tool_iterations = i;
+            }
+        }
+    }
+
     /// Get target by name
     pub fn get_target(&self, name: &str) -> Option<&TargetConfig> {
         self.targets.get(name)
