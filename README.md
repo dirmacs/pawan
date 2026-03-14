@@ -1,4 +1,8 @@
 <p align="center">
+  <img src="docs/img/pawan-logo.svg" alt="Pawan" width="200">
+</p>
+
+<p align="center">
   <strong>पवन — Self-healing CLI coding agent</strong>
 </p>
 
