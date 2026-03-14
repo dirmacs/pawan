@@ -226,6 +226,8 @@ enum Commands {
 enum McpAction {
     /// List connected MCP servers and their tools
     List,
+    /// Start pawan as an MCP server (stdio transport)
+    Serve,
 }
 
 #[derive(Subcommand)]
@@ -293,6 +295,10 @@ async fn run() -> Result<()> {
         }
         Some(Commands::Mcp { action }) => match action {
             McpAction::List => run_mcp_list(config).await,
+            McpAction::Serve => {
+                pawan_mcp::server::serve(config).await?;
+                Ok(())
+            }
         },
         Some(Commands::Config { action }) => match action {
             ConfigAction::Show => run_config_show(config),

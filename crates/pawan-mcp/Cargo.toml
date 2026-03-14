@@ -17,5 +17,6 @@ async-trait = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 
-# MCP client
-rmcp = { version = "0.12", features = ["client", "transport-io", "transport-child-process"] }
+# MCP client + server
+rmcp = { version = "0.12", features = ["client", "server", "transport-io", "transport-child-process"] }
+schemars = "1.0"
