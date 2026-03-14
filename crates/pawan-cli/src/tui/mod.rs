@@ -607,51 +607,88 @@ pub async fn run_tui(agent: PawanAgent, config: TuiConfig) -> Result<()> {
 
 /// Parse markdown text into styled ratatui Lines
 fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
-    text.lines()
-        .map(|line| {
-            if let Some(rest) = line.strip_prefix("### ") {
-                Line::from(Span::styled(
-                    rest.to_string(),
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ))
-            } else if let Some(rest) = line.strip_prefix("## ") {
-                Line::from(Span::styled(
-                    rest.to_string(),
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-                ))
-            } else if let Some(rest) = line.strip_prefix("# ") {
-                Line::from(Span::styled(
-                    rest.to_string(),
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
-                ))
-            } else if let Some(rest) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* "))
-            {
-                let mut spans = vec![Span::raw("• ".to_string())];
-                spans.extend(parse_inline_markdown(rest));
-                Line::from(spans)
-            } else if let Some(rest) = line.strip_prefix("> ") {
-                Line::from(Span::styled(
-                    format!("│ {}", rest),
-                    Style::default()
-                        .fg(Color::DarkGray)
-                        .add_modifier(Modifier::ITALIC),
-                ))
-            } else if line.starts_with("```") {
-                Line::from(Span::styled(
-                    line.to_string(),
+    let mut lines_out = Vec::new();
+    let mut in_code_block = false;
+    let mut code_lang = String::new();
+
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("```") {
+            if !in_code_block {
+                in_code_block = true;
+                code_lang = rest.trim().to_string();
+                let label = if code_lang.is_empty() {
+                    "─── code ───".to_string()
+                } else {
+                    format!("─── {} ───", code_lang)
+                };
+                lines_out.push(Line::from(Span::styled(
+                    label,
                     Style::default().fg(Color::DarkGray),
-                ))
+                )));
             } else {
-                Line::from(parse_inline_markdown(line))
+                in_code_block = false;
+                code_lang.clear();
+                lines_out.push(Line::from(Span::styled(
+                    "────────────".to_string(),
+                    Style::default().fg(Color::DarkGray),
+                )));
             }
-        })
-        .collect()
+            continue;
+        }
+
+        if in_code_block {
+            // Code lines: monospace with distinct background color
+            lines_out.push(Line::from(Span::styled(
+                format!("  {}", line),
+                Style::default().fg(Color::White).bg(Color::Rgb(30, 30, 46)),
+            )));
+            continue;
+        }
+
+        if let Some(rest) = line.strip_prefix("### ") {
+            lines_out.push(Line::from(Span::styled(
+                rest.to_string(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            )));
+        } else if let Some(rest) = line.strip_prefix("## ") {
+            lines_out.push(Line::from(Span::styled(
+                rest.to_string(),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            )));
+        } else if let Some(rest) = line.strip_prefix("# ") {
+            lines_out.push(Line::from(Span::styled(
+                rest.to_string(),
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+            )));
+        } else if let Some(rest) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) {
+            let mut spans = vec![Span::raw("• ".to_string())];
+            spans.extend(parse_inline_markdown(rest));
+            lines_out.push(Line::from(spans));
+        } else if let Some(rest) = line.strip_prefix("> ") {
+            lines_out.push(Line::from(Span::styled(
+                format!("│ {}", rest),
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::ITALIC),
+            )));
+        } else if line.chars().all(|c| c == '-' || c == '=') && line.len() >= 3 {
+            // Horizontal rule
+            lines_out.push(Line::from(Span::styled(
+                "─".repeat(40),
+                Style::default().fg(Color::DarkGray),
+            )));
+        } else {
+            lines_out.push(Line::from(parse_inline_markdown(line)));
+        }
+    }
+
+    lines_out
 }
 
 /// Parse inline markdown: **bold**, `code`, *italic*
