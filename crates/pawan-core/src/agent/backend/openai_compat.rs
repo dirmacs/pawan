@@ -244,6 +244,12 @@ impl OpenAiCompatBackend {
 
         tool_calls.retain(|tc| !tc.name.is_empty());
 
+        // Fallback: devstral/Mistral models sometimes stream [TOOL_CALLS] text
+        // instead of structured tool_call deltas.
+        if tool_calls.is_empty() {
+            tool_calls = Self::parse_mistral_tool_calls(&content);
+        }
+
         if !tool_calls.is_empty() {
             finish_reason = "tool_calls".to_string();
         }
@@ -319,6 +325,12 @@ impl OpenAiCompatBackend {
             }
         }
 
+        // Fallback: devstral/Mistral models sometimes embed tool calls in text content
+        // instead of the structured tool_calls API field. Parse [TOOL_CALLS] format.
+        if tool_calls.is_empty() {
+            tool_calls = Self::parse_mistral_tool_calls(&content);
+        }
+
         // Parse usage from response
         let usage = Self::parse_usage(json);
 
@@ -328,6 +340,107 @@ impl OpenAiCompatBackend {
             finish_reason,
             usage,
         })
+    }
+
+    /// Parse Mistral text-format tool calls embedded in content.
+    ///
+    /// Mistral/devstral models non-deterministically emit tool calls as text instead
+    /// of structured API `tool_calls`. Two observed variants:
+    ///
+    /// Variant 1 (standard):  `[TOOL_CALLS] [{"name":"func","arguments":{...}}]`
+    /// Variant 2 (compact):   `[TOOL_CALLS]func_name{"key":"value"}`
+    fn parse_mistral_tool_calls(content: &str) -> Vec<ToolCallRequest> {
+        const MARKER: &str = "[TOOL_CALLS]";
+        let Some(pos) = content.find(MARKER) else {
+            return vec![];
+        };
+
+        let after = content[pos + MARKER.len()..].trim_start();
+
+        // Variant 1: JSON array — [{"name":..., "arguments":...}, ...]
+        if after.starts_with('[') {
+            let bracket_end = Self::find_matching_bracket(after, '[', ']');
+            if bracket_end > 0 {
+                if let Ok(arr) = serde_json::from_str::<Vec<Value>>(&after[..bracket_end]) {
+                    let calls: Vec<ToolCallRequest> = arr
+                        .iter()
+                        .filter_map(|tc| {
+                            let name = tc.get("name")?.as_str()?.to_string();
+                            if name.is_empty() {
+                                return None;
+                            }
+                            let arguments = tc.get("arguments").cloned().unwrap_or(json!({}));
+                            Some(ToolCallRequest {
+                                id: uuid::Uuid::new_v4().to_string(),
+                                name,
+                                arguments,
+                            })
+                        })
+                        .collect();
+                    if !calls.is_empty() {
+                        return calls;
+                    }
+                }
+            }
+        }
+
+        // Variant 2: compact — func_name{"key":"value"}
+        if let Some(brace_pos) = after.find('{') {
+            let name = after[..brace_pos].trim();
+            let is_valid_ident = !name.is_empty()
+                && name
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_');
+            if is_valid_ident {
+                let json_part = &after[brace_pos..];
+                let brace_end = Self::find_matching_bracket(json_part, '{', '}');
+                if brace_end > 0 {
+                    if let Ok(arguments) = serde_json::from_str::<Value>(&json_part[..brace_end]) {
+                        return vec![ToolCallRequest {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            name: name.to_string(),
+                            arguments,
+                        }];
+                    }
+                }
+            }
+        }
+
+        vec![]
+    }
+
+    /// Find the end index of a balanced bracket pair starting at position 0.
+    /// Returns the byte index after the closing bracket, or 0 if not found.
+    fn find_matching_bracket(s: &str, open: char, close: char) -> usize {
+        let mut depth: i32 = 0;
+        let mut in_string = false;
+        let mut escape = false;
+        for (i, ch) in s.char_indices() {
+            if escape {
+                escape = false;
+                continue;
+            }
+            if ch == '\\' && in_string {
+                escape = true;
+                continue;
+            }
+            if ch == '"' {
+                in_string = !in_string;
+                continue;
+            }
+            if in_string {
+                continue;
+            }
+            if ch == open {
+                depth += 1;
+            } else if ch == close {
+                depth -= 1;
+                if depth == 0 {
+                    return i + ch.len_utf8();
+                }
+            }
+        }
+        0
     }
 
     /// Parse API error response body for a user-friendly message
@@ -578,6 +691,79 @@ mod tests {
 
         let json = json!({"choices": []});
         assert!(backend.parse_response(&json).is_err());
+    }
+
+    #[test]
+    fn test_parse_mistral_tool_calls_array_format() {
+        let content = r#"[TOOL_CALLS] [{"name":"edit_file","arguments":{"path":"/tmp/test.rs","content":"fn main() {}"}}]"#;
+        let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "edit_file");
+        assert_eq!(calls[0].arguments["path"], "/tmp/test.rs");
+    }
+
+    #[test]
+    fn test_parse_mistral_tool_calls_compact_format() {
+        let content = r#"[TOOL_CALLS]read_file{"path":"/opt/pawan/src/main.rs"}"#;
+        let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "read_file");
+        assert_eq!(calls[0].arguments["path"], "/opt/pawan/src/main.rs");
+    }
+
+    #[test]
+    fn test_parse_mistral_tool_calls_no_marker() {
+        let content = "No tool calls here, just regular text.";
+        let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn test_parse_mistral_tool_calls_multiple() {
+        let content = r#"[TOOL_CALLS] [{"name":"read_file","arguments":{"path":"a.rs"}},{"name":"read_file","arguments":{"path":"b.rs"}}]"#;
+        let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].arguments["path"], "a.rs");
+        assert_eq!(calls[1].arguments["path"], "b.rs");
+    }
+
+    #[test]
+    fn test_parse_mistral_tool_calls_with_preamble() {
+        let content = "I'll edit the file now.\n[TOOL_CALLS]shell_exec{\"command\":\"cargo check\"}";
+        let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "shell_exec");
+        assert_eq!(calls[0].arguments["command"], "cargo check");
+    }
+
+    #[test]
+    fn test_parse_response_falls_back_to_mistral_format() {
+        let backend = OpenAiCompatBackend::new(OpenAiCompatConfig {
+            api_url: "http://localhost".into(),
+            api_key: None,
+            model: "test".into(),
+            temperature: 1.0,
+            top_p: 0.95,
+            max_tokens: 100,
+            system_prompt: "test".into(),
+            use_thinking: false,
+        });
+
+        // No structured tool_calls, but content has [TOOL_CALLS] marker
+        let json = json!({
+            "choices": [{
+                "message": {
+                    "content": "[TOOL_CALLS] [{\"name\":\"read_file\",\"arguments\":{\"path\":\"/tmp/x.rs\"}}]",
+                    "role": "assistant"
+                },
+                "finish_reason": "stop"
+            }]
+        });
+
+        let response = backend.parse_response(&json).unwrap();
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "read_file");
+        assert_eq!(response.tool_calls[0].arguments["path"], "/tmp/x.rs");
     }
 
     #[test]
