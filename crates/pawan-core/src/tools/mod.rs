@@ -3,6 +3,7 @@
 //! This module provides all the tools that Pawan can use to interact with
 //! the filesystem, execute commands, and perform coding operations.
 
+pub mod agent;
 pub mod bash;
 pub mod edit;
 pub mod file;
@@ -98,7 +99,10 @@ impl ToolRegistry {
         registry.register(Arc::new(git::GitCommitTool::new(workspace_root.clone())));
         registry.register(Arc::new(git::GitLogTool::new(workspace_root.clone())));
         registry.register(Arc::new(git::GitBlameTool::new(workspace_root.clone())));
-        registry.register(Arc::new(git::GitBranchTool::new(workspace_root)));
+        registry.register(Arc::new(git::GitBranchTool::new(workspace_root.clone())));
+
+        // Sub-agent tool
+        registry.register(Arc::new(agent::SpawnAgentTool::new(workspace_root)));
 
         registry
     }
