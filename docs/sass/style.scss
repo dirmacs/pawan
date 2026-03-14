@@ -138,6 +138,33 @@ main {
   }
 }
 
+// Origin story
+.origin {
+  padding: 2rem 0;
+  border-top: 1px solid var(--border);
+
+  h2 { margin-bottom: 1rem; }
+
+  p { color: var(--muted); margin-bottom: 0.8rem; }
+
+  .quote {
+    color: var(--accent);
+    font-style: italic;
+    font-size: 1.05rem;
+    padding: 1rem;
+    border-left: 3px solid var(--accent2);
+    background: var(--card);
+    border-radius: 0 6px 6px 0;
+    margin: 1rem 0;
+
+    .attr {
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-style: normal;
+    }
+  }
+}
+
 // Install
 .install {
   padding: 2rem 0;
