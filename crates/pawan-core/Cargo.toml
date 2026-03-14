@@ -13,7 +13,13 @@ categories = ["command-line-utilities", "development-tools"]
 name = "pawan"
 path = "src/lib.rs"
 
+[features]
+default = []
+ares = ["dep:ares-server"]
+
 [dependencies]
+# Ares integration (optional)
+ares-server = { version = "0.6", path = "/opt/ares", default-features = false, features = ["openai"], optional = true }
 # Core from workspace
 tokio = { workspace = true }
 serde = { workspace = true }
