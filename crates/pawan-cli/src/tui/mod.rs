@@ -788,6 +788,186 @@ fn parse_inline_markdown(text: &str) -> Vec<Span<'static>> {
     spans
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_header_h1() {
+        let lines = markdown_to_lines("# Hello");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].spans[0].content, "Hello");
+        assert!(lines[0].spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::BOLD));
+        assert!(lines[0].spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::UNDERLINED));
+        assert_eq!(lines[0].spans[0].style.fg, Some(Color::Cyan));
+    }
+
+    #[test]
+    fn test_header_h2() {
+        let lines = markdown_to_lines("## Subtitle");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].spans[0].content, "Subtitle");
+        assert!(lines[0].spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::BOLD));
+        assert_eq!(lines[0].spans[0].style.fg, Some(Color::Green));
+    }
+
+    #[test]
+    fn test_header_h3() {
+        let lines = markdown_to_lines("### Section");
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].spans[0].content, "Section");
+        assert!(lines[0].spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn test_bullet_list() {
+        let lines = markdown_to_lines("- item one");
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].spans[0].content.contains('•'));
+    }
+
+    #[test]
+    fn test_star_bullet() {
+        let lines = markdown_to_lines("* star item");
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].spans[0].content.contains('•'));
+    }
+
+    #[test]
+    fn test_code_block() {
+        let lines = markdown_to_lines("```rust\nlet x = 1;\n```");
+        assert_eq!(lines.len(), 3);
+        // First line is separator with language
+        assert!(lines[0].spans[0].content.contains("rust"));
+        // Middle line is code with dark background
+        assert_eq!(lines[1].spans[0].style.bg, Some(Color::Rgb(30, 30, 46)));
+        // Last line is closing separator
+        assert!(lines[2].spans[0].content.contains('─'));
+    }
+
+    #[test]
+    fn test_code_block_no_lang() {
+        let lines = markdown_to_lines("```\nhello\n```");
+        assert_eq!(lines.len(), 3);
+        assert!(lines[0].spans[0].content.contains("code"));
+    }
+
+    #[test]
+    fn test_blockquote() {
+        let lines = markdown_to_lines("> quoted text");
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].spans[0].content.contains('│'));
+        assert!(lines[0].spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::ITALIC));
+    }
+
+    #[test]
+    fn test_horizontal_rule() {
+        let lines = markdown_to_lines("---");
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].spans[0].content.contains('─'));
+        assert_eq!(lines[0].spans[0].style.fg, Some(Color::DarkGray));
+    }
+
+    #[test]
+    fn test_numbered_list() {
+        let lines = markdown_to_lines("1. first item");
+        assert_eq!(lines.len(), 1);
+        assert!(lines[0].spans.len() >= 2);
+        // First span is the bold number
+        assert!(lines[0].spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn test_inline_bold() {
+        let spans = parse_inline_markdown("hello **world**");
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].content, "hello ");
+        assert_eq!(spans[1].content, "world");
+        assert!(spans[1].style.add_modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn test_inline_code() {
+        let spans = parse_inline_markdown("use `cargo test` here");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].content, "use ");
+        assert_eq!(spans[1].content, "cargo test");
+        assert_eq!(spans[1].style.fg, Some(Color::Yellow));
+        assert_eq!(spans[2].content, " here");
+    }
+
+    #[test]
+    fn test_inline_italic() {
+        let spans = parse_inline_markdown("this is *important*");
+        assert_eq!(spans.len(), 2);
+        assert_eq!(spans[0].content, "this is ");
+        assert_eq!(spans[1].content, "important");
+        assert!(spans[1].style.add_modifier.contains(Modifier::ITALIC));
+    }
+
+    #[test]
+    fn test_inline_mixed() {
+        let spans = parse_inline_markdown("**bold** and `code`");
+        assert_eq!(spans.len(), 3);
+        assert_eq!(spans[0].content, "bold");
+        assert!(spans[0].style.add_modifier.contains(Modifier::BOLD));
+        assert_eq!(spans[1].content, " and ");
+        assert_eq!(spans[2].content, "code");
+        assert_eq!(spans[2].style.fg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn test_plain_text() {
+        let spans = parse_inline_markdown("just plain text");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content, "just plain text");
+    }
+
+    #[test]
+    fn test_unclosed_bold() {
+        // Unclosed ** should render as literal **
+        let spans = parse_inline_markdown("hello **unclosed");
+        assert!(spans.len() >= 2);
+    }
+
+    #[test]
+    fn test_multiline_markdown() {
+        let text = "# Title\n\nSome **bold** text\n\n- bullet\n- another";
+        let lines = markdown_to_lines(text);
+        assert!(lines.len() >= 5);
+        // First line is H1
+        assert!(lines[0].spans[0]
+            .style
+            .add_modifier
+            .contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn test_empty_input() {
+        let lines = markdown_to_lines("");
+        // Empty string produces no lines (str::lines() returns empty iterator)
+        assert_eq!(lines.len(), 0);
+    }
+}
+
 /// Simple non-TUI interactive mode (fallback)
 pub async fn run_simple(mut agent: PawanAgent) -> Result<()> {
     use std::io::{BufRead, Write};

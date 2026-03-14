@@ -415,3 +415,197 @@ impl LlmBackend for OpenAiCompatBackend {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use reqwest::StatusCode;
+
+    #[test]
+    fn test_format_api_error_401_with_json_body() {
+        let body = r#"{"error":{"message":"Invalid API key"}}"#;
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::UNAUTHORIZED, body);
+        assert!(result.contains("Invalid API key"));
+        assert!(result.contains("check your API key"));
+        assert!(result.contains("401"));
+    }
+
+    #[test]
+    fn test_format_api_error_429_rate_limited() {
+        let body = r#"{"error":{"message":"Rate limit exceeded"}}"#;
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::TOO_MANY_REQUESTS, body);
+        assert!(result.contains("rate limited"));
+        assert!(result.contains("Rate limit exceeded"));
+    }
+
+    #[test]
+    fn test_format_api_error_404_model_not_found() {
+        let body = r#"{"detail":"Model not found"}"#;
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::NOT_FOUND, body);
+        assert!(result.contains("Model not found"));
+        assert!(result.contains("model not found or endpoint incorrect"));
+    }
+
+    #[test]
+    fn test_format_api_error_403_forbidden() {
+        let body = r#"{"message":"Forbidden"}"#;
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::FORBIDDEN, body);
+        assert!(result.contains("Forbidden"));
+        assert!(result.contains("check API key permissions"));
+    }
+
+    #[test]
+    fn test_format_api_error_500_server() {
+        let body = r#"{"error":{"message":"Internal server error"}}"#;
+        let result =
+            OpenAiCompatBackend::format_api_error(StatusCode::INTERNAL_SERVER_ERROR, body);
+        assert!(result.contains("retry later"));
+    }
+
+    #[test]
+    fn test_format_api_error_empty_body() {
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::BAD_GATEWAY, "");
+        assert!(result.contains("502"));
+        assert!(result.contains("retry later"));
+        // Should not contain trailing ": " for empty body
+        assert!(!result.ends_with(": "));
+    }
+
+    #[test]
+    fn test_format_api_error_plain_text_body() {
+        let result = OpenAiCompatBackend::format_api_error(
+            StatusCode::BAD_REQUEST,
+            "something went wrong",
+        );
+        assert!(result.contains("something went wrong"));
+        assert!(result.contains("400"));
+    }
+
+    #[test]
+    fn test_format_api_error_no_hint_for_unknown_status() {
+        let body = r#"{"error":{"message":"weird error"}}"#;
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::IM_A_TEAPOT, body);
+        assert!(result.contains("weird error"));
+        // No hint for 418
+        assert!(!result.contains("check"));
+        assert!(!result.contains("retry"));
+    }
+
+    #[test]
+    fn test_parse_response_valid() {
+        let backend = OpenAiCompatBackend::new(OpenAiCompatConfig {
+            api_url: "http://localhost".into(),
+            api_key: None,
+            model: "test".into(),
+            temperature: 1.0,
+            top_p: 0.95,
+            max_tokens: 100,
+            system_prompt: "test".into(),
+            use_thinking: false,
+        });
+
+        let json = json!({
+            "choices": [{
+                "message": {
+                    "content": "Hello, world!",
+                    "role": "assistant"
+                },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 5,
+                "total_tokens": 15
+            }
+        });
+
+        let response = backend.parse_response(&json).unwrap();
+        assert_eq!(response.content, "Hello, world!");
+        assert_eq!(response.finish_reason, "stop");
+        assert!(response.tool_calls.is_empty());
+        assert_eq!(response.usage.unwrap().total_tokens, 15);
+    }
+
+    #[test]
+    fn test_parse_response_with_tool_calls() {
+        let backend = OpenAiCompatBackend::new(OpenAiCompatConfig {
+            api_url: "http://localhost".into(),
+            api_key: None,
+            model: "test".into(),
+            temperature: 1.0,
+            top_p: 0.95,
+            max_tokens: 100,
+            system_prompt: "test".into(),
+            use_thinking: false,
+        });
+
+        let json = json!({
+            "choices": [{
+                "message": {
+                    "content": "",
+                    "role": "assistant",
+                    "tool_calls": [{
+                        "id": "tc_123",
+                        "type": "function",
+                        "function": {
+                            "name": "read_file",
+                            "arguments": "{\"path\":\"test.rs\"}"
+                        }
+                    }]
+                },
+                "finish_reason": "tool_calls"
+            }]
+        });
+
+        let response = backend.parse_response(&json).unwrap();
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "read_file");
+        assert_eq!(response.tool_calls[0].id, "tc_123");
+    }
+
+    #[test]
+    fn test_parse_response_no_choices() {
+        let backend = OpenAiCompatBackend::new(OpenAiCompatConfig {
+            api_url: "http://localhost".into(),
+            api_key: None,
+            model: "test".into(),
+            temperature: 1.0,
+            top_p: 0.95,
+            max_tokens: 100,
+            system_prompt: "test".into(),
+            use_thinking: false,
+        });
+
+        let json = json!({"choices": []});
+        assert!(backend.parse_response(&json).is_err());
+    }
+
+    #[test]
+    fn test_build_messages() {
+        let backend = OpenAiCompatBackend::new(OpenAiCompatConfig {
+            api_url: "http://localhost".into(),
+            api_key: None,
+            model: "test".into(),
+            temperature: 1.0,
+            top_p: 0.95,
+            max_tokens: 100,
+            system_prompt: "You are helpful.".into(),
+            use_thinking: false,
+        });
+
+        let messages = vec![
+            Message {
+                role: Role::User,
+                content: "Hello".into(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+        ];
+
+        let api_messages = backend.build_messages(&messages);
+        assert_eq!(api_messages.len(), 2); // system + user
+        assert_eq!(api_messages[0]["role"], "system");
+        assert_eq!(api_messages[1]["role"], "user");
+        assert_eq!(api_messages[1]["content"], "Hello");
+    }
+}
