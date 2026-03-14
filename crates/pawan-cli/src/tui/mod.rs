@@ -25,6 +25,13 @@ use tui_textarea::{Input, TextArea};
 
 /// Events sent from the agent task back to the TUI
 enum AgentEvent {
+    /// Streaming token from LLM
+    Token(String),
+    /// A tool call started
+    ToolStart(String),
+    /// A tool call completed
+    ToolComplete(ToolCallRecord),
+    /// Agent finished
     Complete(std::result::Result<AgentResponse, PawanError>),
 }
 
@@ -64,6 +71,13 @@ struct App<'a> {
     total_tokens: u64,
     total_prompt_tokens: u64,
     total_completion_tokens: u64,
+    /// Streaming content buffer (accumulates tokens during generation)
+    streaming_content: String,
+    /// Active tool calls being displayed during processing
+    active_tool: Option<String>,
+    /// Search mode state
+    search_mode: bool,
+    search_query: String,
     /// Channel to send commands to the agent task
     cmd_tx: mpsc::UnboundedSender<AgentCommand>,
     /// Channel to receive events from the agent task
@@ -94,6 +108,10 @@ impl<'a> App<'a> {
             total_tokens: 0,
             total_prompt_tokens: 0,
             total_completion_tokens: 0,
+            streaming_content: String::new(),
+            active_tool: None,
+            search_mode: false,
+            search_query: String::new(),
             cmd_tx,
             event_rx,
         }
@@ -127,8 +145,24 @@ impl<'a> App<'a> {
             // Non-blocking: check for agent events first
             while let Ok(event) = self.event_rx.try_recv() {
                 match event {
+                    AgentEvent::Token(token) => {
+                        self.streaming_content.push_str(&token);
+                        // Auto-scroll to bottom during streaming
+                        self.scroll = usize::MAX;
+                    }
+                    AgentEvent::ToolStart(name) => {
+                        self.active_tool = Some(name.clone());
+                        self.status = format!("Running tool: {}", name);
+                    }
+                    AgentEvent::ToolComplete(record) => {
+                        self.active_tool = None;
+                        let icon = if record.success { "✓" } else { "✗" };
+                        self.status = format!("{} {} ({}ms)", icon, record.name, record.duration_ms);
+                    }
                     AgentEvent::Complete(result) => {
                         self.processing = false;
+                        self.streaming_content.clear();
+                        self.active_tool = None;
                         match result {
                             Ok(resp) => {
                                 self.messages.push(DisplayMessage {
@@ -186,6 +220,26 @@ impl<'a> App<'a> {
                     _ => {}
                 }
 
+                // Search mode intercepts all keys
+                if self.search_mode {
+                    match key.code {
+                        KeyCode::Enter | KeyCode::Esc => {
+                            self.search_mode = false;
+                            if key.code == KeyCode::Esc {
+                                self.search_query.clear();
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            self.search_query.pop();
+                        }
+                        KeyCode::Char(c) => {
+                            self.search_query.push(c);
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
                 match self.focus {
                     Panel::Input => {
                         if key.modifiers.contains(KeyModifiers::CONTROL)
@@ -199,18 +253,54 @@ impl<'a> App<'a> {
                         }
                     }
                     Panel::Messages => match key.code {
-                        KeyCode::Tab => self.focus = Panel::Input,
+                        KeyCode::Tab | KeyCode::Char('i') => self.focus = Panel::Input,
                         KeyCode::Up | KeyCode::Char('k') => {
                             self.scroll = self.scroll.saturating_sub(1);
                         }
                         KeyCode::Down | KeyCode::Char('j') => {
                             self.scroll = self.scroll.saturating_add(1);
                         }
+                        KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            self.scroll = self.scroll.saturating_sub(20);
+                        }
+                        KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                            self.scroll = self.scroll.saturating_add(20);
+                        }
                         KeyCode::PageUp => self.scroll = self.scroll.saturating_sub(10),
                         KeyCode::PageDown => self.scroll = self.scroll.saturating_add(10),
-                        KeyCode::Home => self.scroll = 0,
-                        KeyCode::End => {
+                        KeyCode::Char('g') | KeyCode::Home => self.scroll = 0,
+                        KeyCode::Char('G') | KeyCode::End => {
                             self.scroll = self.messages.len().saturating_sub(1);
+                        }
+                        KeyCode::Char('/') => {
+                            self.search_mode = true;
+                            self.search_query.clear();
+                        }
+                        KeyCode::Char('n') => {
+                            // Jump to next search match
+                            if !self.search_query.is_empty() {
+                                let query = self.search_query.to_lowercase();
+                                for (i, msg) in self.messages.iter().enumerate() {
+                                    if i > self.scroll
+                                        && msg.content.to_lowercase().contains(&query)
+                                    {
+                                        self.scroll = i;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char('N') => {
+                            // Jump to previous search match
+                            if !self.search_query.is_empty() {
+                                let query = self.search_query.to_lowercase();
+                                for i in (0..self.scroll).rev() {
+                                    if self.messages[i].content.to_lowercase().contains(&query) {
+                                        self.scroll = i;
+                                        break;
+                                    }
+                                }
+                            }
                         }
                         _ => {}
                     },
@@ -324,12 +414,47 @@ impl<'a> App<'a> {
         }
 
         if self.processing {
-            items.push(ListItem::new(Line::from(vec![Span::styled(
-                "  Pawan is thinking...",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::ITALIC),
-            )])));
+            if !self.streaming_content.is_empty() {
+                // Show streaming content as it arrives
+                items.push(ListItem::new(Line::from(vec![Span::styled(
+                    "Pawan: ",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                )])));
+                for line in self.streaming_content.lines() {
+                    items.push(ListItem::new(Line::from(Span::styled(
+                        format!("  {}", line),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::DIM),
+                    ))));
+                }
+                items.push(ListItem::new(Line::from(vec![Span::styled(
+                    "  ▌",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::SLOW_BLINK),
+                )])));
+            } else if let Some(ref tool) = self.active_tool {
+                items.push(ListItem::new(Line::from(vec![
+                    Span::styled(
+                        "  ⚙ ",
+                        Style::default().fg(Color::Magenta),
+                    ),
+                    Span::styled(
+                        format!("Running {}...", tool),
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
+                ])));
+            } else {
+                items.push(ListItem::new(Line::from(vec![Span::styled(
+                    "  Pawan is thinking...",
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::ITALIC),
+                )])));
+            }
         }
 
         let border_style = if self.focus == Panel::Messages {
@@ -338,10 +463,18 @@ impl<'a> App<'a> {
             Style::default().fg(Color::DarkGray)
         };
 
+        let title = if self.search_mode {
+            format!(" Search: {}▌ ", self.search_query)
+        } else if !self.search_query.is_empty() {
+            format!(" Messages [/{}] (n/N next/prev, g/G top/bottom) ", self.search_query)
+        } else {
+            " Messages (Tab to focus, j/k scroll, / search, g/G top/bottom) ".to_string()
+        };
+
         let messages_block = Block::default()
             .borders(Borders::ALL)
             .border_style(border_style)
-            .title(" Messages (Tab to focus, j/k to scroll) ");
+            .title(title);
 
         let list = List::new(items).block(messages_block);
         f.render_widget(list, area);
@@ -420,7 +553,35 @@ async fn agent_task(
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
             AgentCommand::Execute(prompt) => {
-                let result = agent.execute(&prompt).await;
+                // Create token streaming callback
+                let token_tx = event_tx.clone();
+                let on_token: pawan::agent::TokenCallback =
+                    Box::new(move |token: &str| {
+                        let _ = token_tx.send(AgentEvent::Token(token.to_string()));
+                    });
+
+                // Create tool start callback
+                let tool_start_tx = event_tx.clone();
+                let on_tool_start: pawan::agent::ToolStartCallback =
+                    Box::new(move |name: &str| {
+                        let _ = tool_start_tx.send(AgentEvent::ToolStart(name.to_string()));
+                    });
+
+                // Create tool complete callback
+                let tool_tx = event_tx.clone();
+                let on_tool: pawan::agent::ToolCallback =
+                    Box::new(move |record: &ToolCallRecord| {
+                        let _ = tool_tx.send(AgentEvent::ToolComplete(record.clone()));
+                    });
+
+                let result = agent
+                    .execute_with_callbacks(
+                        &prompt,
+                        Some(on_token),
+                        Some(on_tool),
+                        Some(on_tool_start),
+                    )
+                    .await;
                 let _ = event_tx.send(AgentEvent::Complete(result));
             }
             AgentCommand::Quit => break,

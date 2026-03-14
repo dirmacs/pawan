@@ -122,6 +122,9 @@ pub type TokenCallback = Box<dyn Fn(&str) + Send + Sync>;
 /// Callback for receiving tool call updates
 pub type ToolCallback = Box<dyn Fn(&ToolCallRecord) + Send + Sync>;
 
+/// Callback for tool call start notifications
+pub type ToolStartCallback = Box<dyn Fn(&str) + Send + Sync>;
+
 /// The main Pawan agent
 pub struct PawanAgent {
     /// Configuration
@@ -266,7 +269,8 @@ impl PawanAgent {
 
     /// Execute a single prompt with tool calling support
     pub async fn execute(&mut self, user_prompt: &str) -> Result<AgentResponse> {
-        self.execute_with_callbacks(user_prompt, None, None).await
+        self.execute_with_callbacks(user_prompt, None, None, None)
+            .await
     }
 
     /// Execute with optional callbacks for streaming
@@ -275,6 +279,7 @@ impl PawanAgent {
         user_prompt: &str,
         on_token: Option<TokenCallback>,
         on_tool: Option<ToolCallback>,
+        on_tool_start: Option<ToolStartCallback>,
     ) -> Result<AgentResponse> {
         self.history.push(Message {
             role: Role::User,
@@ -363,6 +368,11 @@ impl PawanAgent {
                         }),
                     });
                     continue;
+                }
+
+                // Notify tool start
+                if let Some(ref callback) = on_tool_start {
+                    callback(&tool_call.name);
                 }
 
                 let start = std::time::Instant::now();
