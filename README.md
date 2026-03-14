@@ -1,140 +1,146 @@
 <p align="center">
-  <img src="docs/img/pawan-logo.svg" alt="Pawan" width="280">
-</p>
-
-<p align="center">
-  <strong>Self-healing, self-improving CLI coding agent</strong>
+  <strong>पवन — Self-healing CLI coding agent</strong>
 </p>
 
 <p align="center">
   <a href="https://github.com/dirmacs/pawan/actions"><img src="https://github.com/dirmacs/pawan/workflows/CI/badge.svg" alt="CI"></a>
-  <a href="https://crates.io/crates/pawan-core"><img src="https://img.shields.io/crates/v/pawan-core.svg" alt="crates.io"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <img src="https://img.shields.io/badge/rust-stable-orange.svg" alt="Rust">
+  <img src="https://img.shields.io/badge/tools-17-green.svg" alt="17 tools">
+  <img src="https://img.shields.io/badge/tests-107-brightgreen.svg" alt="107 tests">
 </p>
 
 ---
 
-**Pawan** (पवन, "wind" in Sanskrit) is a Rust-native CLI coding agent that reads, writes, and heals code autonomously. Built for the [dirmacs](https://github.com/dirmacs) ecosystem.
+**Pawan** (पवन, "wind") is a Rust-native CLI coding agent. It reads, writes, and heals code autonomously — no subscription, no vendor lock-in. Built for the [dirmacs](https://github.com/dirmacs) ecosystem, works with any OpenAI-compatible API.
 
-## Features
+## Why Pawan
 
-- **Tool-calling agent loop** — reads files, edits code, runs bash, searches, and commits
-- **Self-healing** — automatically fixes compilation errors, clippy warnings, and test failures
-- **Multi-provider LLM** — NVIDIA NIM, Ollama, OpenAI-compatible APIs
-- **Interactive TUI** — ratatui-based terminal interface with streaming responses
-- **Headless mode** — scriptable single-prompt execution for CI and orchestration
-- **11 built-in tools** — bash, read/write/edit files, glob/grep search, git operations
+- **Self-hosted** — runs on your own machine, uses your own API keys
+- **17 tools** — file ops, search, bash, git (status/diff/add/commit/log/blame/branch/checkout/stash), sub-agents
+- **18 subcommands** — from interactive TUI to headless scripting
+- **107 tests** — markdown rendering, API error handling, CLI parsing, git tools, integration
+- **Streaming TUI** — ratatui with markdown rendering, vim keybindings, live token display
+- **AI workflows** — commit, review, explain, test analysis, watch mode
 
 ## Quick Start
 
 ```bash
-# Install from source
+# Clone and build
+git clone https://github.com/dirmacs/pawan && cd pawan
 cargo install --path crates/pawan-cli
 
-# Set your NVIDIA API key
+# Set API key (NVIDIA NIM free tier)
 export NVIDIA_API_KEY=nvapi-...
 
-# Interactive mode
+# Interactive TUI
 pawan
 
-# Self-heal current project
+# AI-powered commit (stage + generate message + commit)
+pawan commit -a
+
+# Self-heal: fix errors, warnings, test failures
 pawan heal
 
-# Execute a coding task
-pawan task "add input validation to the config parser"
+# AI code review of current changes
+pawan review
 
-# Generate a commit message
-pawan commit
+# Explain a file or concept
+pawan explain src/lib.rs
 
-# Check project health
-pawan status
+# Run tests and AI-analyze failures
+pawan test --fix
+
+# Headless scripted execution
+pawan run "add input validation to the config parser"
+
+# Watch mode: auto-heal on file changes
+pawan watch --interval 10
+
+# Check setup
+pawan doctor
 ```
+
+## Subcommands
+
+| Category | Command | Description |
+|----------|---------|-------------|
+| **Interactive** | `pawan` | TUI chat with streaming + markdown |
+| | `pawan chat --resume ID` | Resume a saved session |
+| **Code** | `pawan heal` | Auto-fix compilation errors, warnings, tests |
+| | `pawan task "..."` | Execute a coding task |
+| | `pawan commit -a` | AI commit: stage, generate message, commit |
+| | `pawan improve docs` | Improve code (docs, refactor, tests) |
+| | `pawan test --fix` | Run tests, AI-analyze + fix failures |
+| | `pawan review --staged` | AI code review with severity levels |
+| | `pawan explain <query>` | AI explanation of files/functions |
+| **Automation** | `pawan run "prompt"` | Headless single-prompt execution |
+| | `pawan run -f prompt.md` | File-based prompt |
+| | `pawan watch -i 10` | Poll cargo check, auto-heal loop |
+| **Project** | `pawan init` | Scaffold PAWAN.md + pawan.toml |
+| | `pawan doctor` | Diagnose setup (keys, connectivity, tools) |
+| | `pawan status` | Project health summary |
+| | `pawan sessions` | List saved sessions |
+| **Config** | `pawan config show` | Display resolved config |
+| | `pawan mcp list` | Show MCP servers and tools |
+| | `pawan completions bash` | Generate shell completions |
 
 ## Architecture
 
 ```
 pawan/
   crates/
-    pawan-core/    # Library: agent engine, tools, config, healing
-    pawan-cli/     # Binary: CLI + ratatui TUI
-    pawan-mcp/     # MCP client integration (rmcp 0.12)
-    pawan-aegis/   # Aegis config generation
+    pawan-core/    # Library: agent engine, 17 tools, config, healing
+    pawan-cli/     # Binary: CLI + ratatui TUI + AI workflows
+    pawan-mcp/     # MCP client (rmcp 0.12, stdio transport)
+    pawan-aegis/   # Aegis config resolution
 ```
 
-**pawan-core** has zero dirmacs-internal dependencies — it works standalone with any OpenAI-compatible API.
+`pawan-core` has zero internal dependencies — it works standalone with any OpenAI-compatible API.
 
 ## Configuration
 
-Create `pawan.toml` in your project root (or copy `pawan.example.toml`):
+Pawan loads config in priority order: **CLI flags > env vars > pawan.toml > defaults**
+
+```bash
+# Environment variables
+export PAWAN_MODEL=qwen/qwen3.5-397b-a17b
+export PAWAN_PROVIDER=nvidia    # nvidia | ollama | openai
+export PAWAN_TEMPERATURE=0.8
+export PAWAN_MAX_TOKENS=8192
+```
 
 ```toml
+# pawan.toml
+provider = "nvidia"
 model = "mistralai/devstral-2-123b-instruct-2512"
-temperature = 0.6
-
-[healing]
-fix_errors = true
-fix_warnings = true
-fix_tests = true
-
-[permissions]
-# write_file = "deny"   # Disable file writing
-# bash = "deny"          # Disable shell execution
+temperature = 1.0
+max_tokens = 8192
 
 [mcp.daedra]
 command = "daedra"
 args = ["serve", "--transport", "stdio", "--quiet"]
 ```
 
-Add a `PAWAN.md` file to your project root for per-project context (like CLAUDE.md).
+Add `PAWAN.md` to your project root for per-project context (like CLAUDE.md).
 
-## Subcommands
+## TUI Features
 
-| Command | Description |
-|---------|-------------|
-| `pawan` | Interactive TUI chat (default) |
-| `pawan chat [--resume ID]` | Chat mode, optionally resume a session |
-| `pawan run "prompt"` | Headless single-prompt execution |
-| `pawan run -f prompt.md -o json` | File-based prompt, JSON output |
-| `pawan heal` | Auto-fix errors, warnings, and failing tests |
-| `pawan task "..."` | Execute a specific coding task |
-| `pawan commit` | Generate and apply a commit message |
-| `pawan improve docs\|refactor\|tests\|all` | Improve code quality |
-| `pawan status` | Show project health summary |
-| `pawan sessions` | List saved sessions |
-| `pawan mcp list` | Show connected MCP servers and tools |
-| `pawan config show` | Display resolved configuration |
-| `pawan config init` | Generate pawan.toml template |
+- Markdown rendering: headers, **bold**, *italic*, `code`, code blocks with dark bg, bullets, numbered lists, blockquotes
+- Streaming tokens (appear as they arrive)
+- Tool execution progress (start/complete notifications)
+- Vim keybindings: `/` search, `n`/`N` next/prev, `g`/`G` top/bottom, `Ctrl+u`/`d` half-page
+- Token usage tracking in status bar
+- Mouse scroll support
 
-## Tools
+## Ecosystem
 
-15 built-in tools + dynamic MCP tools:
-
-| Tool | Description |
-|------|-------------|
-| `bash` | Execute shell commands with timeout |
-| `read_file` | Read file contents |
-| `write_file` | Write entire files |
-| `edit_file` | Precise string replacement |
-| `list_directory` | List directory contents |
-| `glob_search` | Find files by pattern |
-| `grep_search` | Search file contents |
-| `git_status` | Check repository status |
-| `git_diff` | Show changes |
-| `git_add` | Stage files |
-| `git_commit` | Create commits |
-| `git_log` | View commit history |
-| `git_blame` | Line-by-line authorship |
-| `git_branch` | List and show branches |
-| `spawn_agent` | Spawn a sub-agent for delegated tasks |
-
-## Dirmacs Ecosystem
-
-Pawan is the foundational coding agent in the dirmacs toolchain:
-
-- **[aegis](https://github.com/dirmacs/aegis)** — Declarative config management
-- **[ares](https://github.com/dirmacs/ares)** — Agentic retrieval-enhanced server
-- **[daedra](https://github.com/dirmacs/daedra)** — Web search MCP server
-- **[nimakai](https://github.com/dirmacs/nimakai)** — NIM model latency benchmarker
+| Tool | What |
+|------|------|
+| [aegis](https://github.com/dirmacs/aegis) | Declarative config management |
+| [ares](https://github.com/dirmacs/ares) | Agentic retrieval-enhanced server |
+| [daedra](https://github.com/dirmacs/daedra) | Web search MCP server |
+| [nimakai](https://github.com/dirmacs/nimakai) | NIM model latency benchmarker |
 
 ## License
 
