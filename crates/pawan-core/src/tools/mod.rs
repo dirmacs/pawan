@@ -78,8 +78,9 @@ impl ToolRegistry {
             workspace_root.clone(),
         )));
 
-        // Edit tool
+        // Edit tools
         registry.register(Arc::new(edit::EditFileTool::new(workspace_root.clone())));
+        registry.register(Arc::new(edit::EditFileLinesTool::new(workspace_root.clone())));
 
         // Search tools
         registry.register(Arc::new(search::GlobSearchTool::new(
