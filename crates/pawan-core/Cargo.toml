@@ -13,13 +13,21 @@ categories = ["command-line-utilities", "development-tools"]
 name = "pawan"
 path = "src/lib.rs"
 
-[features]
-default = []
-ares = ["dep:ares-server"]
+# [features]
+# ares = ["dep:ares-server"]
+#
+# Ares integration: the backend code exists at src/agent/backend/ares_backend.rs
+# and src/tools/ares_bridge.rs but is gated behind #[cfg(feature = "ares")].
+# To enable, add to this Cargo.toml:
+#   [features] ares = ["dep:ares-server"]
+#   [dependencies] ares-server = { path = "/opt/ares", optional = true, ... }
+# This is intentionally not declared here because ares-server is a local
+# path dependency that doesn't exist in CI or on crates.io.
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(feature, values("ares"))'] }
 
 [dependencies]
-# Ares integration (optional)
-ares-server = { version = "0.6", path = "/opt/ares", default-features = false, features = ["openai"], optional = true }
 # Core from workspace
 tokio = { workspace = true }
 serde = { workspace = true }
