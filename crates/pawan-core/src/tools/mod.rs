@@ -78,9 +78,9 @@ impl ToolRegistry {
             workspace_root.clone(),
         )));
 
-        // Edit tools
-        registry.register(Arc::new(edit::EditFileTool::new(workspace_root.clone())));
+        // Edit tools (edit_file_lines is preferred; edit_file is the fallback)
         registry.register(Arc::new(edit::EditFileLinesTool::new(workspace_root.clone())));
+        registry.register(Arc::new(edit::EditFileTool::new(workspace_root.clone())));
 
         // Search tools
         registry.register(Arc::new(search::GlobSearchTool::new(
