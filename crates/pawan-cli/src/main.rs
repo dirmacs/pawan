@@ -156,6 +156,12 @@ enum Commands {
         resume: Option<String>,
     },
 
+    /// Initialize pawan in a project (creates PAWAN.md + pawan.toml)
+    Init,
+
+    /// Diagnose setup issues (API keys, model connectivity, tools)
+    Doctor,
+
     /// List saved sessions
     Sessions,
 
@@ -278,6 +284,8 @@ async fn run() -> Result<()> {
         Some(Commands::Chat { resume: Some(id) }) => {
             run_interactive(config, workspace, cli.no_tui, Some(id)).await
         }
+        Some(Commands::Init) => run_init(workspace).await,
+        Some(Commands::Doctor) => run_doctor(config, workspace).await,
         Some(Commands::Sessions) => run_sessions().await,
         Some(Commands::Completions { shell }) => {
             clap_complete::generate(shell, &mut Cli::command(), "pawan", &mut std::io::stdout());
@@ -1323,6 +1331,280 @@ async fn run_status(config: PawanConfig, workspace: PathBuf) -> Result<()> {
 }
 
 /// List saved sessions
+/// Diagnose setup issues
+async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
+    use pawan::config::LlmProvider;
+
+    println!("{}", "Pawan Doctor".cyan().bold());
+    println!("{}\n", "─".repeat(40).dimmed());
+
+    let mut issues = 0u32;
+
+    // 1. Check workspace
+    print!("  Workspace: ");
+    if workspace.exists() {
+        println!("{} {}", "✓".green(), workspace.display());
+    } else {
+        println!("{} {} (not found)", "✗".red(), workspace.display());
+        issues += 1;
+    }
+
+    // 2. Check config files
+    print!("  pawan.toml: ");
+    if workspace.join("pawan.toml").exists() {
+        println!("{}", "✓ found".green());
+    } else {
+        println!("{}", "- not found (using defaults)".dimmed());
+    }
+
+    print!("  PAWAN.md: ");
+    if workspace.join("PAWAN.md").exists() {
+        println!("{}", "✓ found".green());
+    } else {
+        println!("{}", "- not found (run `pawan init`)".dimmed());
+    }
+
+    // 3. Check .env
+    print!("  .env: ");
+    if workspace.join(".env").exists() || std::path::Path::new(".env").exists() {
+        println!("{}", "✓ found".green());
+    } else {
+        println!("{}", "- not found".dimmed());
+    }
+
+    // 4. Check API keys
+    println!("\n{}", "  API Keys:".bold());
+    match config.provider {
+        LlmProvider::Nvidia => {
+            print!("    NVIDIA_API_KEY: ");
+            if std::env::var("NVIDIA_API_KEY").is_ok() {
+                println!("{}", "✓ set".green());
+            } else {
+                println!("{}", "✗ NOT SET".red());
+                issues += 1;
+            }
+        }
+        LlmProvider::OpenAI => {
+            print!("    OPENAI_API_KEY: ");
+            if std::env::var("OPENAI_API_KEY").is_ok() {
+                println!("{}", "✓ set".green());
+            } else {
+                println!("{}", "✗ NOT SET".red());
+                issues += 1;
+            }
+        }
+        LlmProvider::Ollama => {
+            print!("    Ollama URL: ");
+            let url = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
+            println!("{}", url.cyan());
+        }
+    }
+
+    // 5. Check model connectivity
+    println!("\n{}", "  Model:".bold());
+    println!("    Provider: {}", format!("{:?}", config.provider).cyan());
+    println!("    Model: {}", config.model.cyan());
+
+    print!("    Connectivity: ");
+    // Quick ping test
+    let api_url = match config.provider {
+        LlmProvider::Nvidia => {
+            std::env::var("NVIDIA_API_URL")
+                .unwrap_or_else(|_| pawan::DEFAULT_NVIDIA_API_URL.to_string())
+        }
+        LlmProvider::OpenAI => {
+            std::env::var("OPENAI_API_URL")
+                .unwrap_or_else(|_| "https://api.openai.com/v1".to_string())
+        }
+        LlmProvider::Ollama => {
+            std::env::var("OLLAMA_URL")
+                .unwrap_or_else(|_| "http://localhost:11434".to_string())
+        }
+    };
+
+    let ping_url = if matches!(config.provider, LlmProvider::Ollama) {
+        api_url.clone()
+    } else {
+        format!("{}/models", api_url)
+    };
+
+    match std::process::Command::new("curl")
+        .args(["-sS", "--max-time", "5", "-o", "/dev/null", "-w", "%{http_code}", &ping_url])
+        .output()
+    {
+        Ok(output) if output.status.success() => {
+            let code = String::from_utf8_lossy(&output.stdout);
+            let code = code.trim();
+            if code == "200" || code == "401" {
+                println!("{} (reachable)", "✓".green());
+            } else {
+                println!("{} (HTTP {})", "⚠".yellow(), code);
+            }
+        }
+        Ok(_) => {
+            println!("{}", "✗ unreachable".red());
+            issues += 1;
+        }
+        Err(_) => {
+            println!("{}", "✗ curl not found".red());
+            issues += 1;
+        }
+    }
+
+    // 6. Check git
+    println!("\n{}", "  Git:".bold());
+    print!("    Repository: ");
+    let git_check = std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(&workspace)
+        .output();
+    match git_check {
+        Ok(output) if output.status.success() => println!("{}", "✓ inside git repo".green()),
+        _ => println!("{}", "- not a git repo".dimmed()),
+    }
+
+    // 7. Check tools
+    println!("\n{}", "  Tools:".bold());
+    let agent = PawanAgent::new(config.clone(), workspace);
+    let tool_count = agent.get_tool_definitions().len();
+    println!("    Registered: {} tools", format!("{}", tool_count).cyan());
+
+    // 8. MCP servers
+    if !config.mcp.is_empty() {
+        println!("\n{}", "  MCP Servers:".bold());
+        for (name, entry) in &config.mcp {
+            let status = if entry.enabled { "enabled" } else { "disabled" };
+            println!(
+                "    {}: {} ({})",
+                name,
+                entry.command.cyan(),
+                if entry.enabled {
+                    status.green().to_string()
+                } else {
+                    status.dimmed().to_string()
+                }
+            );
+        }
+    }
+
+    // Summary
+    println!("\n{}", "─".repeat(40).dimmed());
+    if issues == 0 {
+        println!("{}", "  All checks passed! ✓".green().bold());
+    } else {
+        println!(
+            "{}",
+            format!("  {} issue(s) found.", issues).yellow().bold()
+        );
+    }
+
+    Ok(())
+}
+
+/// Initialize pawan in a project
+async fn run_init(workspace: PathBuf) -> Result<()> {
+    let mut created = Vec::new();
+
+    // Create pawan.toml if not exists
+    let toml_path = workspace.join("pawan.toml");
+    if !toml_path.exists() {
+        let toml_content = r#"# Pawan configuration
+# See: https://github.com/dirmacs/pawan
+
+# LLM provider: nvidia, ollama, openai
+provider = "nvidia"
+
+# Model to use
+model = "nvidia/llama-3.3-nemotron-super-49b-v1"
+
+# Temperature (0.0 - 2.0)
+temperature = 1.0
+
+# Maximum tokens in response
+max_tokens = 8192
+
+# Maximum tool iterations per request
+max_tool_iterations = 15
+
+# [mcp.daedra]
+# command = "daedra"
+# args = ["serve", "--transport", "stdio", "--quiet"]
+"#;
+        std::fs::write(&toml_path, toml_content).map_err(PawanError::Io)?;
+        created.push("pawan.toml");
+    }
+
+    // Create PAWAN.md if not exists
+    let md_path = workspace.join("PAWAN.md");
+    if !md_path.exists() {
+        // Try to detect project info from Cargo.toml or package.json
+        let project_name = if let Ok(cargo) =
+            std::fs::read_to_string(workspace.join("Cargo.toml"))
+        {
+            cargo
+                .lines()
+                .find(|l| l.starts_with("name"))
+                .and_then(|l| l.split('"').nth(1))
+                .unwrap_or("this project")
+                .to_string()
+        } else {
+            workspace
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "this project".to_string())
+        };
+
+        let md_content = format!(
+            r#"# {project_name}
+
+## Project Context
+
+<!-- Pawan reads this file to understand your project. -->
+<!-- Add project-specific instructions, conventions, and context here. -->
+
+## Architecture
+
+<!-- Describe the high-level architecture -->
+
+## Conventions
+
+<!-- Code style, naming conventions, patterns to follow -->
+
+## Key Files
+
+<!-- List important files and what they do -->
+"#
+        );
+        std::fs::write(&md_path, md_content).map_err(PawanError::Io)?;
+        created.push("PAWAN.md");
+    }
+
+    // Create .pawan/ directory
+    let pawan_dir = workspace.join(".pawan");
+    if !pawan_dir.exists() {
+        std::fs::create_dir_all(&pawan_dir).map_err(PawanError::Io)?;
+        created.push(".pawan/");
+    }
+
+    if created.is_empty() {
+        println!(
+            "{}",
+            "Pawan is already initialized in this directory.".dimmed()
+        );
+    } else {
+        println!("{}", "Pawan initialized!".green().bold());
+        for f in &created {
+            println!("  {} {}", "✓".green(), f);
+        }
+        println!(
+            "\n{}",
+            "Edit PAWAN.md to add project context for better AI assistance.".dimmed()
+        );
+    }
+
+    Ok(())
+}
+
 async fn run_sessions() -> Result<()> {
     use pawan::agent::session::Session;
 
