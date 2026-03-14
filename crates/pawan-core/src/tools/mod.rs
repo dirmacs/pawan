@@ -9,6 +9,9 @@ pub mod file;
 pub mod git;
 pub mod search;
 
+#[cfg(feature = "ares")]
+pub mod ares_bridge;
+
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
