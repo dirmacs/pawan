@@ -611,6 +611,172 @@ impl Tool for GitBranchTool {
     }
 }
 
+/// Tool for git checkout (switch branches or restore files)
+pub struct GitCheckoutTool {
+    workspace_root: PathBuf,
+}
+
+impl GitCheckoutTool {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
+    }
+}
+
+#[async_trait]
+impl Tool for GitCheckoutTool {
+    fn name(&self) -> &str {
+        "git_checkout"
+    }
+
+    fn description(&self) -> &str {
+        "Switch branches or restore working tree files. Can create new branches with create=true."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "target": {
+                    "type": "string",
+                    "description": "Branch name, commit, or file path to checkout"
+                },
+                "create": {
+                    "type": "boolean",
+                    "description": "Create a new branch (git checkout -b)"
+                },
+                "files": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Specific files to restore (git checkout -- <files>)"
+                }
+            },
+            "required": ["target"]
+        })
+    }
+
+    async fn execute(&self, args: Value) -> crate::Result<Value> {
+        let target = args["target"]
+            .as_str()
+            .ok_or_else(|| crate::PawanError::Tool("target is required".into()))?;
+        let create = args["create"].as_bool().unwrap_or(false);
+        let files: Vec<&str> = args["files"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default();
+
+        let mut git_args: Vec<&str> = vec!["checkout"];
+
+        if create {
+            git_args.push("-b");
+        }
+
+        git_args.push(target);
+
+        if !files.is_empty() {
+            git_args.push("--");
+            git_args.extend(files.iter());
+        }
+
+        let (success, stdout, stderr) = run_git(&self.workspace_root, &git_args).await?;
+
+        if !success {
+            return Err(crate::PawanError::Git(format!(
+                "git checkout failed: {}",
+                stderr
+            )));
+        }
+
+        Ok(json!({
+            "success": true,
+            "target": target,
+            "created": create,
+            "output": format!("{}{}", stdout, stderr).trim().to_string()
+        }))
+    }
+}
+
+/// Tool for git stash operations
+pub struct GitStashTool {
+    workspace_root: PathBuf,
+}
+
+impl GitStashTool {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
+    }
+}
+
+#[async_trait]
+impl Tool for GitStashTool {
+    fn name(&self) -> &str {
+        "git_stash"
+    }
+
+    fn description(&self) -> &str {
+        "Stash or restore uncommitted changes. Actions: push (default), pop, list, drop."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["push", "pop", "list", "drop", "show"],
+                    "description": "Stash action (default: push)"
+                },
+                "message": {
+                    "type": "string",
+                    "description": "Message for stash push"
+                },
+                "index": {
+                    "type": "integer",
+                    "description": "Stash index for pop/drop/show (default: 0)"
+                }
+            },
+            "required": []
+        })
+    }
+
+    async fn execute(&self, args: Value) -> crate::Result<Value> {
+        let action = args["action"].as_str().unwrap_or("push");
+        let message = args["message"].as_str();
+        let index = args["index"].as_u64().unwrap_or(0);
+
+        let git_args: Vec<String> = match action {
+            "push" => {
+                let mut a = vec!["stash".to_string(), "push".to_string()];
+                if let Some(msg) = message {
+                    a.push("-m".to_string());
+                    a.push(msg.to_string());
+                }
+                a
+            }
+            "pop" => vec!["stash".to_string(), "pop".to_string(), format!("stash@{{{}}}", index)],
+            "list" => vec!["stash".to_string(), "list".to_string()],
+            "drop" => vec!["stash".to_string(), "drop".to_string(), format!("stash@{{{}}}", index)],
+            "show" => vec!["stash".to_string(), "show".to_string(), "-p".to_string(), format!("stash@{{{}}}", index)],
+            _ => return Err(crate::PawanError::Tool(format!("Unknown stash action: {}", action))),
+        };
+
+        let git_args_ref: Vec<&str> = git_args.iter().map(|s| s.as_str()).collect();
+        let (success, stdout, stderr) = run_git(&self.workspace_root, &git_args_ref).await?;
+
+        if !success {
+            return Err(crate::PawanError::Git(format!(
+                "git stash {} failed: {}",
+                action, stderr
+            )));
+        }
+
+        Ok(json!({
+            "success": true,
+            "action": action,
+            "output": stdout.trim().to_string()
+        }))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
