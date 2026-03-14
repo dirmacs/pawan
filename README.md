@@ -12,7 +12,7 @@
 
 ---
 
-**Pawan** (पवन, "wind") is a Rust-native CLI coding agent. It reads, writes, and heals code autonomously — no subscription, no vendor lock-in. Built for the [dirmacs](https://github.com/dirmacs) ecosystem, works with any OpenAI-compatible API.
+**Pawan** (पवन) is a Rust-native CLI coding agent. Named after [Power Star Pawan Kalyan](https://en.wikipedia.org/wiki/Pawan_Kalyan) — martial artist, Telugu cinema icon, Deputy CM of Andhra Pradesh. That energy: raw power, cult following, fearless execution. It reads, writes, and heals code autonomously — no subscription, no vendor lock-in. Built for the [dirmacs](https://github.com/dirmacs) ecosystem, works with any OpenAI-compatible API.
 
 ## Why Pawan
 
