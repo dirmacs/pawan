@@ -161,12 +161,22 @@ impl PawanAgent {
                         let url = std::env::var("NVIDIA_API_URL")
                             .unwrap_or_else(|_| crate::DEFAULT_NVIDIA_API_URL.to_string());
                         let key = std::env::var("NVIDIA_API_KEY").ok();
+                        if key.is_none() {
+                            eprintln!(
+                                "Warning: NVIDIA_API_KEY not set. Add it to .env or export it."
+                            );
+                        }
                         (url, key)
                     }
                     LlmProvider::OpenAI => {
                         let url = std::env::var("OPENAI_API_URL")
                             .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
                         let key = std::env::var("OPENAI_API_KEY").ok();
+                        if key.is_none() {
+                            eprintln!(
+                                "Warning: OPENAI_API_KEY not set. Add it to .env or export it."
+                            );
+                        }
                         (url, key)
                     }
                     _ => unreachable!(),
