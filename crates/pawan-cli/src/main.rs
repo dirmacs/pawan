@@ -167,6 +167,17 @@ enum Commands {
         action: ConfigAction,
     },
 
+    /// Watch for errors and auto-heal (runs cargo check in a loop)
+    Watch {
+        /// Check interval in seconds
+        #[arg(short, long, default_value = "10")]
+        interval: u64,
+
+        /// Auto-commit fixes
+        #[arg(long)]
+        commit: bool,
+    },
+
     /// Headless single-prompt execution (for scripting and orchestration)
     Run {
         /// The prompt to execute
@@ -296,6 +307,9 @@ async fn run() -> Result<()> {
         }
         Some(Commands::Explain { query }) => run_explain(config, workspace, &query).await,
         Some(Commands::Status) => run_status(config, workspace).await,
+        Some(Commands::Watch { interval, commit }) => {
+            run_watch(config, workspace, interval, commit).await
+        }
         Some(Commands::Run {
             prompt,
             file,
@@ -963,6 +977,118 @@ async fn run_improve(
 }
 
 /// Show project status
+/// Watch mode: poll cargo check and auto-heal on errors
+async fn run_watch(
+    config: PawanConfig,
+    workspace: PathBuf,
+    interval_secs: u64,
+    auto_commit: bool,
+) -> Result<()> {
+    use std::io::Write;
+
+    println!(
+        "{}",
+        format!(
+            "Watching {} every {}s (Ctrl+C to stop)",
+            workspace.display(),
+            interval_secs
+        )
+        .cyan()
+    );
+
+    let mut last_status = true; // assume healthy at start
+    let mut heal_count = 0u32;
+
+    loop {
+        // Run cargo check
+        let check = std::process::Command::new("cargo")
+            .args(["check", "--workspace", "--message-format=short"])
+            .current_dir(&workspace)
+            .output()
+            .map_err(PawanError::Io)?;
+
+        let elapsed = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+        let secs = elapsed.as_secs() % 86400;
+        let now = format!("{:02}:{:02}:{:02}", secs / 3600, (secs % 3600) / 60, secs % 60);
+
+        if check.status.success() {
+            if !last_status {
+                println!("{} {} {}", format!("[{}]", now).dimmed(), "✓".green(), "All clear — project compiles.".green());
+            } else {
+                print!("{} {} {}\r", format!("[{}]", now).dimmed(), "✓".green(), "OK".dimmed());
+                std::io::stdout().flush().ok();
+            }
+            last_status = true;
+        } else {
+            let stderr = String::from_utf8_lossy(&check.stderr);
+            let error_count = stderr.lines().filter(|l| l.contains("error[")).count();
+            let warning_count = stderr.lines().filter(|l| l.contains("warning:")).count();
+
+            println!(
+                "\n{} {} {}",
+                format!("[{}]", now).dimmed(),
+                "✗".red(),
+                format!("{} error(s), {} warning(s) — healing...", error_count, warning_count).red()
+            );
+
+            last_status = false;
+            heal_count += 1;
+
+            // Auto-heal
+            let mut agent = PawanAgent::new(config.clone(), workspace.clone());
+
+            let on_token: pawan::agent::TokenCallback = Box::new(|token: &str| {
+                use std::io::Write;
+                print!("{}", token);
+                std::io::stdout().flush().ok();
+            });
+
+            match agent
+                .execute_with_callbacks(
+                    &format!(
+                        "Fix the compilation errors in this project at {}. \
+                         Run `cargo check` to see errors, then fix them one at a time. \
+                         Verify each fix compiles before moving on.",
+                        workspace.display()
+                    ),
+                    Some(on_token),
+                    None,
+                    None,
+                )
+                .await
+            {
+                Ok(resp) => {
+                    println!("\n{}", format!("Heal #{} complete ({} iterations, {} tool calls)", heal_count, resp.iterations, resp.tool_calls.len()).green());
+
+                    if auto_commit && !resp.tool_calls.is_empty() {
+                        let commit_output = std::process::Command::new("git")
+                            .args(["add", "-A"])
+                            .current_dir(&workspace)
+                            .output()
+                            .ok();
+
+                        if commit_output.map(|o| o.status.success()).unwrap_or(false) {
+                            let msg = format!("fix: auto-heal #{} by pawan watch", heal_count);
+                            let _ = std::process::Command::new("git")
+                                .args(["commit", "-m", &msg])
+                                .current_dir(&workspace)
+                                .output();
+                            println!("{}", format!("  Auto-committed: {}", msg).dimmed());
+                        }
+                    }
+                }
+                Err(e) => {
+                    println!("\n{}", format!("Heal failed: {}", e).red());
+                }
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
+    }
+}
+
 async fn run_status(config: PawanConfig, workspace: PathBuf) -> Result<()> {
     println!("{}", "Pawan Project Status".green().bold());
     println!("{}", "═".repeat(40).dimmed());
