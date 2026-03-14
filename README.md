@@ -56,47 +56,58 @@ pawan status
 pawan/
   crates/
     pawan-core/    # Library: agent engine, tools, config, healing
-    pawan-cli/     # Binary: CLI interface + ratatui TUI
+    pawan-cli/     # Binary: CLI + ratatui TUI
+    pawan-mcp/     # MCP client integration (rmcp 0.12)
+    pawan-aegis/   # Aegis config generation
 ```
 
-**pawan-core** has zero dirmacs-internal dependencies — it works standalone with any OpenAI-compatible API. Future crates (`pawan-mcp`, `pawan-aegis`) add MCP server support and [aegis](https://github.com/dirmacs/aegis) config integration.
+**pawan-core** has zero dirmacs-internal dependencies — it works standalone with any OpenAI-compatible API.
 
 ## Configuration
 
-Create `pawan.toml` in your project root:
+Create `pawan.toml` in your project root (or copy `pawan.example.toml`):
 
 ```toml
-provider = "nvidia"
 model = "mistralai/devstral-2-123b-instruct-2512"
 temperature = 0.6
-max_tool_iterations = 50
 
 [healing]
 fix_errors = true
 fix_warnings = true
 fix_tests = true
-auto_commit = false
 
-[tui]
-syntax_highlighting = true
-mouse_support = true
+[permissions]
+# write_file = "deny"   # Disable file writing
+# bash = "deny"          # Disable shell execution
+
+[mcp.daedra]
+command = "daedra"
+args = ["serve", "--transport", "stdio", "--quiet"]
 ```
+
+Add a `PAWAN.md` file to your project root for per-project context (like CLAUDE.md).
 
 ## Subcommands
 
 | Command | Description |
 |---------|-------------|
 | `pawan` | Interactive TUI chat (default) |
-| `pawan chat` | Same as above |
+| `pawan chat [--resume ID]` | Chat mode, optionally resume a session |
+| `pawan run "prompt"` | Headless single-prompt execution |
+| `pawan run -f prompt.md -o json` | File-based prompt, JSON output |
 | `pawan heal` | Auto-fix errors, warnings, and failing tests |
 | `pawan task "..."` | Execute a specific coding task |
 | `pawan commit` | Generate and apply a commit message |
 | `pawan improve docs\|refactor\|tests\|all` | Improve code quality |
 | `pawan status` | Show project health summary |
+| `pawan sessions` | List saved sessions |
+| `pawan mcp list` | Show connected MCP servers and tools |
+| `pawan config show` | Display resolved configuration |
+| `pawan config init` | Generate pawan.toml template |
 
 ## Tools
 
-Pawan ships with 11 tools available to the LLM:
+15 built-in tools + dynamic MCP tools:
 
 | Tool | Description |
 |------|-------------|
@@ -111,6 +122,10 @@ Pawan ships with 11 tools available to the LLM:
 | `git_diff` | Show changes |
 | `git_add` | Stage files |
 | `git_commit` | Create commits |
+| `git_log` | View commit history |
+| `git_blame` | Line-by-line authorship |
+| `git_branch` | List and show branches |
+| `spawn_agent` | Spawn a sub-agent for delegated tasks |
 
 ## Dirmacs Ecosystem
 
