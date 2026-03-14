@@ -10,7 +10,7 @@
 #[cfg(feature = "tui")]
 mod tui;
 
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 use owo_colors::OwoColorize;
 use pawan::{agent::PawanAgent, config::PawanConfig, healing::Healer, PawanError, Result};
 use std::path::PathBuf;
@@ -122,6 +122,13 @@ enum Commands {
     /// List saved sessions
     Sessions,
 
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: clap_complete::Shell,
+    },
+
     /// MCP server management
     Mcp {
         #[command(subcommand)]
@@ -221,6 +228,10 @@ async fn run() -> Result<()> {
             run_interactive(config, workspace, cli.no_tui, Some(id)).await
         }
         Some(Commands::Sessions) => run_sessions().await,
+        Some(Commands::Completions { shell }) => {
+            clap_complete::generate(shell, &mut Cli::command(), "pawan", &mut std::io::stdout());
+            Ok(())
+        }
         Some(Commands::Mcp { action }) => match action {
             McpAction::List => run_mcp_list(config).await,
         },
