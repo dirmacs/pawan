@@ -263,7 +263,7 @@ impl PawanAgent {
     pub async fn execute_with_callbacks(
         &mut self,
         user_prompt: &str,
-        _on_token: Option<TokenCallback>,
+        on_token: Option<TokenCallback>,
         on_tool: Option<ToolCallback>,
     ) -> Result<AgentResponse> {
         self.history.push(Message {
@@ -290,7 +290,7 @@ impl PawanAgent {
             let tool_defs = self.tools.get_definitions();
             let response = self
                 .backend
-                .generate(&self.history, &tool_defs, None)
+                .generate(&self.history, &tool_defs, on_token.as_ref())
                 .await?;
 
             // Accumulate token usage

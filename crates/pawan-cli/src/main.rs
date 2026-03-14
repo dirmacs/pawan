@@ -883,10 +883,21 @@ async fn run_headless(
         eprintln!("Prompt: {}", &prompt_text[..prompt_text.len().min(100)]);
     }
 
-    // Execute with timeout
+    // Set up streaming callback for text output
+    let on_token: Option<pawan::agent::TokenCallback> = if output_format != "json" {
+        Some(Box::new(|token: &str| {
+            use std::io::Write;
+            print!("{}", token);
+            std::io::stdout().flush().ok();
+        }))
+    } else {
+        None
+    };
+
+    // Execute with timeout and optional streaming
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
-        agent.execute(&prompt_text),
+        agent.execute_with_callbacks(&prompt_text, on_token, None),
     )
     .await;
 
@@ -952,9 +963,13 @@ async fn run_headless(
             println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
         _ => {
-            // Text output: clean thinking tags, render markdown
+            // Text was already streamed to stdout token-by-token.
+            // Just ensure a trailing newline.
             let content = strip_thinking_tags(&response.content);
-            termimad::print_text(&content);
+            // If streaming was active, content was printed live — add newline if needed
+            if !content.ends_with('\n') {
+                println!();
+            }
 
             if verbose {
                 eprintln!(
