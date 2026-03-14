@@ -1915,6 +1915,13 @@ async fn run_headless(
                 println!();
             }
 
+            // Warn if no tools were used — likely model compatibility issue
+            if response.tool_calls.is_empty() {
+                eprintln!(
+                    "\nWarning: No tool calls were made. The model may not support tool-use or the prompt may need adjustment."
+                );
+            }
+
             if verbose {
                 eprintln!(
                     "\n--- {} iterations, {} tool calls, {} tokens ---",
