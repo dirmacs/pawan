@@ -2,6 +2,10 @@
 title = "Getting Started"
 +++
 
+## Architecture
+
+![Pawan Architecture](/pawan/architecture.svg)
+
 ## Install
 
 ```bash
