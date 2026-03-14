@@ -100,6 +100,8 @@ impl ToolRegistry {
         registry.register(Arc::new(git::GitLogTool::new(workspace_root.clone())));
         registry.register(Arc::new(git::GitBlameTool::new(workspace_root.clone())));
         registry.register(Arc::new(git::GitBranchTool::new(workspace_root.clone())));
+        registry.register(Arc::new(git::GitCheckoutTool::new(workspace_root.clone())));
+        registry.register(Arc::new(git::GitStashTool::new(workspace_root.clone())));
 
         // Sub-agent tool
         registry.register(Arc::new(agent::SpawnAgentTool::new(workspace_root)));

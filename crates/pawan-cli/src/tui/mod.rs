@@ -60,6 +60,10 @@ struct App<'a> {
     should_quit: bool,
     status: String,
     focus: Panel,
+    /// Cumulative token usage across all requests
+    total_tokens: u64,
+    total_prompt_tokens: u64,
+    total_completion_tokens: u64,
     /// Channel to send commands to the agent task
     cmd_tx: mpsc::UnboundedSender<AgentCommand>,
     /// Channel to receive events from the agent task
@@ -87,6 +91,9 @@ impl<'a> App<'a> {
             should_quit: false,
             status: "Ready".to_string(),
             focus: Panel::Input,
+            total_tokens: 0,
+            total_prompt_tokens: 0,
+            total_completion_tokens: 0,
             cmd_tx,
             event_rx,
         }
@@ -129,6 +136,9 @@ impl<'a> App<'a> {
                                     content: resp.content,
                                     tool_calls: resp.tool_calls,
                                 });
+                                self.total_tokens += resp.usage.total_tokens;
+                                self.total_prompt_tokens += resp.usage.prompt_tokens;
+                                self.total_completion_tokens += resp.usage.completion_tokens;
                                 self.status = format!("Done ({} iterations)", resp.iterations);
                                 self.scroll = self.messages.len().saturating_sub(1);
                             }
@@ -369,16 +379,33 @@ impl<'a> App<'a> {
             Style::default().fg(Color::DarkGray)
         };
 
-        let status = Paragraph::new(Line::from(vec![
+        let mut spans = vec![
             Span::styled("Model: ", Style::default().fg(Color::DarkGray)),
             Span::styled(&self.model_name, Style::default().fg(Color::Cyan)),
             Span::raw(" | "),
             Span::styled(&self.status, status_style),
+        ];
+
+        if self.total_tokens > 0 {
+            spans.push(Span::raw(" | "));
+            spans.push(Span::styled(
+                format!("{}tok", self.total_tokens),
+                Style::default().fg(Color::Yellow),
+            ));
+            spans.push(Span::styled(
+                format!(" ({}↑ {}↓)", self.total_prompt_tokens, self.total_completion_tokens),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+
+        spans.extend([
             Span::raw(" | "),
-            Span::styled("Ctrl+L: clear", Style::default().fg(Color::DarkGray)),
+            Span::styled("Ctrl+L: clear".to_string(), Style::default().fg(Color::DarkGray)),
             Span::raw(" | "),
-            Span::styled("Ctrl+C: quit", Style::default().fg(Color::DarkGray)),
-        ]));
+            Span::styled("Ctrl+C: quit".to_string(), Style::default().fg(Color::DarkGray)),
+        ]);
+
+        let status = Paragraph::new(Line::from(spans));
 
         f.render_widget(status, area);
     }
