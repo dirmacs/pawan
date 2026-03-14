@@ -2,6 +2,7 @@
 //!
 //! These tests use wiremock to simulate Ollama API responses,
 //! allowing us to test the full agent workflow without a real LLM.
+#![allow(dead_code)]
 
 use pawan::agent::{PawanAgent, Role};
 use pawan::config::{HealingConfig, PawanConfig};
