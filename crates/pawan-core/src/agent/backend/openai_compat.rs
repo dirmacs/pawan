@@ -32,16 +32,15 @@ impl OpenAiCompatBackend {
             http_client: reqwest::Client::new(),
             cfg,
         }
+    }
 
     /// Calculate exponential backoff delay with jitter
     /// Start at 1s, double each time, with ±20% random jitter
     fn calculate_backoff_delay(attempt: usize) -> std::time::Duration {
-        let base_delay_secs = 2u64.pow(attempt as u32); // 1, 2, 4, 8, ...
-        let jitter_factor = 0.8 + (rand::random::<f64>() * 0.4); // 0.8 to 1.2
-        let delay_secs = (base_delay_secs as f64 * jitter_factor) as u64;
-        std::time::Duration::from_secs(delay_secs)
+        let base_secs = (1u64 << attempt) as f64; // 1, 2, 4, 8, ...
+        let jitter = 0.8 + (rand::random::<f64>() * 0.4); // 0.8 to 1.2
+        std::time::Duration::from_secs_f64(base_secs * jitter)
     }
-}
     fn build_messages(&self, messages: &[Message]) -> Vec<Value> {
         let mut out = vec![json!({
             "role": "system",
@@ -579,24 +578,12 @@ impl LlmBackend for OpenAiCompatBackend {
         
         // Return the last error
         Err(last_error.expect("No error recorded in retry loop"))
-                    "tool_calls": [{
-                        "id": "tc_123",
-                        "type": "function",
-                        "function": {
-                            "name": "read_file",
-                            "arguments": "{\"path\":\"test.rs\"}"
-                        }
-                    }]
-                },
-                "finish_reason": "tool_calls"
-            }]
-        });
-
-        let response = backend.parse_response(&json).unwrap();
-        assert_eq!(response.tool_calls.len(), 1);
-        assert_eq!(response.tool_calls[0].name, "read_file");
-        assert_eq!(response.tool_calls[0].id, "tc_123");
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
 
     #[test]
     fn test_parse_response_no_choices() {
@@ -609,6 +596,7 @@ impl LlmBackend for OpenAiCompatBackend {
             max_tokens: 100,
             system_prompt: "test".into(),
             use_thinking: false,
+            max_retries: 3,
         });
 
         let json = json!({"choices": []});
@@ -669,6 +657,7 @@ impl LlmBackend for OpenAiCompatBackend {
             max_tokens: 100,
             system_prompt: "test".into(),
             use_thinking: false,
+            max_retries: 3,
         });
 
         // No structured tool_calls, but content has [TOOL_CALLS] marker
@@ -699,6 +688,7 @@ impl LlmBackend for OpenAiCompatBackend {
             max_tokens: 100,
             system_prompt: "You are helpful.".into(),
             use_thinking: false,
+            max_retries: 3,
         });
 
         let messages = vec![
@@ -715,6 +705,8 @@ impl LlmBackend for OpenAiCompatBackend {
         assert_eq!(api_messages[0]["role"], "system");
         assert_eq!(api_messages[1]["role"], "user");
         assert_eq!(api_messages[1]["content"], "Hello");
+    }
+
     #[test]
     fn test_calculate_backoff_delay() {
         // Test that backoff delays follow exponential pattern with jitter
@@ -727,9 +719,7 @@ impl LlmBackend for OpenAiCompatBackend {
                 "Delay 0 should be ~1s with jitter: {}ms", delay_0.as_millis());
         assert!(delay_1.as_millis() >= 1600 && delay_1.as_millis() <= 2400, 
                 "Delay 1 should be ~2s with jitter: {}ms", delay_1.as_millis());
-        assert!(delay_2.as_millis() >= 3200 && delay_2.as_millis() <= 4800, 
+        assert!(delay_2.as_millis() >= 3200 && delay_2.as_millis() <= 4800,
                 "Delay 2 should be ~4s with jitter: {}ms", delay_2.as_millis());
     }
-}
-
 }
