@@ -315,7 +315,7 @@ fn test_healing_config_defaults() {
 fn test_config_defaults() {
     let config = PawanConfig::default();
 
-    assert_eq!(config.model, "deepseek-ai/deepseek-v3.2");
+    assert_eq!(config.model, "stepfun-ai/step-3.5-flash");
     assert!(!config.dry_run);
     assert!(config.auto_backup);
     assert!(config.reasoning_mode);
@@ -331,7 +331,10 @@ fn test_config_system_prompt_with_reasoning() {
 
     // System prompt contains Pawan identity
     assert!(prompt.contains("Pawan"));
-    // With deepseek model and reasoning_mode, thinking mode should be enabled
+    // Default model is StepFun (not deepseek), so thinking mode is off
+    assert!(!config.use_thinking_mode());
+    // But with a deepseek model, thinking mode activates
+    config.model = "deepseek-ai/deepseek-v3.2".to_string();
     assert!(config.use_thinking_mode());
 }
 
@@ -494,57 +497,112 @@ fn test_tool_call_request_serialization() {
 // End-to-end Tests (require OLLAMA_URL to be set or Ollama running)
 // ============================================================================
 
-/// This test requires Ollama to be running with a model available.
-/// Run with: OLLAMA_URL=http://localhost:11434 cargo test -- --ignored
+/// Test agent executes a simple prompt with mock backend (no real LLM required)
 #[tokio::test]
-#[ignore]
 async fn test_agent_simple_execution() {
+    use pawan::agent::backend::mock::{MockBackend, MockResponse};
+
     let temp_dir = TempDir::new().unwrap();
     let config = PawanConfig::default();
 
-    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf());
+    let backend = MockBackend::new(vec![MockResponse::text("Hello! I'm Pawan.")]);
+    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
+        .with_backend(Box::new(backend));
 
     let response = agent.execute("Say hello").await;
 
-    // Should succeed if Ollama is running
-    assert!(
-        response.is_ok(),
-        "Agent execution failed: {:?}",
-        response.err()
-    );
-
+    assert!(response.is_ok(), "Agent execution failed: {:?}", response.err());
     let response = response.unwrap();
-    assert!(!response.content.is_empty());
+    assert_eq!(response.content, "Hello! I'm Pawan.");
+    assert_eq!(response.iterations, 1);
+    assert!(response.tool_calls.is_empty());
 }
 
-/// Test healing on a simple project
+/// Test agent tool-calling loop: mock issues a tool call, then final text response
 #[tokio::test]
-#[ignore]
-async fn test_agent_heal() {
+async fn test_agent_tool_call_loop() {
+    use pawan::agent::backend::mock::{MockBackend, MockResponse};
+    use serde_json::json;
+
     let temp_dir = TempDir::new().unwrap();
 
-    // Create a Rust project with an error
-    std::fs::write(
-        temp_dir.path().join("Cargo.toml"),
-        r#"[package]
-name = "test-project"
-version = "0.1.0"
-edition = "2021"
-"#,
-    )
-    .unwrap();
-
-    std::fs::create_dir_all(temp_dir.path().join("src")).unwrap();
-    std::fs::write(
-        temp_dir.path().join("src/main.rs"),
-        "fn main() { let x: i32 = \"not a number\"; }",
-    )
-    .unwrap();
+    // Write a file the agent will "read"
+    std::fs::write(temp_dir.path().join("hello.txt"), "hello world").unwrap();
 
     let config = PawanConfig::default();
-    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf());
+    let backend = MockBackend::new(vec![
+        // First response: tool call to read the file
+        MockResponse::tool_call("read_file", json!({"path": "hello.txt"})),
+        // Second response: final text after seeing the file content
+        MockResponse::text("The file contains: hello world"),
+    ]);
+
+    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
+        .with_backend(Box::new(backend));
+
+    let response = agent.execute("What is in hello.txt?").await.unwrap();
+
+    assert_eq!(response.content, "The file contains: hello world");
+    assert_eq!(response.iterations, 2);
+    assert_eq!(response.tool_calls.len(), 1);
+    assert_eq!(response.tool_calls[0].name, "read_file");
+    assert!(response.tool_calls[0].success);
+}
+
+/// Test agent heal prompt uses mock backend (no cargo, no real LLM)
+#[tokio::test]
+async fn test_agent_heal_prompt_sent() {
+    use pawan::agent::backend::mock::{MockBackend, MockResponse};
+
+    let temp_dir = TempDir::new().unwrap();
+    let config = PawanConfig::default();
+
+    let backend = MockBackend::new(vec![MockResponse::text(
+        "I'll heal this project: cargo check shows no errors.",
+    )]);
+    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
+        .with_backend(Box::new(backend));
 
     let response = agent.heal().await;
 
     assert!(response.is_ok(), "Heal failed: {:?}", response.err());
+    let response = response.unwrap();
+    // Heal prompt should be in history (user message)
+    assert!(!agent.history().is_empty());
+    // The heal prompt mentions workspace path
+    assert!(
+        agent.history()[0]
+            .content
+            .contains(temp_dir.path().to_str().unwrap())
+    );
+    assert_eq!(response.iterations, 1);
+}
+
+/// Test agent with denied tool — should return error result but not crash
+#[tokio::test]
+async fn test_agent_tool_denied_by_permission() {
+    use pawan::agent::backend::mock::{MockBackend, MockResponse};
+    use pawan::config::ToolPermission;
+    use serde_json::json;
+
+    let temp_dir = TempDir::new().unwrap();
+    let mut config = PawanConfig::default();
+    config
+        .permissions
+        .insert("bash".to_string(), ToolPermission::Deny);
+
+    let backend = MockBackend::new(vec![
+        MockResponse::tool_call("bash", json!({"command": "rm -rf /"})),
+        MockResponse::text("I couldn't run that command."),
+    ]);
+
+    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
+        .with_backend(Box::new(backend));
+
+    let response = agent.execute("Delete everything").await.unwrap();
+
+    // The bash call should appear in records but with success=false
+    assert_eq!(response.tool_calls.len(), 1);
+    assert!(!response.tool_calls[0].success);
+    assert_eq!(response.content, "I couldn't run that command.");
 }
