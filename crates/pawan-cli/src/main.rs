@@ -247,8 +247,15 @@ async fn main() {
 }
 
 async fn run() -> Result<()> {
-    // Auto-load .env file if present (silent on missing)
-    dotenvy::dotenv().ok();
+    // Auto-load .env file: try CWD first, then ~/.config/pawan/.env fallback
+    if dotenvy::dotenv().is_err() {
+        if let Some(home) = dirs::home_dir() {
+            let config_env = home.join(".config/pawan/.env");
+            if config_env.exists() {
+                dotenvy::from_path(&config_env).ok();
+            }
+        }
+    }
 
     let cli = Cli::parse();
 
