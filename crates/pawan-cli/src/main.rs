@@ -248,12 +248,13 @@ async fn main() {
 
 async fn run() -> Result<()> {
     // Auto-load .env file: try CWD first, then ~/.config/pawan/.env fallback
-    if dotenvy::dotenv().is_err() {
-        if let Some(home) = dirs::home_dir() {
-            let config_env = home.join(".config/pawan/.env");
-            if config_env.exists() {
-                dotenvy::from_path(&config_env).ok();
-            }
+    // Always load config fallback to ensure NVIDIA_API_KEY is valid (CWD .env may have placeholder)
+    dotenvy::dotenv().ok();
+    if let Some(home) = dirs::home_dir() {
+        let config_env = home.join(".config/pawan/.env");
+        if config_env.exists() {
+            // Override: config env takes precedence for pawan-specific keys
+            dotenvy::from_path_override(&config_env).ok();
         }
     }
 
