@@ -194,6 +194,7 @@ impl PawanAgent {
                     max_tokens: config.max_tokens,
                     system_prompt: system_prompt.to_string(),
                     use_thinking: config.use_thinking_mode(),
+                    max_retries: config.max_retries,
                 }))
             }
             LlmProvider::Ollama => {
