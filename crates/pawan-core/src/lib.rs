@@ -66,8 +66,9 @@ pub type Result<T> = std::result::Result<T, PawanError>;
 /// Version information
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Default model for coding tasks (DeepSeek v3.2 via NVIDIA API)
-pub const DEFAULT_MODEL: &str = "deepseek-ai/deepseek-v3.2";
+/// Default model for coding tasks (StepFun Step 3.5 Flash via NVIDIA NIM)
+/// Note: deepseek-v3.2 hangs on tool-use — do not use as default.
+pub const DEFAULT_MODEL: &str = "stepfun-ai/step-3.5-flash";
 
 /// Default NVIDIA API URL
 pub const DEFAULT_NVIDIA_API_URL: &str = "https://integrate.api.nvidia.com/v1";
