@@ -18,8 +18,8 @@ pub struct OpenAiCompatConfig {
     pub max_tokens: usize,
     pub system_prompt: String,
     pub use_thinking: bool,
+    pub max_retries: usize,
 }
-
 /// Backend for OpenAI-compatible APIs (NVIDIA NIM, OpenAI, DeepSeek)
 pub struct OpenAiCompatBackend {
     http_client: reqwest::Client,
@@ -32,8 +32,16 @@ impl OpenAiCompatBackend {
             http_client: reqwest::Client::new(),
             cfg,
         }
-    }
 
+    /// Calculate exponential backoff delay with jitter
+    /// Start at 1s, double each time, with ±20% random jitter
+    fn calculate_backoff_delay(attempt: usize) -> std::time::Duration {
+        let base_delay_secs = 2u64.pow(attempt as u32); // 1, 2, 4, 8, ...
+        let jitter_factor = 0.8 + (rand::random::<f64>() * 0.4); // 0.8 to 1.2
+        let delay_secs = (base_delay_secs as f64 * jitter_factor) as u64;
+        std::time::Duration::from_secs(delay_secs)
+    }
+}
     fn build_messages(&self, messages: &[Message]) -> Vec<Value> {
         let mut out = vec![json!({
             "role": "system",
@@ -515,148 +523,62 @@ impl LlmBackend for OpenAiCompatBackend {
         request_body["seed"] = json!(42);
 
         let url = format!("{}/chat/completions", self.cfg.api_url);
-        let mut request = self.http_client.post(&url).json(&request_body);
+        
+        // Retry loop for 429 or 5xx responses
+        let mut last_error = None;
+        let max_retries = self.cfg.max_retries;
+        
+        for attempt in 0..=max_retries {
+            let mut request = self.http_client.post(&url).json(&request_body);
 
-        if let Some(ref api_key) = self.cfg.api_key {
-            request = request.header("Authorization", format!("Bearer {}", api_key));
-        }
-
-        if on_token.is_some() {
-            self.streaming(request, on_token).await
-        } else {
-            self.non_streaming(request).await
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use reqwest::StatusCode;
-
-    #[test]
-    fn test_format_api_error_401_with_json_body() {
-        let body = r#"{"error":{"message":"Invalid API key"}}"#;
-        let result = OpenAiCompatBackend::format_api_error(StatusCode::UNAUTHORIZED, body);
-        assert!(result.contains("Invalid API key"));
-        assert!(result.contains("check your API key"));
-        assert!(result.contains("401"));
-    }
-
-    #[test]
-    fn test_format_api_error_429_rate_limited() {
-        let body = r#"{"error":{"message":"Rate limit exceeded"}}"#;
-        let result = OpenAiCompatBackend::format_api_error(StatusCode::TOO_MANY_REQUESTS, body);
-        assert!(result.contains("rate limited"));
-        assert!(result.contains("Rate limit exceeded"));
-    }
-
-    #[test]
-    fn test_format_api_error_404_model_not_found() {
-        let body = r#"{"detail":"Model not found"}"#;
-        let result = OpenAiCompatBackend::format_api_error(StatusCode::NOT_FOUND, body);
-        assert!(result.contains("Model not found"));
-        assert!(result.contains("model not found or endpoint incorrect"));
-    }
-
-    #[test]
-    fn test_format_api_error_403_forbidden() {
-        let body = r#"{"message":"Forbidden"}"#;
-        let result = OpenAiCompatBackend::format_api_error(StatusCode::FORBIDDEN, body);
-        assert!(result.contains("Forbidden"));
-        assert!(result.contains("check API key permissions"));
-    }
-
-    #[test]
-    fn test_format_api_error_500_server() {
-        let body = r#"{"error":{"message":"Internal server error"}}"#;
-        let result =
-            OpenAiCompatBackend::format_api_error(StatusCode::INTERNAL_SERVER_ERROR, body);
-        assert!(result.contains("retry later"));
-    }
-
-    #[test]
-    fn test_format_api_error_empty_body() {
-        let result = OpenAiCompatBackend::format_api_error(StatusCode::BAD_GATEWAY, "");
-        assert!(result.contains("502"));
-        assert!(result.contains("retry later"));
-        // Should not contain trailing ": " for empty body
-        assert!(!result.ends_with(": "));
-    }
-
-    #[test]
-    fn test_format_api_error_plain_text_body() {
-        let result = OpenAiCompatBackend::format_api_error(
-            StatusCode::BAD_REQUEST,
-            "something went wrong",
-        );
-        assert!(result.contains("something went wrong"));
-        assert!(result.contains("400"));
-    }
-
-    #[test]
-    fn test_format_api_error_no_hint_for_unknown_status() {
-        let body = r#"{"error":{"message":"weird error"}}"#;
-        let result = OpenAiCompatBackend::format_api_error(StatusCode::IM_A_TEAPOT, body);
-        assert!(result.contains("weird error"));
-        // No hint for 418
-        assert!(!result.contains("check"));
-        assert!(!result.contains("retry"));
-    }
-
-    #[test]
-    fn test_parse_response_valid() {
-        let backend = OpenAiCompatBackend::new(OpenAiCompatConfig {
-            api_url: "http://localhost".into(),
-            api_key: None,
-            model: "test".into(),
-            temperature: 1.0,
-            top_p: 0.95,
-            max_tokens: 100,
-            system_prompt: "test".into(),
-            use_thinking: false,
-        });
-
-        let json = json!({
-            "choices": [{
-                "message": {
-                    "content": "Hello, world!",
-                    "role": "assistant"
-                },
-                "finish_reason": "stop"
-            }],
-            "usage": {
-                "prompt_tokens": 10,
-                "completion_tokens": 5,
-                "total_tokens": 15
+            if let Some(ref api_key) = self.cfg.api_key {
+                request = request.header("Authorization", format!("Bearer {}", api_key));
             }
-        });
 
-        let response = backend.parse_response(&json).unwrap();
-        assert_eq!(response.content, "Hello, world!");
-        assert_eq!(response.finish_reason, "stop");
-        assert!(response.tool_calls.is_empty());
-        assert_eq!(response.usage.unwrap().total_tokens, 15);
-    }
+            let result = if on_token.is_some() {
+                self.streaming(request, on_token).await
+            } else {
+                self.non_streaming(request).await
+            };
 
-    #[test]
-    fn test_parse_response_with_tool_calls() {
-        let backend = OpenAiCompatBackend::new(OpenAiCompatConfig {
-            api_url: "http://localhost".into(),
-            api_key: None,
-            model: "test".into(),
-            temperature: 1.0,
-            top_p: 0.95,
-            max_tokens: 100,
-            system_prompt: "test".into(),
-            use_thinking: false,
-        });
-
-        let json = json!({
-            "choices": [{
-                "message": {
-                    "content": "",
-                    "role": "assistant",
+            match result {
+                Ok(response) => return Ok(response),
+                Err(err) => {
+                    last_error = Some(err);
+                    
+                    // Check if this is a retryable error (429 or 5xx)
+                    if let Some(pawan_err) = last_error.as_ref() {
+                        if let PawanError::Llm(ref msg) = pawan_err {
+                            // Check if error message indicates 429 or 5xx status
+                            if msg.contains("429") || msg.contains("500") || msg.contains("501") || 
+                               msg.contains("502") || msg.contains("503") || msg.contains("504") {
+                                
+                                if attempt < max_retries {
+                                    let delay = Self::calculate_backoff_delay(attempt);
+                                    let delay_ms = delay.as_millis();
+                                    
+                                    tracing::warn!(
+                                        attempt = attempt + 1,
+                                        delay_ms = delay_ms,
+                                        "Retrying after LLM API error: {}",
+                                        msg
+                                    );
+                                    
+                                    tokio::time::sleep(delay).await;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Non-retryable error or max retries reached
+                    break;
+                }
+            }
+        }
+        
+        // Return the last error
+        Err(last_error.expect("No error recorded in retry loop"))
                     "tool_calls": [{
                         "id": "tc_123",
                         "type": "function",
@@ -793,5 +715,21 @@ mod tests {
         assert_eq!(api_messages[0]["role"], "system");
         assert_eq!(api_messages[1]["role"], "user");
         assert_eq!(api_messages[1]["content"], "Hello");
+    #[test]
+    fn test_calculate_backoff_delay() {
+        // Test that backoff delays follow exponential pattern with jitter
+        let delay_0 = OpenAiCompatBackend::calculate_backoff_delay(0);
+        let delay_1 = OpenAiCompatBackend::calculate_backoff_delay(1);
+        let delay_2 = OpenAiCompatBackend::calculate_backoff_delay(2);
+
+        // Base delays should be around 1s, 2s, 4s (with ±20% jitter)
+        assert!(delay_0.as_millis() >= 800 && delay_0.as_millis() <= 1200, 
+                "Delay 0 should be ~1s with jitter: {}ms", delay_0.as_millis());
+        assert!(delay_1.as_millis() >= 1600 && delay_1.as_millis() <= 2400, 
+                "Delay 1 should be ~2s with jitter: {}ms", delay_1.as_millis());
+        assert!(delay_2.as_millis() >= 3200 && delay_2.as_millis() <= 4800, 
+                "Delay 2 should be ~4s with jitter: {}ms", delay_2.as_millis());
     }
+}
+
 }

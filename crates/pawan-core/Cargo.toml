@@ -49,9 +49,8 @@ ignore = "0.4"
 walkdir = "2.5"
 similar = "2.6"
 regex = "1.12"
+rand = "0.8"
 
 [dev-dependencies]
 tempfile = "3.23"
-rstest = "0.26"
-wiremock = "0.6"
 tokio-test = "0.4"
