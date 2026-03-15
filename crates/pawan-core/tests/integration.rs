@@ -11,86 +11,15 @@ use pawan::tools::ToolRegistry;
 use serde_json::json;
 use std::path::PathBuf;
 use tempfile::TempDir;
-use wiremock::matchers::{method, path};
-use wiremock::{Mock, MockServer, ResponseTemplate};
 
 // ============================================================================
 // Helper Functions
 // ============================================================================
 
-/// Create a mock Ollama server that returns a simple response
-async fn setup_mock_ollama() -> MockServer {
-    let mock_server = MockServer::start().await;
-
-    // Mock the chat endpoint
-    Mock::given(method("POST"))
-        .and(path("/api/chat"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "model": "nemotron-mini",
-            "message": {
-                "role": "assistant",
-                "content": "I'll help you with that task."
-            },
-            "done": true,
-            "done_reason": "stop"
-        })))
-        .mount(&mock_server)
-        .await;
-
-    mock_server
-}
-
-/// Create a mock Ollama that returns tool calls
-async fn setup_mock_ollama_with_tools() -> MockServer {
-    let mock_server = MockServer::start().await;
-
-    // First response: tool call
-    Mock::given(method("POST"))
-        .and(path("/api/chat"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "model": "nemotron-mini",
-            "message": {
-                "role": "assistant",
-                "content": "Let me read that file for you.",
-                "tool_calls": [{
-                    "function": {
-                        "name": "read_file",
-                        "arguments": {
-                            "path": "test.txt"
-                        }
-                    }
-                }]
-            },
-            "done": true,
-            "done_reason": "tool_calls"
-        })))
-        .up_to_n_times(1)
-        .mount(&mock_server)
-        .await;
-
-    // Second response: final answer after tool
-    Mock::given(method("POST"))
-        .and(path("/api/chat"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
-            "model": "nemotron-mini",
-            "message": {
-                "role": "assistant",
-                "content": "The file contains: hello world"
-            },
-            "done": true,
-            "done_reason": "stop"
-        })))
-        .mount(&mock_server)
-        .await;
-
-    mock_server
-}
-
-/// Create a config pointing to the mock server
+/// Create a config for testing
 fn config_with_mock_url(_mock_url: &str) -> PawanConfig {
     let mut config = PawanConfig::default();
     config.model = "nemotron-mini".to_string();
-    // Note: We'll set OLLAMA_URL env var instead of modifying config
     config
 }
 
