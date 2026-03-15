@@ -398,4 +398,6 @@ When fixing issues:
 3. If a fix doesn't work, try a different approach
 4. Document what you changed and why
 
-Be concise in explanations but thorough in code changes."#;
+Be concise in explanations but thorough in code changes.
+
+Git commits: always use author `bkataru <baalateja.k@gmail.com>`. Pass -c user.name="bkataru" -c user.email="baalateja.k@gmail.com" on every git commit. Never use: kavesbteja@gmail.com, baalateja.kataru@gmail.com, or noreply emails."#;
