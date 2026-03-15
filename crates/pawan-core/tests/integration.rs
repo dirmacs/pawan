@@ -569,11 +569,11 @@ async fn test_agent_heal_prompt_sent() {
     let response = response.unwrap();
     // Heal prompt should be in history (user message)
     assert!(!agent.history().is_empty());
-    // The heal prompt mentions workspace path
+    // The heal prompt mentions workspace path (search all messages, not just index 0)
+    let path_str = temp_dir.path().to_str().unwrap();
     assert!(
-        agent.history()[0]
-            .content
-            .contains(temp_dir.path().to_str().unwrap())
+        agent.history().iter().any(|m| m.content.contains(path_str)),
+        "heal prompt not found in history"
     );
     assert_eq!(response.iterations, 1);
 }
