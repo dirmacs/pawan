@@ -63,6 +63,9 @@ pub struct PawanConfig {
     /// Maximum tokens in response
     pub max_tokens: usize,
 
+    /// Maximum retries for LLM API calls (429 or 5xx errors)
+    pub max_retries: usize,
+
     /// Enable reasoning/thinking mode (for DeepSeek/Nemotron models)
     pub reasoning_mode: bool,
 
@@ -126,6 +129,7 @@ impl Default for PawanConfig {
             top_p: 0.95,
             max_tokens: 8192,
             reasoning_mode: true,
+            max_retries: 3,
             healing: HealingConfig::default(),
             targets,
             tui: TuiConfig::default(),
