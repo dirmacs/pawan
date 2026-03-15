@@ -368,7 +368,8 @@ impl PawanConfig {
         None
     }
 
-    /// Check if thinking mode should be enabled (for DeepSeek models)
+    /// Check if thinking mode should be enabled.
+    /// Only applicable to DeepSeek models (other NIM models don't support <think> tokens).
     pub fn use_thinking_mode(&self) -> bool {
         self.reasoning_mode && self.model.contains("deepseek")
     }

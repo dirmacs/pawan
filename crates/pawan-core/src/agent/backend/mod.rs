@@ -2,6 +2,7 @@
 //!
 //! Abstracts over different LLM providers (NVIDIA NIM, Ollama, OpenAI).
 
+pub mod mock;
 pub mod ollama;
 pub mod openai_compat;
 
