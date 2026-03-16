@@ -382,13 +382,27 @@ impl PawanAgent {
                     .tools
                     .execute(&tool_call.name, tool_call.arguments.clone())
                     .await;
-
                 let duration_ms = start.elapsed().as_millis() as u64;
 
                 let (result_value, success) = match result {
                     Ok(v) => (v, true),
                     Err(e) => (json!({"error": e.to_string()}), false),
                 };
+
+                // Truncate tool results that exceed max chars to prevent context bloat
+                const MAX_RESULT_CHARS: usize = 8000;
+                let result_value = {
+                    let result_str = serde_json::to_string(&result_value).unwrap_or_default();
+                    if result_str.len() > MAX_RESULT_CHARS {
+                        let truncated = &result_str[..MAX_RESULT_CHARS];
+                        serde_json::from_str(truncated).unwrap_or_else(|_| {
+                            json!({"content": format!("{}...[truncated from {} chars]", &result_str[..MAX_RESULT_CHARS], result_str.len())})
+                        })
+                    } else {
+                        result_value
+                    }
+                };
+
 
                 let record = ToolCallRecord {
                     id: tool_call.id.clone(),
