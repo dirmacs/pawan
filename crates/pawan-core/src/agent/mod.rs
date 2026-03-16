@@ -260,6 +260,54 @@ impl PawanAgent {
     pub fn clear_history(&mut self) {
         self.history.clear();
     }
+    /// Prune conversation history to reduce context size.
+    /// Keeps the first message (system prompt) and last 4 messages,
+    /// replaces everything in between with a summary message.
+    fn prune_history(&mut self) {
+        let len = self.history.len();
+        if len <= 5 {
+            return; // Nothing to prune
+        }
+
+        let keep_end = 4;
+        let start = 1; // Skip system prompt at index 0
+        let end = len - keep_end;
+        let pruned_count = end - start;
+
+        // Build summary from middle messages
+        let mut summary = String::new();
+        for msg in &self.history[start..end] {
+            let chunk = if msg.content.len() > 200 {
+                &msg.content[..200]
+            } else {
+                &msg.content
+            };
+            summary.push_str(chunk);
+            summary.push_str("\n");
+            if summary.len() > 2000 {
+                summary.truncate(2000);
+                break;
+            }
+        }
+
+        let summary_msg = Message {
+            role: Role::System,
+            content: format!("Previous conversation summary (pruned): {}", summary),
+            tool_calls: vec![],
+            tool_result: None,
+        };
+
+        // Keep first message, insert summary, then last 4
+        let first = self.history[0].clone();
+        let tail: Vec<Message> = self.history[len - keep_end..].to_vec();
+
+        self.history.clear();
+        self.history.push(first);
+        self.history.push(summary_msg);
+        self.history.extend(tail);
+
+        eprintln!("[pawan] Pruned {} messages from history, context estimate was {}", pruned_count, self.context_tokens_estimate);
+    }
 
     /// Add a message to history
     pub fn add_message(&mut self, message: Message) {
@@ -308,7 +356,7 @@ impl PawanAgent {
             // Estimate context tokens
             self.context_tokens_estimate = self.history.iter().map(|m| m.content.len()).sum::<usize>() / 4;
             if self.context_tokens_estimate > self.config.max_context_tokens {
-                eprintln!("[pawan] Context estimate {} tokens exceeds max {} — pruning needed", self.context_tokens_estimate, self.config.max_context_tokens);
+                self.prune_history();
             }
 
             let tool_defs = self.tools.get_definitions();
