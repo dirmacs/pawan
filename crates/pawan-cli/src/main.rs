@@ -758,6 +758,19 @@ Full diff:
         .trim()
         .to_string();
 
+    // Show diff preview
+    println!("\n{}", "Diff preview:".cyan().bold());
+    println!("{}", "─".repeat(50).dimmed());
+    println!("{}", diff_stat.trim());
+    println!("{}", "─".repeat(50).dimmed());
+    let diff_lines: Vec<&str> = diff_full.lines().take(40).collect();
+    for line in &diff_lines {
+        println!("{}", line);
+    }
+    if diff_full.lines().count() > 40 {
+        println!("{}", format!("... [{} more lines]", diff_full.lines().count() - 40).dimmed());
+    }
+    println!("{}", "─".repeat(50).dimmed());
     println!("\n{}", "Commit message:".green().bold());
     println!("{}", "─".repeat(50).dimmed());
     println!("{}", message);
