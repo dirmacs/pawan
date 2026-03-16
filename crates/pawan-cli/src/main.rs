@@ -161,7 +161,14 @@ enum Commands {
 
     /// Diagnose setup issues (API keys, model connectivity, tools)
     Doctor,
+    /// Format code with cargo fmt and cargo clippy --fix
+    Fmt {
+        /// Only check formatting without making changes
+        #[arg(long)]
+        check: bool,
+    },
 
+    /// List saved sessions
     /// List saved sessions
     Sessions,
 
@@ -296,6 +303,7 @@ async fn run() -> Result<()> {
         }
         Some(Commands::Init) => run_init(workspace).await,
         Some(Commands::Doctor) => run_doctor(config, workspace).await,
+        Some(Commands::Fmt { check }) => run_fmt(workspace, check).await,
         Some(Commands::Sessions) => run_sessions().await,
         Some(Commands::Completions { shell }) => {
             clap_complete::generate(shell, &mut Cli::command(), "pawan", &mut std::io::stdout());
@@ -2045,5 +2053,56 @@ async fn run_simple_cli(mut agent: PawanAgent) -> Result<()> {
         }
     }
 
+    Ok(())
+}
+
+/// Run code formatting
+async fn run_fmt(workspace: PathBuf, check: bool) -> Result<()> {
+    use std::process::Command;
+
+    println!("{}", "Pawan Format".green().bold());
+    println!();
+
+    // Run cargo fmt
+    let fmt_args = if check {
+        vec!["fmt", "--all", "--", "--check"]
+    } else {
+        vec!["fmt", "--all"]
+    };
+
+    println!("{} cargo {}", "Running:".cyan(), fmt_args.join(" "));
+    let fmt_status = Command::new("cargo")
+        .args(&fmt_args)
+        .current_dir(&workspace)
+        .status()
+        .map_err(|e| PawanError::Io(e))?;
+
+    if fmt_status.success() {
+        println!("{}", "  cargo fmt: OK".green());
+    } else {
+        println!("{}", "  cargo fmt: issues found".yellow());
+        if check {
+            return Ok(());
+        }
+    }
+
+    // Run cargo clippy --fix (skip in check mode)
+    if !check {
+        println!("{} cargo clippy --fix", "Running:".cyan());
+        let clippy_status = Command::new("cargo")
+            .args(["clippy", "--fix", "--allow-dirty", "--allow-staged"])
+            .current_dir(&workspace)
+            .status()
+            .map_err(|e| PawanError::Io(e))?;
+
+        if clippy_status.success() {
+            println!("{}", "  cargo clippy --fix: OK".green());
+        } else {
+            println!("{}", "  cargo clippy --fix: some issues remain".yellow());
+        }
+    }
+
+    println!();
+    println!("{}", "Format complete.".green().bold());
     Ok(())
 }
