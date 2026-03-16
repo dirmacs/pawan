@@ -158,3 +158,76 @@ impl Tool for SpawnAgentTool {
         Err(PawanError::Tool("spawn_agent: all retry attempts exhausted".into()))
     }
 }
+
+/// Tool for spawning multiple sub-agents in parallel
+pub struct SpawnAgentsTool {
+    workspace_root: PathBuf,
+}
+
+impl SpawnAgentsTool {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
+    }
+}
+
+#[async_trait]
+impl Tool for SpawnAgentsTool {
+    fn name(&self) -> &str {
+        "spawn_agents"
+    }
+
+    fn description(&self) -> &str {
+        "Spawn multiple sub-agents in parallel. Each task runs concurrently and results are returned as an array."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "tasks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "prompt": {"type": "string"},
+                            "model": {"type": "string"},
+                            "timeout": {"type": "integer"},
+                            "workspace": {"type": "string"}
+                        },
+                        "required": ["prompt"]
+                    }
+                }
+            },
+            "required": ["tasks"]
+        })
+    }
+
+    async fn execute(&self, args: Value) -> Result<Value> {
+        let tasks = args["tasks"]
+            .as_array()
+            .ok_or_else(|| PawanError::Tool("tasks array is required for spawn_agents".into()))?;
+
+        let single_tool = SpawnAgentTool::new(self.workspace_root.clone());
+
+        let futures: Vec<_> = tasks
+            .iter()
+            .map(|task| single_tool.execute(task.clone()))
+            .collect();
+
+        let results = futures::future::join_all(futures).await;
+
+        let output: Vec<Value> = results
+            .into_iter()
+            .map(|r| match r {
+                Ok(v) => v,
+                Err(e) => json!({"success": false, "error": e.to_string()}),
+            })
+            .collect();
+
+        Ok(json!({
+            "success": true,
+            "results": output,
+            "total_tasks": tasks.len(),
+        }))
+    }
+}
