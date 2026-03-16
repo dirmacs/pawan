@@ -489,23 +489,50 @@ impl PawanAgent {
         }
     }
 
-    /// Execute a healing task
+    /// Execute a healing task with real diagnostics
     pub async fn heal(&mut self) -> Result<AgentResponse> {
-        let prompt = format!(
-            r#"I need you to heal this Rust project. Please:
+        let healer = crate::healing::Healer::new(
+            self.workspace_root.clone(),
+            self.config.healing.clone(),
+        );
 
-1. Run `cargo check` to see any compilation errors
-2. If there are errors, analyze them and fix them one at a time
-3. Run `cargo clippy` to check for warnings
-4. Fix any warnings that are reasonable to fix
-5. Run `cargo test` to verify tests pass
-6. Report what you fixed
+        let diagnostics = healer.get_diagnostics().await?;
+        let failed_tests = healer.get_failed_tests().await?;
 
-The workspace is at: {}
+        let mut prompt = format!(
+            "I need you to heal this Rust project at: {}
 
-Please proceed step by step, verifying each fix compiles before moving on."#,
+",
             self.workspace_root.display()
         );
+
+        if !diagnostics.is_empty() {
+            prompt.push_str(&format!(
+                "## Compilation Issues ({} found)
+{}
+",
+                diagnostics.len(),
+                healer.format_diagnostics_for_prompt(&diagnostics)
+            ));
+        }
+
+        if !failed_tests.is_empty() {
+            prompt.push_str(&format!(
+                "## Failed Tests ({} found)
+{}
+",
+                failed_tests.len(),
+                healer.format_tests_for_prompt(&failed_tests)
+            ));
+        }
+
+        if diagnostics.is_empty() && failed_tests.is_empty() {
+            prompt.push_str("No issues found! Run cargo check and cargo test to verify.
+");
+        }
+
+        prompt.push_str("
+Fix each issue one at a time. Verify with cargo check after each fix.");
 
         self.execute(&prompt).await
     }
