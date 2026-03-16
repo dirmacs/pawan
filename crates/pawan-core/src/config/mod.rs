@@ -50,6 +50,8 @@ pub struct PawanConfig {
 
     /// Maximum tool iterations per request
     pub max_tool_iterations: usize,
+    /// Maximum context tokens before pruning
+    pub max_context_tokens: usize,
 
     /// System prompt override
     pub system_prompt: Option<String>,
@@ -124,6 +126,7 @@ impl Default for PawanConfig {
             bash_timeout_secs: crate::DEFAULT_BASH_TIMEOUT,
             max_file_size_kb: 1024,
             max_tool_iterations: crate::MAX_TOOL_ITERATIONS,
+            max_context_tokens: 100000,
             system_prompt: None,
             temperature: 1.0,
             top_p: 0.95,
@@ -331,6 +334,11 @@ impl PawanConfig {
         if let Ok(iters) = std::env::var("PAWAN_MAX_ITERATIONS") {
             if let Ok(i) = iters.parse::<usize>() {
                 self.max_tool_iterations = i;
+            }
+        }
+        if let Ok(ctx) = std::env::var("PAWAN_MAX_CONTEXT_TOKENS") {
+            if let Ok(c) = ctx.parse::<usize>() {
+                self.max_context_tokens = c;
             }
         }
     }
