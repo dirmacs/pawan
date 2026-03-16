@@ -226,6 +226,10 @@ enum Commands {
         /// Save session after completion
         #[arg(long)]
         save: bool,
+
+        /// Stream NDJSON events (requires --output json)
+        #[arg(long)]
+        stream: bool,
     },
 }
 
@@ -362,6 +366,7 @@ async fn run() -> Result<()> {
             timeout,
             max_iterations,
             save,
+            stream,
         }) => {
             run_headless(
                 config,
@@ -372,6 +377,7 @@ async fn run() -> Result<()> {
                 timeout,
                 max_iterations,
                 save,
+                stream,
                 cli.verbose,
             )
             .await
@@ -1832,6 +1838,7 @@ async fn run_headless(
     timeout_secs: u64,
     max_iterations: Option<usize>,
     save_session: bool,
+    stream: bool,
     verbose: bool,
 ) -> Result<()> {
     // Resolve prompt from argument or file
@@ -1856,14 +1863,18 @@ async fn run_headless(
 
     #[cfg(feature = "mcp")]
     setup_mcp_tools(&mut agent, &config_ref).await;
-
     if verbose && output_format != "json" {
         eprintln!("Model: {}", agent.config().model);
         eprintln!("Prompt: {}", &prompt_text[..prompt_text.len().min(100)]);
     }
-
-    // Set up streaming callback for text output
-    let on_token: Option<pawan::agent::TokenCallback> = if output_format != "json" {
+    let on_token: Option<pawan::agent::TokenCallback> = if stream && output_format == "json" {
+        Some(Box::new(|token: &str| {
+            use std::io::Write;
+            let event = serde_json::json!({"type": "token", "content": token});
+            println!("{}", serde_json::to_string(&event).unwrap_or_default());
+            std::io::stdout().flush().ok();
+        }))
+    } else if output_format != "json" {
         Some(Box::new(|token: &str| {
             use std::io::Write;
             print!("{}", token);
@@ -1876,7 +1887,34 @@ async fn run_headless(
     // Execute with timeout and optional streaming
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
-        agent.execute_with_callbacks(&prompt_text, on_token, None, None),
+        agent.execute_with_callbacks(
+            &prompt_text,
+            on_token,
+            if stream && output_format == "json" {
+                Some(Box::new(|tc: &pawan::agent::ToolCallRecord| {
+                    let event = serde_json::json!({
+                        "type": "tool_complete",
+                        "name": tc.name,
+                        "success": tc.success,
+                        "duration_ms": tc.duration_ms,
+                    });
+                    println!("{}", serde_json::to_string(&event).unwrap_or_default());
+                }))
+            } else {
+                None
+            },
+            if stream && output_format == "json" {
+                Some(Box::new(|name: &str| {
+                    let event = serde_json::json!({
+                        "type": "tool_start",
+                        "name": name,
+                    });
+                    println!("{}", serde_json::to_string(&event).unwrap_or_default());
+                }))
+            } else {
+                None
+            },
+        ),
     )
     .await;
 
@@ -2088,7 +2126,7 @@ async fn run_fmt(workspace: PathBuf, check: bool) -> Result<()> {
         .args(&fmt_args)
         .current_dir(&workspace)
         .status()
-        .map_err(|e| PawanError::Io(e))?;
+        .map_err(PawanError::Io)?;
 
     if fmt_status.success() {
         println!("{}", "  cargo fmt: OK".green());
@@ -2106,7 +2144,7 @@ async fn run_fmt(workspace: PathBuf, check: bool) -> Result<()> {
             .args(["clippy", "--fix", "--allow-dirty", "--allow-staged"])
             .current_dir(&workspace)
             .status()
-            .map_err(|e| PawanError::Io(e))?;
+            .map_err(PawanError::Io)?;
 
         if clippy_status.success() {
             println!("{}", "  cargo clippy --fix: OK".green());
