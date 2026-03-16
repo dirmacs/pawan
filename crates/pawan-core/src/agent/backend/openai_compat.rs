@@ -19,6 +19,7 @@ pub struct OpenAiCompatConfig {
     pub system_prompt: String,
     pub use_thinking: bool,
     pub max_retries: usize,
+    pub fallback_models: Vec<String>,
 }
 /// Backend for OpenAI-compatible APIs (NVIDIA NIM, OpenAI, DeepSeek)
 pub struct OpenAiCompatBackend {
@@ -522,61 +523,61 @@ impl LlmBackend for OpenAiCompatBackend {
         request_body["seed"] = json!(42);
 
         let url = format!("{}/chat/completions", self.cfg.api_url);
+        // Build model chain: primary model + fallback models
+        let mut models = vec![self.cfg.model.clone()];
+        models.extend(self.cfg.fallback_models.clone());
         
-        // Retry loop for 429 or 5xx responses
         let mut last_error = None;
         let max_retries = self.cfg.max_retries;
         
-        for attempt in 0..=max_retries {
-            let mut request = self.http_client.post(&url).json(&request_body);
+        for model in &models {
+            // Update model in request body for this attempt
+            request_body["model"] = json!(model);
+            
+            for attempt in 0..=max_retries {
+                let mut request = self.http_client.post(&url).json(&request_body);
 
-            if let Some(ref api_key) = self.cfg.api_key {
-                request = request.header("Authorization", format!("Bearer {}", api_key));
-            }
+                if let Some(ref api_key) = self.cfg.api_key {
+                    request = request.header("Authorization", format!("Bearer {}", api_key));
+                }
 
-            let result = if on_token.is_some() {
-                self.streaming(request, on_token).await
-            } else {
-                self.non_streaming(request).await
-            };
+                let result = if on_token.is_some() {
+                    self.streaming(request, on_token).await
+                } else {
+                    self.non_streaming(request).await
+                };
 
-            match result {
-                Ok(response) => return Ok(response),
-                Err(err) => {
-                    last_error = Some(err);
-                    
-                    // Check if this is a retryable error (429 or 5xx)
-                    if let Some(pawan_err) = last_error.as_ref() {
-                        if let PawanError::Llm(ref msg) = pawan_err {
-                            // Check if error message indicates 429 or 5xx status
-                            if msg.contains("429") || msg.contains("500") || msg.contains("501") || 
-                               msg.contains("502") || msg.contains("503") || msg.contains("504") {
-                                
-                                if attempt < max_retries {
-                                    let delay = Self::calculate_backoff_delay(attempt);
-                                    let delay_ms = delay.as_millis();
-                                    
-                                    tracing::warn!(
-                                        attempt = attempt + 1,
-                                        delay_ms = delay_ms,
-                                        "Retrying after LLM API error: {}",
-                                        msg
-                                    );
-                                    
-                                    tokio::time::sleep(delay).await;
-                                    continue;
-                                }
+                match result {
+                    Ok(response) => return Ok(response),
+                    Err(err) => {
+                        last_error = Some(err);
+                        
+                        if let Some(PawanError::Llm(ref msg)) = last_error.as_ref() {
+                            if (msg.contains("429") || msg.contains("500") || msg.contains("501") || 
+                                msg.contains("502") || msg.contains("503") || msg.contains("504")) && 
+                                attempt < max_retries {
+                                let delay = Self::calculate_backoff_delay(attempt);
+                                tracing::warn!(
+                                    attempt = attempt + 1,
+                                    model = model.as_str(),
+                                    delay_ms = delay.as_millis() as u64,
+                                    "Retrying after LLM API error"
+                                );
+                                tokio::time::sleep(delay).await;
+                                continue;
                             }
                         }
+                        break; // Non-retryable or max retries for this model — try next model
                     }
-                    
-                    // Non-retryable error or max retries reached
-                    break;
                 }
+            }
+            
+            // Log fallback
+            if models.len() > 1 {
+                eprintln!("[pawan] Model {} exhausted retries, trying next fallback...", model);
             }
         }
         
-        // Return the last error
         Err(last_error.expect("No error recorded in retry loop"))
     }
 }
@@ -597,6 +598,7 @@ mod tests {
             system_prompt: "test".into(),
             use_thinking: false,
             max_retries: 3,
+            fallback_models: vec![],
         });
 
         let json = json!({"choices": []});
@@ -658,6 +660,7 @@ mod tests {
             system_prompt: "test".into(),
             use_thinking: false,
             max_retries: 3,
+            fallback_models: vec![],
         });
 
         // No structured tool_calls, but content has [TOOL_CALLS] marker
@@ -689,6 +692,7 @@ mod tests {
             system_prompt: "You are helpful.".into(),
             use_thinking: false,
             max_retries: 3,
+            fallback_models: vec![],
         });
 
         let messages = vec![
