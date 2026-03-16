@@ -137,6 +137,9 @@ pub struct PawanAgent {
     workspace_root: PathBuf,
     /// LLM backend
     backend: Box<dyn LlmBackend>,
+
+    /// Estimated token count for current context
+    context_tokens_estimate: usize,
 }
 
 impl PawanAgent {
@@ -145,13 +148,13 @@ impl PawanAgent {
         let tools = ToolRegistry::with_defaults(workspace_root.clone());
         let system_prompt = config.get_system_prompt();
         let backend = Self::create_backend(&config, &system_prompt);
-
         Self {
             config,
             tools,
             history: Vec::new(),
             workspace_root,
             backend,
+            context_tokens_estimate: 0,
         }
     }
 
@@ -301,6 +304,11 @@ impl PawanAgent {
                     "Max tool iterations ({}) exceeded",
                     max_iterations
                 )));
+            }
+            // Estimate context tokens
+            self.context_tokens_estimate = self.history.iter().map(|m| m.content.len()).sum::<usize>() / 4;
+            if self.context_tokens_estimate > self.config.max_context_tokens {
+                eprintln!("[pawan] Context estimate {} tokens exceeds max {} — pruning needed", self.context_tokens_estimate, self.config.max_context_tokens);
             }
 
             let tool_defs = self.tools.get_definitions();
