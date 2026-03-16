@@ -11,6 +11,7 @@ use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
+use std::io::Write;
 
 /// Tool for spawning a sub-agent (pawan subprocess)
 pub struct SpawnAgentTool {
@@ -91,6 +92,11 @@ impl Tool for SpawnAgentTool {
             .unwrap_or_else(|| self.workspace_root.clone());
         let max_retries = args["retries"].as_u64().unwrap_or(0).min(2) as usize;
 
+        // Generate unique agent ID for progress tracking
+        let agent_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
+        let status_path = format!("/tmp/pawan-agent-{}.status", agent_id);
+        let started_at = chrono::Utc::now().to_rfc3339();
+
         let pawan_bin = self.find_pawan_binary();
 
         for attempt in 0..=max_retries {
@@ -112,6 +118,12 @@ impl Tool for SpawnAgentTool {
             cmd.stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .stdin(Stdio::null());
+
+            // Write initial status
+            if let Ok(mut f) = std::fs::File::create(&status_path) {
+                let _ = write!(f, r#"{{"state":"running","prompt":"{}","started_at":"{}","attempt":{}}}"#,
+                    prompt.chars().take(100).collect::<String>().replace('"', "'"), started_at, attempt + 1);
+            }
 
             let mut child = cmd.spawn().map_err(|e| {
                 PawanError::Tool(format!(
@@ -142,6 +154,14 @@ impl Tool for SpawnAgentTool {
             };
 
             if status.success() || attempt == max_retries {
+                // Update status file with completion
+                let duration_ms = chrono::Utc::now().signed_duration_since(chrono::DateTime::parse_from_rfc3339(&started_at).unwrap_or_default()).num_milliseconds();
+                if let Ok(mut f) = std::fs::File::create(&status_path) {
+                    let state = if status.success() { "done" } else { "failed" };
+                    let _ = write!(f, r#"{{"state":"{}","exit_code":{},"duration_ms":{},"attempt":{}}}"#,
+                        state, status.code().unwrap_or(-1), duration_ms, attempt + 1);
+                }
+
                 return Ok(json!({
                     "success": status.success(),
                     "attempt": attempt + 1,
