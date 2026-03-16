@@ -198,6 +198,7 @@ impl PawanAgent {
                     system_prompt: system_prompt.to_string(),
                     use_thinking: config.use_thinking_mode(),
                     max_retries: config.max_retries,
+                    fallback_models: config.fallback_models.clone(),
                 }))
             }
             LlmProvider::Ollama => {
@@ -283,7 +284,7 @@ impl PawanAgent {
                 &msg.content
             };
             summary.push_str(chunk);
-            summary.push_str("\n");
+            summary.push('\n');
             if summary.len() > 2000 {
                 summary.truncate(2000);
                 break;

@@ -68,6 +68,9 @@ pub struct PawanConfig {
     /// Maximum retries for LLM API calls (429 or 5xx errors)
     pub max_retries: usize,
 
+    /// Fallback models to try when primary model fails
+    pub fallback_models: Vec<String>,
+
     /// Enable reasoning/thinking mode (for DeepSeek/Nemotron models)
     pub reasoning_mode: bool,
 
@@ -133,6 +136,7 @@ impl Default for PawanConfig {
             max_tokens: 8192,
             reasoning_mode: true,
             max_retries: 3,
+            fallback_models: Vec::new(),
             healing: HealingConfig::default(),
             targets,
             tui: TuiConfig::default(),
@@ -340,6 +344,9 @@ impl PawanConfig {
             if let Ok(c) = ctx.parse::<usize>() {
                 self.max_context_tokens = c;
             }
+        }
+        if let Ok(models) = std::env::var("PAWAN_FALLBACK_MODELS") {
+            self.fallback_models = models.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
         }
     }
 
