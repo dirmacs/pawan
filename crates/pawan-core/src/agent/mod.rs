@@ -536,7 +536,27 @@ Fix each issue one at a time. Verify with cargo check after each fix.");
 
         self.execute(&prompt).await
     }
+    /// Execute healing with retries — calls heal(), checks for remaining errors, retries if needed
+    pub async fn heal_with_retries(&mut self, max_attempts: usize) -> Result<AgentResponse> {
+        let mut last_response = self.heal().await?;
 
+        for attempt in 1..max_attempts {
+            let fixer = crate::healing::CompilerFixer::new(self.workspace_root.clone());
+            let remaining = fixer.check().await?;
+            let errors: Vec<_> = remaining.iter().filter(|d| d.kind == crate::healing::DiagnosticKind::Error).collect();
+
+            if errors.is_empty() {
+                eprintln!("[pawan] Healing complete after {} attempt(s)", attempt);
+                return Ok(last_response);
+            }
+
+            eprintln!("[pawan] {} errors remain after attempt {}, retrying heal...", errors.len(), attempt);
+            last_response = self.heal().await?;
+        }
+
+        eprintln!("[pawan] Healing finished after {} attempts (may still have errors)", max_attempts);
+        Ok(last_response)
+    }
     /// Execute a task with a specific prompt
     pub async fn task(&mut self, task_description: &str) -> Result<AgentResponse> {
         let prompt = format!(
