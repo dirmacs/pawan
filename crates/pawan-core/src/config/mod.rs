@@ -70,6 +70,8 @@ pub struct PawanConfig {
 
     /// Fallback models to try when primary model fails
     pub fallback_models: Vec<String>,
+    /// Maximum characters in tool result before truncation
+    pub max_result_chars: usize,
 
     /// Enable reasoning/thinking mode (for DeepSeek/Nemotron models)
     pub reasoning_mode: bool,
@@ -137,6 +139,7 @@ impl Default for PawanConfig {
             reasoning_mode: true,
             max_retries: 3,
             fallback_models: Vec::new(),
+            max_result_chars: 8000,
             healing: HealingConfig::default(),
             targets,
             tui: TuiConfig::default(),
@@ -347,6 +350,11 @@ impl PawanConfig {
         }
         if let Ok(models) = std::env::var("PAWAN_FALLBACK_MODELS") {
             self.fallback_models = models.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        }
+        if let Ok(chars) = std::env::var("PAWAN_MAX_RESULT_CHARS") {
+            if let Ok(c) = chars.parse::<usize>() {
+                self.max_result_chars = c;
+            }
         }
     }
 
