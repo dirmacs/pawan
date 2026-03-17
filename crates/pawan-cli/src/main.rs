@@ -2222,28 +2222,29 @@ async fn run_notify(message: &str, channel: &str) -> Result<()> {
     let relay_url = std::env::var("DOLTARES_RELAY_URL")
         .unwrap_or_else(|_| "http://localhost:3100/api/relay".to_string());
 
-    let client = reqwest::Client::new();
     let body = serde_json::json!({
         "channel": channel,
         "to": "last",
         "message": message,
     });
 
-    match client
-        .post(&relay_url)
-        .header("Content-Type", "application/json")
-        .header("Authorization", format!("Bearer {}", api_key))
-        .json(&body)
-        .send()
-        .await
-    {
-        Ok(resp) => {
-            let status = resp.status();
-            let text = resp.text().await.unwrap_or_default();
-            if status.is_success() {
-                println!("{} {}", "Sent:".green(), text);
+    let output = std::process::Command::new("curl")
+        .args([
+            "-s", "-X", "POST",
+            &relay_url,
+            "-H", "Content-Type: application/json",
+            "-H", &format!("Authorization: Bearer {}", api_key),
+            "-d", &serde_json::to_string(&body).unwrap_or_default(),
+        ])
+        .output();
+
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if out.status.success() {
+                println!("{} {}", "Sent:".green(), stdout.trim());
             } else {
-                println!("{} {} — {}", "Failed:".red(), status, text);
+                println!("{} {}", "Failed:".red(), stdout.trim());
             }
         }
         Err(e) => {
