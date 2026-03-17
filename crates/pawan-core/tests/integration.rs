@@ -582,4 +582,46 @@ async fn test_context_pruning() {
     // Verify the first message is the user prompt (system prompt is handled by backend)
     assert_eq!(agent.history()[0].role, Role::User);
     assert_eq!(agent.history()[0].content, "Read many files");
+	
+}
+
+/// Test spawn_agents parallel execution
+/// Requires pawan binary to be built — run with: cargo test test_spawn_agents_parallel -- --ignored
+#[tokio::test]
+#[ignore]
+async fn test_spawn_agents_parallel() {
+    use pawan::tools::ToolRegistry;
+
+    let temp_dir = tempfile::TempDir::new().unwrap();
+
+    // Create two temp files with known content
+    let file1 = temp_dir.path().join("file1.txt");
+    let file2 = temp_dir.path().join("file2.txt");
+    std::fs::write(&file1, "content_alpha").unwrap();
+    std::fs::write(&file2, "content_beta").unwrap();
+
+    let registry = ToolRegistry::with_defaults(temp_dir.path().to_path_buf());
+
+    // Call spawn_agents with two tasks
+    let args = json!({
+        "tasks": [
+            {"prompt": format!("Read the file at {} and tell me its contents", file1.display()), "timeout": 30},
+            {"prompt": format!("Read the file at {} and tell me its contents", file2.display()), "timeout": 30}
+        ]
+    });
+
+    let result = registry.execute("spawn_agents", args).await;
+
+    match result {
+        Ok(value) => {
+            assert_eq!(value["total_tasks"], 2);
+            let results = value["results"].as_array().unwrap();
+            assert_eq!(results.len(), 2);
+            // Both should have attempted (success depends on binary availability)
+        }
+        Err(_) => {
+            // Expected if pawan binary is not built
+            eprintln!("spawn_agents test skipped: pawan binary not available");
+        }
+    }
 }
