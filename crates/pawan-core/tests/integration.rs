@@ -708,3 +708,21 @@ async fn test_tool_result_truncation() {
         tool_content.len()
     );
 }
+
+/// Test that PawanConfig max_retries can be set and applied
+#[test]
+fn test_config_max_retries() {
+    let mut config = PawanConfig::default();
+    assert_eq!(config.max_retries, 3, "Default max_retries should be 3");
+
+    config.max_retries = 5;
+    assert_eq!(config.max_retries, 5);
+
+    // Test max_result_chars default
+    assert_eq!(config.max_result_chars, 8000);
+    config.max_result_chars = 16000;
+    assert_eq!(config.max_result_chars, 16000);
+
+    // Test max_context_tokens default
+    assert_eq!(config.max_context_tokens, 100000);
+}
