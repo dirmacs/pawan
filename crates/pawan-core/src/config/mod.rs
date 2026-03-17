@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use tracing;
 
 /// LLM Provider type
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -325,7 +326,7 @@ impl PawanConfig {
                 "nvidia" | "nim" => self.provider = LlmProvider::Nvidia,
                 "ollama" => self.provider = LlmProvider::Ollama,
                 "openai" => self.provider = LlmProvider::OpenAI,
-                _ => eprintln!("Warning: unknown PAWAN_PROVIDER '{}', ignoring", provider),
+                _ => tracing::warn!(provider = provider.as_str(), "Unknown PAWAN_PROVIDER, ignoring"),
             }
         }
         if let Ok(temp) = std::env::var("PAWAN_TEMPERATURE") {
