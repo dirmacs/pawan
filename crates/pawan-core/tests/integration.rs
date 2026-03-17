@@ -5,6 +5,7 @@
 #![allow(dead_code)]
 
 use pawan::agent::{PawanAgent, Role};
+use pawan::agent::session::Session;
 use pawan::config::{HealingConfig, PawanConfig};
 use pawan::healing::{CompilerFixer, DiagnosticKind};
 use pawan::tools::ToolRegistry;
@@ -725,4 +726,37 @@ fn test_config_max_retries() {
 
     // Test max_context_tokens default
     assert_eq!(config.max_context_tokens, 100000);
+}
+
+/// Test session save and restore roundtrip with new fields
+/// Test session save and restore roundtrip with new fields
+#[test]
+fn test_session_save_restore_roundtrip() {
+    use pawan::agent::Message;
+    use pawan::agent::Role;
+
+    let mut session = Session::new("test-model");
+    session.total_tokens = 42000;
+    session.iteration_count = 7;
+    session.messages.push(Message {
+        role: Role::User,
+        content: "test message".to_string(),
+        tool_calls: vec![],
+        tool_result: None,
+    });
+
+    // Save
+    let path = session.save().unwrap();
+    let id = session.id.clone();
+
+    // Load and verify
+    let loaded = Session::load(&id).unwrap();
+    assert_eq!(loaded.model, "test-model");
+    assert_eq!(loaded.total_tokens, 42000);
+    assert_eq!(loaded.iteration_count, 7);
+    assert_eq!(loaded.messages.len(), 1);
+    assert_eq!(loaded.messages[0].content, "test message");
+
+    // Clean up
+    std::fs::remove_file(path).ok();
 }
