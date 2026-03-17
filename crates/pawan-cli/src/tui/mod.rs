@@ -179,6 +179,7 @@ impl<'a> App<'a> {
                                 self.total_tokens += resp.usage.total_tokens;
                                 self.total_prompt_tokens += resp.usage.prompt_tokens;
                                 self.total_completion_tokens += resp.usage.completion_tokens;
+                                self.context_estimate = (self.total_prompt_tokens + self.total_completion_tokens) as usize;
                                 self.status = format!("Done ({} iterations)", resp.iterations);
                                 self.scroll = self.messages.len().saturating_sub(1);
                             }
@@ -535,6 +536,17 @@ impl<'a> App<'a> {
                 format!(" ({}↑ {}↓)", self.total_prompt_tokens, self.total_completion_tokens),
                 Style::default().fg(Color::DarkGray),
             ));
+        }
+
+        if self.iteration_count > 0 {
+            spans.push(Span::raw(" | "));
+            spans.push(Span::styled(format!("iter:{}", self.iteration_count), Style::default().fg(Color::Magenta)));
+        }
+        if self.context_estimate > 0 {
+            let ctx_k = self.context_estimate / 1000;
+            let ctx_style = if ctx_k > 80 { Style::default().fg(Color::Red) } else if ctx_k > 60 { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::DarkGray) };
+            spans.push(Span::raw(" | "));
+            spans.push(Span::styled(format!("~{}k ctx", ctx_k), ctx_style));
         }
 
         spans.extend([
