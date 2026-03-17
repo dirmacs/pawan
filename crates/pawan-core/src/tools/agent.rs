@@ -12,6 +12,7 @@ use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use std::io::Write;
+use tracing;
 
 /// Tool for spawning a sub-agent (pawan subprocess)
 pub struct SpawnAgentTool {
@@ -171,7 +172,8 @@ impl Tool for SpawnAgentTool {
                 }));
             }
             // Failed but retries remaining — continue loop
-            eprintln!("[pawan] spawn_agent attempt {} failed, retrying...", attempt + 1);
+            // Failed but retries remaining — continue loop
+            tracing::warn!(attempt = attempt + 1, "spawn_agent attempt failed, retrying");
         }
 
         // Should not reach here, but satisfy the compiler

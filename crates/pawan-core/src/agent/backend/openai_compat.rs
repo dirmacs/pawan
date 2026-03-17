@@ -574,7 +574,7 @@ impl LlmBackend for OpenAiCompatBackend {
             
             // Log fallback
             if models.len() > 1 {
-                eprintln!("[pawan] Model {} exhausted retries, trying next fallback...", model);
+                tracing::warn!(model = model.as_str(), "Model exhausted retries, trying next fallback");
             }
         }
         

@@ -168,26 +168,22 @@ impl PawanAgent {
                             .unwrap_or_else(|_| crate::DEFAULT_NVIDIA_API_URL.to_string());
                         let key = std::env::var("NVIDIA_API_KEY").ok();
                         if key.is_none() {
-                            eprintln!(
-                                "Warning: NVIDIA_API_KEY not set. Add it to .env or export it."
-                            );
+                            tracing::warn!("NVIDIA_API_KEY not set. Add it to .env or export it.");
                         }
                         (url, key)
-                    }
+                    },
                     LlmProvider::OpenAI => {
                         let url = std::env::var("OPENAI_API_URL")
                             .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
                         let key = std::env::var("OPENAI_API_KEY").ok();
                         if key.is_none() {
-                            eprintln!(
-                                "Warning: OPENAI_API_KEY not set. Add it to .env or export it."
-                            );
+                            tracing::warn!("OPENAI_API_KEY not set. Add it to .env or export it.");
                         }
                         (url, key)
-                    }
+                    },
                     _ => unreachable!(),
                 };
-
+                
                 Box::new(OpenAiCompatBackend::new(OpenAiCompatConfig {
                     api_url,
                     api_key,
@@ -309,7 +305,7 @@ impl PawanAgent {
         self.history.push(summary_msg);
         self.history.extend(tail);
 
-        eprintln!("[pawan] Pruned {} messages from history, context estimate was {}", pruned_count, self.context_tokens_estimate);
+        tracing::info!(pruned = pruned_count, context_estimate = self.context_tokens_estimate, "Pruned messages from history");
     }
 
     /// Add a message to history
@@ -549,15 +545,15 @@ Fix each issue one at a time. Verify with cargo check after each fix.");
             let errors: Vec<_> = remaining.iter().filter(|d| d.kind == crate::healing::DiagnosticKind::Error).collect();
 
             if errors.is_empty() {
-                eprintln!("[pawan] Healing complete after {} attempt(s)", attempt);
+                tracing::info!(attempts = attempt, "Healing complete");
                 return Ok(last_response);
             }
 
-            eprintln!("[pawan] {} errors remain after attempt {}, retrying heal...", errors.len(), attempt);
+            tracing::warn!(errors = errors.len(), attempt = attempt, "Errors remain after heal attempt, retrying");
             last_response = self.heal().await?;
         }
 
-        eprintln!("[pawan] Healing finished after {} attempts (may still have errors)", max_attempts);
+        tracing::info!(attempts = max_attempts, "Healing finished (may still have errors)");
         Ok(last_response)
     }
     /// Execute a task with a specific prompt
