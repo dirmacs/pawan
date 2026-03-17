@@ -169,7 +169,7 @@ enum Commands {
         message: String,
 
         /// Channel: whatsapp (default) or telegram
-        #[arg(short, long, default_value = "whatsapp")]
+        #[arg(long, default_value = "whatsapp")]
         channel: String,
     },
 
