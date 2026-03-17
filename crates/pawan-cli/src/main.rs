@@ -2220,7 +2220,7 @@ async fn run_notify(message: &str, channel: &str) -> Result<()> {
     }
 
     let relay_url = std::env::var("DOLTARES_RELAY_URL")
-        .unwrap_or_else(|_| "http://localhost:3100/api/relay".to_string());
+        .unwrap_or_else(|_| "http://localhost:3100/api/deliver".to_string());
 
     let body = serde_json::json!({
         "channel": channel,
