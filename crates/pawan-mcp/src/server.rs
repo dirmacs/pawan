@@ -5,6 +5,7 @@
 
 use pawan::agent::PawanAgent;
 use pawan::config::PawanConfig;
+use pawan::healing::Healer;
 use pawan::PawanError;
 use rmcp::handler::server::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
@@ -40,6 +41,30 @@ pub struct HealRequest {
     pub workspace: Option<String>,
 }
 
+/// Request parameters for pawan_review tool
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ReviewRequest {
+    /// File path to review
+    pub file: String,
+    /// Working directory (defaults to current dir)
+    pub workspace: Option<String>,
+}
+
+/// Request parameters for pawan_explain tool
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExplainRequest {
+    /// What to explain: file path, function name, or concept
+    pub query: String,
+    /// Working directory (defaults to current dir)
+    pub workspace: Option<String>,
+}
+
+/// Request parameters for pawan_status tool
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct StatusRequest {
+    /// Working directory (defaults to current dir)
+    pub workspace: Option<String>,
+}
 /// Pawan MCP Server — wraps PawanAgent as MCP tools
 #[derive(Clone)]
 pub struct PawanServer {
@@ -139,6 +164,62 @@ impl PawanServer {
             ))])),
         }
     }
+
+    #[tool(
+        name = "pawan_review",
+        description = "AI-powered code review of a specific file. Returns suggestions for improvements."
+    )]
+    async fn review(
+        &self,
+        params: Parameters<ReviewRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut agent = create_agent(&self.config, params.0.workspace.as_deref());
+        let prompt = format!("Review the file at {} and provide feedback on code quality, bugs, and improvements.", params.0.file);
+
+        match agent.execute(&prompt).await {
+            Ok(response) => Ok(CallToolResult::success(vec![Content::text(response.content)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("pawan error: {}", e))])),
+        }
+    }
+
+    #[tool(
+        name = "pawan_explain",
+        description = "AI-powered explanation of a file, function, or concept in the codebase."
+    )]
+    async fn explain(
+        &self,
+        params: Parameters<ExplainRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let mut agent = create_agent(&self.config, params.0.workspace.as_deref());
+        let prompt = format!("Explain: {}", params.0.query);
+
+        match agent.execute(&prompt).await {
+            Ok(response) => Ok(CallToolResult::success(vec![Content::text(response.content)])),
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("pawan error: {}", e))])),
+        }
+    }
+
+    #[tool(
+        name = "pawan_status",
+        description = "Show project status: compilation errors, warnings, test failures, and git status."
+    )]
+    async fn status(
+        &self,
+        params: Parameters<StatusRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let ws = workspace_path(params.0.workspace.as_deref());
+        let healer = Healer::new(ws, self.config.healing.clone());
+
+        match healer.count_issues().await {
+            Ok((errors, warnings, failed_tests)) => {
+                Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Project Status:\n  Errors: {}\n  Warnings: {}\n  Failed tests: {}",
+                    errors, warnings, failed_tests
+                ))]))
+            }
+            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("pawan error: {}", e))])),
+        }
+    }
 }
 
 impl ServerHandler for PawanServer {
@@ -164,7 +245,7 @@ impl ServerHandler for PawanServer {
                 website_url: Some("https://github.com/dirmacs/pawan".into()),
             },
             instructions: Some(
-                "Pawan is a self-healing CLI coding agent. Use pawan_run for general prompts, pawan_task for coding tasks, pawan_heal to fix compilation errors.".into(),
+                "Pawan is a self-healing CLI coding agent. Use pawan_run for general prompts, pawan_task for coding tasks, pawan_heal to fix compilation errors, pawan_review for code review, pawan_explain for explanations, pawan_status for project health.".into(),
             ),
         })
     }
