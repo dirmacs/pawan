@@ -18,6 +18,12 @@ pub struct Session {
     pub updated_at: String,
     /// Conversation messages
     pub messages: Vec<Message>,
+    /// Total tokens used in this session
+    #[serde(default)]
+    pub total_tokens: u64,
+    /// Number of iterations completed
+    #[serde(default)]
+    pub iteration_count: u32,
 }
 
 impl Session {
@@ -31,6 +37,8 @@ impl Session {
             created_at: now.clone(),
             updated_at: now,
             messages: Vec::new(),
+            total_tokens: 0,
+            iteration_count: 0,
         }
     }
 
