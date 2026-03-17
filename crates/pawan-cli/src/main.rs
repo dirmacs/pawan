@@ -225,6 +225,10 @@ enum Commands {
         #[arg(long)]
         max_iterations: Option<usize>,
 
+        /// Maximum retries for LLM API calls
+        #[arg(long)]
+        max_retries: Option<usize>,
+
         /// Save session after completion
         #[arg(long)]
         save: bool,
@@ -368,6 +372,7 @@ async fn run() -> Result<()> {
             output,
             timeout,
             max_iterations,
+            max_retries,
             save,
             stream,
         }) => {
@@ -379,6 +384,7 @@ async fn run() -> Result<()> {
                 &output,
                 timeout,
                 max_iterations,
+                max_retries,
                 save,
                 stream,
                 cli.verbose,
@@ -1840,6 +1846,7 @@ async fn run_headless(
     output_format: &str,
     timeout_secs: u64,
     max_iterations: Option<usize>,
+    max_retries: Option<usize>,
     save_session: bool,
     stream: bool,
     verbose: bool,
@@ -1859,6 +1866,9 @@ async fn run_headless(
 
     if let Some(max_iter) = max_iterations {
         config.max_tool_iterations = max_iter;
+    }
+    if let Some(retries) = max_retries {
+        config.max_retries = retries;
     }
 
     let config_ref = config.clone();
@@ -1949,7 +1959,7 @@ async fn run_headless(
                     timeout_secs
                 );
             }
-            std::process::exit(1);
+            std::process::exit(2);
         }
     };
 
