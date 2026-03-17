@@ -241,6 +241,7 @@ impl PawanAgent {
     pub fn save_session(&self) -> Result<String> {
         let mut session = session::Session::new(&self.config.model);
         session.messages = self.history.clone();
+        session.total_tokens = self.context_tokens_estimate as u64;
         session.save()?;
         Ok(session.id)
     }
@@ -249,6 +250,7 @@ impl PawanAgent {
     pub fn resume_session(&mut self, session_id: &str) -> Result<()> {
         let session = session::Session::load(session_id)?;
         self.history = session.messages;
+        self.context_tokens_estimate = session.total_tokens as usize;
         Ok(())
     }
 
