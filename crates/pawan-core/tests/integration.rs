@@ -662,3 +662,49 @@ fn test_model_fallback_chain() {
     assert!(config.fallback_models.is_empty(), "Empty env should give no fallback models");
     std::env::remove_var("PAWAN_FALLBACK_MODELS");
 }
+
+
+/// Test that tool results exceeding max_result_chars are truncated
+
+/// Test that tool results exceeding max_result_chars are truncated
+#[tokio::test]
+async fn test_tool_result_truncation() {
+    use pawan::agent::backend::mock::{MockBackend, MockResponse};
+
+    let temp_dir = tempfile::TempDir::new().unwrap();
+
+    // Create a file larger than 8000 chars
+    let large_content = "A".repeat(20000);
+    let large_file = temp_dir.path().join("large.txt");
+    std::fs::write(&large_file, &large_content).unwrap();
+
+    let mut config = PawanConfig::default();
+    config.max_result_chars = 8000;
+
+    let backend = MockBackend::new(vec![
+        MockResponse::tool_call("read_file", json!({"path": large_file.to_string_lossy()})),
+        MockResponse::text("I read the large file."),
+    ]);
+
+    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
+        .with_backend(Box::new(backend));
+
+    let response = agent.execute("Read the large file").await.unwrap();
+
+    assert_eq!(response.content, "I read the large file.");
+
+    // Check that tool result in history was truncated
+    let tool_messages: Vec<_> = agent.history().iter()
+        .filter(|m| m.role == Role::Tool)
+        .collect();
+
+    assert!(!tool_messages.is_empty(), "Should have tool messages in history");
+
+    // The tool result content should be truncated
+    let tool_content = &tool_messages[0].content;
+    assert!(
+        tool_content.len() <= 9000, // Some overhead for JSON wrapping
+        "Tool result should be truncated but was {} chars",
+        tool_content.len()
+    );
+}
