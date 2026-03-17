@@ -163,6 +163,16 @@ enum Commands {
     Doctor,
     /// Run model latency benchmarks via nimakai
     Bench,
+    /// Send a notification via doltares relay (WhatsApp/Telegram)
+    Notify {
+        /// Message to send
+        message: String,
+
+        /// Channel: whatsapp (default) or telegram
+        #[arg(short, long, default_value = "whatsapp")]
+        channel: String,
+    },
+
     /// Format code with cargo fmt and cargo clippy --fix
     Fmt {
         /// Only check formatting without making changes
@@ -202,6 +212,10 @@ enum Commands {
         /// Auto-commit fixes
         #[arg(long)]
         commit: bool,
+
+        /// Send notification via doltares relay on build failure
+        #[arg(long)]
+        notify: bool,
     },
 
     /// Headless single-prompt execution (for scripting and orchestration)
@@ -314,6 +328,7 @@ async fn run() -> Result<()> {
         Some(Commands::Init) => run_init(workspace).await,
         Some(Commands::Doctor) => run_doctor(config, workspace).await,
         Some(Commands::Bench) => run_bench().await,
+        Some(Commands::Notify { message, channel }) => run_notify(&message, &channel).await,
         Some(Commands::Fmt { check }) => run_fmt(workspace, check).await,
         Some(Commands::Sessions) => run_sessions().await,
         Some(Commands::Completions { shell }) => {
@@ -363,8 +378,8 @@ async fn run() -> Result<()> {
         }
         Some(Commands::Explain { query }) => run_explain(config, workspace, &query).await,
         Some(Commands::Status) => run_status(config, workspace).await,
-        Some(Commands::Watch { interval, commit }) => {
-            run_watch(config, workspace, interval, commit).await
+        Some(Commands::Watch { interval, commit, notify }) => {
+            run_watch(config, workspace, interval, commit, notify).await
         }
         Some(Commands::Run {
             prompt,
@@ -1185,6 +1200,7 @@ async fn run_watch(
     workspace: PathBuf,
     interval_secs: u64,
     auto_commit: bool,
+    notify: bool,
 ) -> Result<()> {
     use std::io::Write;
 
@@ -1237,6 +1253,15 @@ async fn run_watch(
 
             last_status = false;
             heal_count += 1;
+
+            // Send notification on build failure if --notify
+            if notify {
+                let _ = run_notify(
+                    &format!("[pawan-watch] Build failed: {} error(s), {} warning(s) in {}",
+                        error_count, warning_count, workspace.display()),
+                    "whatsapp",
+                ).await;
+            }
 
             // Auto-heal
             let mut agent = PawanAgent::new(config.clone(), workspace.clone());
@@ -2183,6 +2208,49 @@ async fn run_bench() -> Result<()> {
         Ok(o) => { println!("{}", String::from_utf8_lossy(&o.stdout)); }
         Err(e) => { println!("Error: {}", e); }
     }
+    Ok(())
+}
+
+/// Send a notification via doltares relay
+async fn run_notify(message: &str, channel: &str) -> Result<()> {
+    let api_key = std::env::var("DOLTA_API_KEY").unwrap_or_default();
+    if api_key.is_empty() {
+        println!("{}", "DOLTA_API_KEY not set. Set it in .env or export it.".yellow());
+        return Ok(());
+    }
+
+    let relay_url = std::env::var("DOLTARES_RELAY_URL")
+        .unwrap_or_else(|_| "http://localhost:3100/api/relay".to_string());
+
+    let client = reqwest::Client::new();
+    let body = serde_json::json!({
+        "channel": channel,
+        "to": "last",
+        "message": message,
+    });
+
+    match client
+        .post(&relay_url)
+        .header("Content-Type", "application/json")
+        .header("Authorization", format!("Bearer {}", api_key))
+        .json(&body)
+        .send()
+        .await
+    {
+        Ok(resp) => {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            if status.is_success() {
+                println!("{} {}", "Sent:".green(), text);
+            } else {
+                println!("{} {} — {}", "Failed:".red(), status, text);
+            }
+        }
+        Err(e) => {
+            println!("{} {}", "Error:".red(), e);
+        }
+    }
+
     Ok(())
 }
 
