@@ -625,3 +625,40 @@ async fn test_spawn_agents_parallel() {
         }
     }
 }
+
+
+/// Test model fallback chain configuration
+#[test]
+fn test_model_fallback_chain() {
+    // Test default config has no fallback models
+    let config = PawanConfig::default();
+    assert!(config.fallback_models.is_empty(), "Default should have no fallback models");
+
+    // Test setting fallback models directly
+    let mut config = PawanConfig::default();
+    config.fallback_models = vec![
+        "meta/llama-3.3-70b-instruct".to_string(),
+        "nvidia/llama-3.1-nemotron-70b-instruct".to_string(),
+    ];
+    assert_eq!(config.fallback_models.len(), 2);
+    assert_eq!(config.fallback_models[0], "meta/llama-3.3-70b-instruct");
+
+    // Test env override parsing
+    std::env::set_var("PAWAN_FALLBACK_MODELS", "model-a, model-b, model-c");
+    let mut config = PawanConfig::default();
+    config.apply_env_overrides();
+    assert_eq!(config.fallback_models.len(), 3);
+    assert_eq!(config.fallback_models[0], "model-a");
+    assert_eq!(config.fallback_models[1], "model-b");
+    assert_eq!(config.fallback_models[2], "model-c");
+
+    // Clean up env
+    std::env::remove_var("PAWAN_FALLBACK_MODELS");
+
+    // Test empty env var
+    std::env::set_var("PAWAN_FALLBACK_MODELS", "");
+    let mut config = PawanConfig::default();
+    config.apply_env_overrides();
+    assert!(config.fallback_models.is_empty(), "Empty env should give no fallback models");
+    std::env::remove_var("PAWAN_FALLBACK_MODELS");
+}
