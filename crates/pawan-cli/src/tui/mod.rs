@@ -75,6 +75,10 @@ struct App<'a> {
     streaming_content: String,
     /// Active tool calls being displayed during processing
     active_tool: Option<String>,
+    /// Iteration count (increments on each tool completion)
+    iteration_count: u32,
+    /// Context tokens estimate
+    context_estimate: usize,
     /// Search mode state
     search_mode: bool,
     search_query: String,
@@ -110,6 +114,8 @@ impl<'a> App<'a> {
             total_completion_tokens: 0,
             streaming_content: String::new(),
             active_tool: None,
+            iteration_count: 0,
+            context_estimate: 0,
             search_mode: false,
             search_query: String::new(),
             cmd_tx,
