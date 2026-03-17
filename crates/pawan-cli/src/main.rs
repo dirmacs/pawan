@@ -161,6 +161,8 @@ enum Commands {
 
     /// Diagnose setup issues (API keys, model connectivity, tools)
     Doctor,
+    /// Run model latency benchmarks via nimakai
+    Bench,
     /// Format code with cargo fmt and cargo clippy --fix
     Fmt {
         /// Only check formatting without making changes
@@ -307,6 +309,7 @@ async fn run() -> Result<()> {
         }
         Some(Commands::Init) => run_init(workspace).await,
         Some(Commands::Doctor) => run_doctor(config, workspace).await,
+        Some(Commands::Bench) => run_bench().await,
         Some(Commands::Fmt { check }) => run_fmt(workspace, check).await,
         Some(Commands::Sessions) => run_sessions().await,
         Some(Commands::Completions { shell }) => {
@@ -2157,3 +2160,19 @@ async fn run_fmt(workspace: PathBuf, check: bool) -> Result<()> {
     println!("{}", "Format complete.".green().bold());
     Ok(())
 }
+
+async fn run_bench() -> Result<()> {
+    println!("{}", "Pawan Bench".green().bold());
+    let nimakai = "/opt/nimakai/nimakai";
+    if !std::path::Path::new(nimakai).exists() {
+        println!("nimakai not found at {}", nimakai);
+        return Ok(());
+    }
+    let out = std::process::Command::new(nimakai).args(["bench", "--json"]).output();
+    match out {
+        Ok(o) => { println!("{}", String::from_utf8_lossy(&o.stdout)); }
+        Err(e) => { println!("Error: {}", e); }
+    }
+    Ok(())
+}
+
