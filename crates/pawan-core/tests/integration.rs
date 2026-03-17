@@ -535,3 +535,51 @@ async fn test_agent_tool_denied_by_permission() {
     assert!(!response.tool_calls[0].success);
     assert_eq!(response.content, "I couldn't run that command.");
 }
+
+/// Test that context pruning triggers when context estimate exceeds max_context_tokens
+
+/// Test that context pruning triggers when context estimate exceeds max_context_tokens
+#[tokio::test]
+async fn test_context_pruning() {
+    use pawan::agent::backend::mock::{MockBackend, MockResponse};
+
+    let temp_dir = tempfile::TempDir::new().unwrap();
+    let mut config = PawanConfig::default();
+    // Set very low context limit to trigger pruning
+    config.max_context_tokens = 100;
+
+    // Generate many tool calls to inflate history
+    let mut responses = Vec::new();
+    for i in 0..20 {
+        responses.push(MockResponse::tool_call(
+            "read_file",
+            json!({"file_path": format!("/tmp/test_{}.txt", i)}),
+        ));
+    }
+    responses.push(MockResponse::text("Done reading all files."));
+
+    let backend = MockBackend::new(responses);
+    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
+        .with_backend(Box::new(backend));
+
+    let response = agent.execute("Read many files").await.unwrap();
+
+    // Verify the agent completed successfully
+    assert_eq!(response.content, "Done reading all files.");
+
+    // Verify history was pruned (should be much less than 20+ messages)
+    // System prompt + pruned summary + last 4 messages = ~6 messages max
+    let history_len = agent.history().len();
+    assert!(
+        history_len <= 10,
+        "History should be pruned but has {} messages",
+        history_len
+    );
+    // Verify that pruning occurred by checking history length
+    // The history should be much shorter than the original 20+ messages
+    assert!(history_len <= 10, "History should be pruned but has {} messages", history_len);
+
+    // Verify the first message is the user prompt (system prompt is handled by backend)
+    assert_eq!(agent.history()[0].role, Role::User);
+    assert_eq!(agent.history()[0].content, "Read many files");
+}
