@@ -458,3 +458,59 @@ mod rg_advanced_tests {
         assert!(matches.contains("ddd"));
     }
 }
+
+#[cfg(test)]
+mod append_edge_tests {
+    use crate::tools::edit::AppendFileTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_append_empty_content() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "existing\n").unwrap();
+        let tool = AppendFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.txt","content":""})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_append_multiline() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "line1\n").unwrap();
+        let tool = AppendFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.txt","content":"line2\nline3\nline4"})).await.unwrap();
+        assert_eq!(r["lines_appended"].as_u64().unwrap(), 3);
+        let c = std::fs::read_to_string(tmp.path().join("f.txt")).unwrap();
+        assert!(c.contains("line1") && c.contains("line4"));
+    }
+}
+
+#[cfg(test)]
+mod insert_edge_tests {
+    use crate::tools::edit::InsertAfterTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_insert_multiline_content() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "fn a() {}\nfn c() {}\n").unwrap();
+        let tool = InsertAfterTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.rs","anchor_text":"fn a()","content":"fn b1() {}\nfn b2() {}"})).await.unwrap();
+        assert_eq!(r["lines_inserted"].as_u64().unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_insert_at_end_of_file() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "fn first() {}\nfn last() {}\n").unwrap();
+        let tool = InsertAfterTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.rs","anchor_text":"fn last()","content":"fn appended() {}"})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+        let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
+        assert!(c.ends_with("fn appended() {}\n") || c.contains("fn appended() {}"));
+    }
+}
