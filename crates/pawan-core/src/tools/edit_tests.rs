@@ -776,3 +776,36 @@ mod edit_string_match_tests {
         assert!(c.contains("world()"));
     }
 }
+
+#[cfg(test)]
+mod git_write_tests {
+    use crate::tools::git::{GitAddTool, GitCommitTool};
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_git_add_in_repo() {
+        let tmp = TempDir::new().unwrap();
+        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git").args(["config","user.email","test@test.com"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git").args(["config","user.name","test"]).current_dir(tmp.path()).output().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "hello").unwrap();
+        let tool = GitAddTool::new(tmp.path().into());
+        let r = tool.execute(json!({"files":["f.txt"]})).await.unwrap();
+        assert!(r.is_object());
+    }
+
+    #[tokio::test]
+    async fn test_git_commit_after_add() {
+        let tmp = TempDir::new().unwrap();
+        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git").args(["config","user.email","test@test.com"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git").args(["config","user.name","test"]).current_dir(tmp.path()).output().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "hello").unwrap();
+        std::process::Command::new("git").args(["add","f.txt"]).current_dir(tmp.path()).output().unwrap();
+        let tool = GitCommitTool::new(tmp.path().into());
+        let r = tool.execute(json!({"message":"test commit"})).await.unwrap();
+        assert!(r.is_object());
+    }
+}
