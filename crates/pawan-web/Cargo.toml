@@ -1,0 +1,42 @@
+[package]
+name = "pawan-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "HTTP API server for Pawan — Axum + SSE streaming"
+
+[[bin]]
+name = "pawan-web"
+path = "src/main.rs"
+
+[dependencies]
+pawan-core = { workspace = true }
+
+# Axum
+axum = { version = "0.8", features = ["json"] }
+axum-extra = { version = "0.10", features = ["typed-header"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+
+# Async
+tokio = { workspace = true }
+futures = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Observability
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# IDs & time
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# Streaming
+tokio-stream = "0.1"
+
+# Config
+dotenvy = "0.15"
