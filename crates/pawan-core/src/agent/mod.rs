@@ -7,6 +7,7 @@
 //! - Supports multiple LLM backends (NVIDIA API, Ollama, OpenAI)
 
 pub mod backend;
+mod preflight;
 pub mod session;
 
 use crate::config::{LlmProvider, PawanConfig};

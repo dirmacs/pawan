@@ -179,12 +179,20 @@ impl Tool for WriteFileTool {
             .await
             .map_err(crate::PawanError::Io)?;
 
+        // Verify written size matches expected
+        let written_size = tokio::fs::metadata(&full_path)
+            .await
+            .map(|m| m.len() as usize)
+            .unwrap_or(0);
         let line_count = content.lines().count();
+        let size_mismatch = written_size != content.len();
 
         Ok(json!({
             "success": true,
             "path": full_path.display().to_string(),
             "bytes_written": content.len(),
+            "bytes_on_disk": written_size,
+            "size_verified": !size_mismatch,
             "lines": line_count
         }))
     }
