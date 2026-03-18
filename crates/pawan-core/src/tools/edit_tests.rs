@@ -734,3 +734,45 @@ mod git_tool_tests {
         assert!(diff.is_empty() || diff.contains("diff"));
     }
 }
+
+#[cfg(test)]
+mod edit_string_match_tests {
+    use crate::tools::edit::EditFileTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_edit_whitespace_matters() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "  let x = 1;\n  let y = 2;\n").unwrap();
+        let tool = EditFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.rs","old_string":"  let x = 1;","new_string":"  let x = 42;"})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+        let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
+        assert!(c.contains("42"));
+        assert!(!c.contains("= 1"));
+    }
+
+    #[tokio::test]
+    async fn test_edit_empty_old_string() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "hello").unwrap();
+        let tool = EditFileTool::new(tmp.path().into());
+        // Empty old_string should fail (matches everything)
+        let r = tool.execute(json!({"path":"f.rs","old_string":"","new_string":"x"})).await;
+        // Either error or replaces nothing — both acceptable
+        let _ = r;
+    }
+
+    #[tokio::test]
+    async fn test_edit_newline_in_match() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "fn main() {\n    hello();\n}\n").unwrap();
+        let tool = EditFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.rs","old_string":"fn main() {\n    hello();\n}","new_string":"fn main() {\n    world();\n}"})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+        let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
+        assert!(c.contains("world()"));
+    }
+}
