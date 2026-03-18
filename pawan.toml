@@ -1,12 +1,12 @@
-# Pawan — hybrid local+cloud configuration
-# Primary: Qwen3.5-9B on Shanjeth's Mac via shadow net tunnel (localhost:8080)
-# Cloud fallback: NVIDIA NIM (devstral) when local is unavailable
-provider = "openai"
-model = "Qwen3.5-9B-Q4_K_M"
+# Pawan — VPS configuration
+# Primary: NVIDIA NIM (mistral-small, reliable)
+# Cloud fallback: devstral when primary is slow
+provider = "nvidia"
+model = "mistralai/mistral-small-24b-instruct"
 temperature = 0.6
 max_tokens = 4096
 
-# Cloud fallback — kicks in automatically when local model fails
+# Cloud fallback
 [cloud]
 provider = "nvidia"
 model = "mistralai/devstral-2-123b-instruct-2512"
@@ -14,3 +14,8 @@ model = "mistralai/devstral-2-123b-instruct-2512"
 [mcp.daedra]
 command = "daedra"
 args = ["serve", "--transport", "stdio", "--quiet"]
+
+[mcp.eruka]
+command = "/opt/eruka/target/release/eruka-mcp"
+args = ["--transport", "stdio", "--user-id", "63cca910-aff3-48b8-bb32-e0cdcd5f9a2e"]
+env = { DATABASE_URL = "postgres://dirmacs:2ab91004d735521aa189e446b0344aca@localhost/eruka" }
