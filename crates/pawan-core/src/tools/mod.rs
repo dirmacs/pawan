@@ -117,7 +117,8 @@ impl ToolRegistry {
         registry.register(Arc::new(native::FdTool::new(workspace_root.clone())));
         registry.register(Arc::new(native::SdTool::new(workspace_root.clone())));
         registry.register(Arc::new(native::ErdTool::new(workspace_root.clone())));
-        registry.register(Arc::new(native::MiseTool::new(workspace_root)));
+        registry.register(Arc::new(native::MiseTool::new(workspace_root.clone())));
+        registry.register(Arc::new(native::ZoxideTool::new(workspace_root)));
 
         registry
     }
