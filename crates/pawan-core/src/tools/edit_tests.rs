@@ -968,3 +968,72 @@ mod milestone_tests {
         assert!(names.contains(&"bash".into()));
     }
 }
+
+#[cfg(test)]
+mod diff_tests {
+    use crate::tools::edit::EditFileTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_edit_returns_diff() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "let old = 1;\n").unwrap();
+        let tool = EditFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.rs","old_string":"let old = 1;","new_string":"let new = 2;"})).await.unwrap();
+        let diff = r["diff"].as_str().unwrap();
+        assert!(diff.contains("-let old = 1;"));
+        assert!(diff.contains("+let new = 2;"));
+    }
+
+    #[tokio::test]
+    async fn test_edit_lines_returns_diff() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "aaa\nbbb\nccc\n").unwrap();
+        let tool = crate::tools::edit::EditFileLinesTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.rs","start_line":2,"end_line":2,"new_content":"XXX"})).await.unwrap();
+        let diff = r["diff"].as_str().unwrap();
+        assert!(diff.contains("-bbb"));
+        assert!(diff.contains("+XXX"));
+    }
+}
+
+#[cfg(test)]
+mod write_file_edge_tests {
+    use crate::tools::file::WriteFileTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_write_overwrites() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "old content").unwrap();
+        let tool = WriteFileTool::new(tmp.path().into());
+        tool.execute(json!({"path":"f.txt","content":"new content"})).await.unwrap();
+        let c = std::fs::read_to_string(tmp.path().join("f.txt")).unwrap();
+        assert_eq!(c, "new content");
+        assert!(!c.contains("old"));
+    }
+
+    #[tokio::test]
+    async fn test_write_empty_file() {
+        let tmp = TempDir::new().unwrap();
+        let tool = WriteFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"empty.txt","content":""})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+        assert_eq!(r["bytes_written"].as_u64().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_write_unicode() {
+        let tmp = TempDir::new().unwrap();
+        let tool = WriteFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"uni.txt","content":"hello 世界 🦀"})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+        assert!(r["size_verified"].as_bool().unwrap());
+        let c = std::fs::read_to_string(tmp.path().join("uni.txt")).unwrap();
+        assert!(c.contains("🦀"));
+    }
+}
