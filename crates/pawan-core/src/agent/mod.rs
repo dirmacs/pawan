@@ -644,7 +644,7 @@ impl PawanAgent {
                         let truncated: String = result_str.chars().take(max_result_chars).collect();
                         let truncated = truncated.as_str();
                         serde_json::from_str(truncated).unwrap_or_else(|_| {
-                            json!({"content": format!("{}...[truncated from {} chars]", &result_str[..max_result_chars], result_str.len())})
+                            json!({"content": format!("{}...[truncated from {} chars]", truncated, result_str.len())})
                         })
                     } else {
                         result_value
