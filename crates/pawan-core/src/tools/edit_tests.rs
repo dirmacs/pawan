@@ -155,3 +155,41 @@ mod native_tests {
         assert!(r.is_err());
     }
 }
+
+#[cfg(test)]
+mod rg_tests {
+    use crate::tools::native::RipgrepTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_rg_basic() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.rs"), "fn main() {\n    println!(\"hello\");\n}").unwrap();
+        let tool = RipgrepTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"println"})).await.unwrap();
+        assert!(r["match_count"].as_u64().unwrap() >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_rg_no_match() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "hello world").unwrap();
+        let tool = RipgrepTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"zzzzz"})).await.unwrap();
+        assert_eq!(r["match_count"].as_u64().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_rg_type_filter() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.rs"), "fn test()").unwrap();
+        std::fs::write(tmp.path().join("b.py"), "def test()").unwrap();
+        let tool = RipgrepTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"test","type_filter":"rust"})).await.unwrap();
+        let matches = r["matches"].as_str().unwrap();
+        assert!(matches.contains("a.rs"));
+        assert!(!matches.contains("b.py"));
+    }
+}
