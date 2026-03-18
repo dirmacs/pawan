@@ -99,6 +99,26 @@ mod anchor_tests {
         let tmp = TempDir::new().unwrap();
         let content = "fn foo() {\n    println!(\"hello\");\n}\nfn bar() {}";
         std::fs::write(tmp.path().join("f.rs"), content).unwrap();
+        let tool = InsertAfterTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.rs","anchor_text":"fn foo()","content":"fn inserted() {}"})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+        let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
+        // Should insert AFTER foo's closing }, not inside foo's body
+        assert!(c.contains("}\nfn inserted() {}\nfn bar()"), "Got: {}", c);
+    }
+
+    #[tokio::test]
+    async fn test_insert_after_no_block() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "use std::io;\nuse std::fs;\n").unwrap();
+        let tool = InsertAfterTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.rs","anchor_text":"use std::io","content":"use std::path;"})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+        let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
+        // No block — should insert right after the anchor line
+        assert_eq!(c, "use std::io;\nuse std::path;\nuse std::fs;\n");
+    }
+}
 
 #[cfg(test)]
 mod native_tests {
@@ -109,7 +129,7 @@ mod native_tests {
 
     #[tokio::test]
     async fn test_sd_replace() {
-        if !which::which("sd").is_ok() { return; } // skip if sd not installed
+        if which::which("sd").is_err() { return; }
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.txt"), "hello world hello").unwrap();
         let tool = SdTool::new(tmp.path().into());
