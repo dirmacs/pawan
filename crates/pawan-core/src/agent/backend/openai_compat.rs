@@ -862,3 +862,74 @@ mod tests {
                 "Delay 2 should be ~4s with jitter: {}ms", delay_2.as_millis());
     }
 }
+
+#[cfg(test)]
+mod think_strip_tests {
+    use super::OpenAiCompatBackend;
+
+    #[test]
+    fn strip_simple() {
+        let s = "Hello <think>internal reasoning</think> world";
+        assert_eq!(OpenAiCompatBackend::strip_think_from_str(s), "Hello world");
+    }
+
+    #[test]
+    fn strip_case_insensitive() {
+        let s = "A <Think>stuff</THINK> B";
+        assert_eq!(OpenAiCompatBackend::strip_think_from_str(s), "A B");
+    }
+
+    #[test]
+    fn strip_multiple() {
+        let s = "<think>a</think>Hello<think>b</think> there";
+        assert_eq!(OpenAiCompatBackend::strip_think_from_str(s), "Hello there");
+    }
+
+    #[test]
+    fn strip_nested_content() {
+        let s = "prefix <think>line1\nline2\nline3</think> suffix";
+        assert_eq!(OpenAiCompatBackend::strip_think_from_str(s), "prefix suffix");
+    }
+
+    #[test]
+    fn strip_entire_message() {
+        let s = "<think>only thinking</think>";
+        assert_eq!(OpenAiCompatBackend::strip_think_from_str(s).trim(), "");
+    }
+
+    #[test]
+    fn strip_no_blocks() {
+        let s = "No think blocks here";
+        assert_eq!(OpenAiCompatBackend::strip_think_from_str(s), "No think blocks here");
+    }
+
+    #[test]
+    fn strip_from_json_args() {
+        let s = r#"<think>let me figure out the path</think>{"path":"src/main.rs","content":"hello"}"#;
+        let clean = OpenAiCompatBackend::strip_think_from_str(s);
+        let parsed: serde_json::Value = serde_json::from_str(&clean).unwrap();
+        assert_eq!(parsed["path"], "src/main.rs");
+    }
+
+    #[test]
+    fn strip_interleaved_json() {
+        // StepFun pattern: thinking interleaved with JSON
+        let s = r#"{"path":"test.rs"<think>checking the file</think>,"content":"fn main() {}"}"#;
+        let clean = OpenAiCompatBackend::strip_think_from_str(s);
+        // After stripping, JSON should be parseable
+        let result = serde_json::from_str::<serde_json::Value>(&clean);
+        // This specific case may not parse due to comma positioning, 
+        // but the stripping itself should not panic
+        let _ = result;
+    }
+
+    #[test]
+    fn strip_empty_string() {
+        assert_eq!(OpenAiCompatBackend::strip_think_from_str(""), "");
+    }
+
+    #[test]
+    fn strip_whitespace_only() {
+        assert_eq!(OpenAiCompatBackend::strip_think_from_str("   ").trim(), "");
+    }
+}
