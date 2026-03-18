@@ -1072,3 +1072,50 @@ mod config_tests {
         assert!(config.use_thinking_mode());
     }
 }
+
+#[cfg(test)]
+mod env_override_tests {
+    use crate::config::PawanConfig;
+
+    #[test]
+    fn test_env_override_model() {
+        std::env::set_var("PAWAN_MODEL", "test-model-override");
+        let mut config = PawanConfig::default();
+        config.apply_env_overrides();
+        assert_eq!(config.model, "test-model-override");
+        std::env::remove_var("PAWAN_MODEL");
+    }
+
+    #[test]
+    fn test_env_override_temperature() {
+        std::env::set_var("PAWAN_TEMPERATURE", "0.42");
+        let mut config = PawanConfig::default();
+        config.apply_env_overrides();
+        assert!((config.temperature - 0.42).abs() < 0.01);
+        std::env::remove_var("PAWAN_TEMPERATURE");
+    }
+
+    #[test]
+    fn test_env_override_fallback_models() {
+        std::env::set_var("PAWAN_FALLBACK_MODELS", "model-a, model-b, model-c");
+        let mut config = PawanConfig::default();
+        config.apply_env_overrides();
+        assert_eq!(config.fallback_models.len(), 3);
+        assert_eq!(config.fallback_models[0], "model-a");
+        std::env::remove_var("PAWAN_FALLBACK_MODELS");
+    }
+}
+
+#[cfg(test)]
+mod healing_config_tests {
+    use crate::config::{PawanConfig, HealingConfig};
+
+    #[test]
+    fn test_healing_defaults() {
+        let config = PawanConfig::default();
+        assert!(config.healing.fix_errors);
+        assert!(config.healing.fix_warnings);
+        assert!(config.healing.fix_tests);
+        assert!(!config.healing.auto_commit);
+    }
+}
