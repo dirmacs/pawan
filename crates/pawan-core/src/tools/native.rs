@@ -145,6 +145,7 @@ impl Tool for FdTool {
                 "extension": { "type": "string", "description": "Filter by extension: rs, py, js, toml, md" },
                 "type_filter": { "type": "string", "description": "f=file, d=directory, l=symlink" },
                 "max_depth": { "type": "integer", "description": "Max directory depth" },
+                "max_results": { "type": "integer", "description": "Max results to return (default: 50, prevents context flooding)" },
                 "hidden": { "type": "boolean", "description": "Include hidden files (default: false)" }
             },
             "required": ["pattern"]
@@ -180,11 +181,17 @@ impl Tool for FdTool {
         let (stdout, stderr, _) = run_cmd("fd", &cmd_args_ref, &self.workspace_root).await
             .map_err(|e| crate::PawanError::Tool(e))?;
 
-        let files: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        let max_results = args["max_results"].as_u64().unwrap_or(50) as usize;
+        let all_files: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
+        let total = all_files.len();
+        let files: Vec<&str> = all_files.into_iter().take(max_results).collect();
+        let truncated = total > max_results;
 
         Ok(json!({
             "files": files,
             "count": files.len(),
+            "total_found": total,
+            "truncated": truncated,
             "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
         }))
     }
