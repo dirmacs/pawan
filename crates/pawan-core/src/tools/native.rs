@@ -65,7 +65,8 @@ impl Tool for RipgrepTool {
                 "context": { "type": "integer", "description": "Lines of context around each match (default: 0)" },
                 "fixed_strings": { "type": "boolean", "description": "Treat pattern as literal string, not regex" },
                 "case_insensitive": { "type": "boolean", "description": "Case insensitive search (default: false)" },
-                "invert": { "type": "boolean", "description": "Invert match: show lines that do NOT match (default: false)" }
+                "invert": { "type": "boolean", "description": "Invert match: show lines that do NOT match (default: false)" },
+                "hidden": { "type": "boolean", "description": "Search hidden files and directories (default: false)" }
             },
             "required": ["pattern"]
         })
@@ -101,6 +102,9 @@ impl Tool for RipgrepTool {
         }
         if args["invert"].as_bool().unwrap_or(false) {
             cmd_args.push("--invert-match");
+        }
+        if args["hidden"].as_bool().unwrap_or(false) {
+            cmd_args.push("--hidden");
         }
         cmd_args.push(pattern);
         cmd_args.push(search_path);
