@@ -256,6 +256,14 @@ impl Tool for EditFileLinesTool {
         let new_lines: Vec<&str> = new_content.lines().collect();
         let lines_replaced = end_line - start_line + 1;
 
+        // Context echo: capture what's being replaced (helps LLM verify correctness)
+        let replaced_lines: Vec<String> = lines[start_line - 1..end_line]
+            .iter()
+            .enumerate()
+            .map(|(i, l)| format!("{:>4} | {}", start_line + i, l))
+            .collect();
+        let replaced_preview = replaced_lines.join("\n");
+
         let before = &lines[..start_line - 1];
         let after = &lines[end_line..];
 
@@ -281,6 +289,7 @@ impl Tool for EditFileLinesTool {
             "path": full_path.display().to_string(),
             "lines_replaced": lines_replaced,
             "new_line_count": new_lines.len(),
+            "replaced_content": replaced_preview,
             "diff": diff
         }))
     }
