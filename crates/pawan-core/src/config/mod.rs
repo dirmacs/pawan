@@ -97,6 +97,10 @@ pub struct PawanConfig {
     /// Cloud fallback: when primary model fails, fall back to cloud provider.
     /// Enables hybrid local+cloud routing.
     pub cloud: Option<CloudConfig>,
+
+    /// Eruka context engine integration (3-tier memory injection)
+    #[serde(default)]
+    pub eruka: crate::eruka_bridge::ErukaConfig,
 }
 
 /// Cloud fallback configuration for hybrid local+cloud model routing.
@@ -177,6 +181,7 @@ impl Default for PawanConfig {
             mcp: HashMap::new(),
             permissions: HashMap::new(),
             cloud: None,
+            eruka: crate::eruka_bridge::ErukaConfig::default(),
         }
     }
 }
