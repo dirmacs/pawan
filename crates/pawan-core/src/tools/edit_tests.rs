@@ -809,3 +809,38 @@ mod git_write_tests {
         assert!(r.is_object());
     }
 }
+
+#[cfg(test)]
+mod git_extended_tests {
+    use crate::tools::git::{GitBlameTool, GitBranchTool};
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    fn init_repo(tmp: &TempDir) {
+        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git").args(["config","user.email","t@t.com"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git").args(["config","user.name","t"]).current_dir(tmp.path()).output().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "hello").unwrap();
+        std::process::Command::new("git").args(["add","."]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git").args(["commit","-m","init"]).current_dir(tmp.path()).output().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_git_blame() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(&tmp);
+        let tool = GitBlameTool::new(tmp.path().into());
+        let r = tool.execute(json!({"file":"f.txt"})).await.unwrap();
+        assert!(r.is_object());
+    }
+
+    #[tokio::test]
+    async fn test_git_branch_list() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(&tmp);
+        let tool = GitBranchTool::new(tmp.path().into());
+        let r = tool.execute(json!({})).await.unwrap();
+        assert!(r.is_object());
+    }
+}
