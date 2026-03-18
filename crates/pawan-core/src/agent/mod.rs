@@ -594,6 +594,19 @@ impl PawanAgent {
                     callback(&tool_call.name);
                 }
 
+                // Debug: log tool call args for diagnosis
+                tracing::debug!(
+                    tool = tool_call.name.as_str(),
+                    args_len = serde_json::to_string(&tool_call.arguments).unwrap_or_default().len(),
+                    "Tool call: {}({})",
+                    tool_call.name,
+                    serde_json::to_string(&tool_call.arguments)
+                        .unwrap_or_default()
+                        .chars()
+                        .take(200)
+                        .collect::<String>()
+                );
+
                 let start = std::time::Instant::now();
 
                 // Resilient tool execution: catch panics + errors
