@@ -481,9 +481,21 @@ impl PawanAgent {
             };
 
             if response.tool_calls.is_empty() {
-                // --- Guardrail: detect empty/no-op responses and nudge ---
-                if clean_content.trim().is_empty() && iterations < max_iterations {
-                    tracing::warn!("Empty response with no tool calls at iteration {} — nudging model", iterations);
+                // --- Guardrail: detect chatty no-op (content but no tools on early iterations) ---
+                // Only nudge if tools are available AND response looks like planning text (not a real answer)
+                let has_tools = !tool_defs.is_empty();
+                let lower = clean_content.to_lowercase();
+                let planning_prefix = lower.starts_with("let me")
+                    || lower.starts_with("i'll help")
+                    || lower.starts_with("i will help")
+                    || lower.starts_with("sure, i")
+                    || lower.starts_with("okay, i");
+                let looks_like_planning = clean_content.len() > 200 || (planning_prefix && clean_content.len() > 50);
+                if has_tools && looks_like_planning && iterations == 1 && iterations < max_iterations && response.finish_reason != "error" {
+                    tracing::warn!(
+                        "No tool calls at iteration {} (content: {}B) — nudging model to use tools",
+                        iterations, clean_content.len()
+                    );
                     self.history.push(Message {
                         role: Role::Assistant,
                         content: clean_content.clone(),
@@ -492,7 +504,7 @@ impl PawanAgent {
                     });
                     self.history.push(Message {
                         role: Role::User,
-                        content: "You returned an empty response with no tool calls. You must use tools to complete the task. Read the relevant files and make the required changes.".to_string(),
+                        content: "You must use tools to complete this task. Do NOT just describe what you would do — actually call the tools. Start with bash or read_file.".to_string(),
                         tool_calls: vec![],
                         tool_result: None,
                     });
