@@ -929,3 +929,42 @@ mod tool_registry_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod milestone_tests {
+    #[test]
+    fn test_minimum_tool_count() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let registry = crate::tools::ToolRegistry::with_defaults(tmp.path().into());
+        let defs = registry.get_definitions();
+        assert!(defs.len() >= 27, "Expected at least 27 tools, got {}", defs.len());
+    }
+
+    #[test]
+    fn test_all_tool_categories_present() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let registry = crate::tools::ToolRegistry::with_defaults(tmp.path().into());
+        let names: Vec<String> = registry.get_definitions().iter().map(|d| d.name.clone()).collect();
+        // File tools
+        assert!(names.contains(&"read_file".into()));
+        assert!(names.contains(&"write_file".into()));
+        assert!(names.contains(&"append_file".into()));
+        // Edit tools
+        assert!(names.contains(&"edit_file".into()));
+        assert!(names.contains(&"edit_file_lines".into()));
+        assert!(names.contains(&"insert_after".into()));
+        // Native tools
+        assert!(names.contains(&"rg".into()));
+        assert!(names.contains(&"fd".into()));
+        assert!(names.contains(&"sd".into()));
+        assert!(names.contains(&"z".into()));
+        assert!(names.contains(&"mise".into()));
+        // Git tools
+        assert!(names.contains(&"git_status".into()));
+        assert!(names.contains(&"git_commit".into()));
+        // Agent tools
+        assert!(names.contains(&"spawn_agent".into()));
+        // Bash
+        assert!(names.contains(&"bash".into()));
+    }
+}
