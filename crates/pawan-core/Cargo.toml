@@ -54,6 +54,9 @@ similar = "2.6"
 regex = "1.12"
 rand = "0.8"
 
+# Git-backed sessions (conversation trees)
+git2 = "0.20"
+
 [dev-dependencies]
 tempfile = "3.23"
 tokio-test = "0.4"
