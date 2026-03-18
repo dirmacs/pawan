@@ -879,3 +879,53 @@ mod git_checkout_stash_tests {
         let _ = r; // stashing clean tree — shouldn't panic
     }
 }
+
+#[cfg(test)]
+mod agent_tool_tests {
+    use crate::tools::agent::SpawnAgentTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_spawn_agent_missing_prompt() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentTool::new(tmp.path().into());
+        let r = tool.execute(json!({})).await;
+        assert!(r.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agent_schema() {
+        let tool = SpawnAgentTool::new(std::path::PathBuf::from("/tmp"));
+        let schema = tool.parameters_schema();
+        assert!(schema["properties"]["prompt"].is_object());
+    }
+}
+
+#[cfg(test)]
+mod tool_registry_tests {
+    use crate::tools::ToolRegistry;
+
+    #[test]
+    fn test_registry_no_duplicate_names() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let registry = ToolRegistry::with_defaults(tmp.path().into());
+        let defs = registry.get_definitions();
+        let mut names: Vec<&str> = defs.iter().map(|d| d.name.as_str()).collect();
+        let total = names.len();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), total, "Duplicate tool names found!");
+    }
+
+    #[test]
+    fn test_registry_all_have_descriptions() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let registry = ToolRegistry::with_defaults(tmp.path().into());
+        for def in registry.get_definitions() {
+            assert!(!def.description.is_empty(), "Tool {} has no description", def.name);
+            assert!(def.description.len() > 10, "Tool {} description too short", def.name);
+        }
+    }
+}
