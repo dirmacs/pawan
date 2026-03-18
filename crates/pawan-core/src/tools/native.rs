@@ -63,7 +63,8 @@ impl Tool for RipgrepTool {
                 "type_filter": { "type": "string", "description": "File type filter: rust, py, js, go, ts, c, cpp, java, toml, md" },
                 "max_count": { "type": "integer", "description": "Max matches per file (default: 20)" },
                 "context": { "type": "integer", "description": "Lines of context around each match (default: 0)" },
-                "fixed_strings": { "type": "boolean", "description": "Treat pattern as literal string, not regex" }
+                "fixed_strings": { "type": "boolean", "description": "Treat pattern as literal string, not regex" },
+                "case_insensitive": { "type": "boolean", "description": "Case insensitive search (default: false)" }
             },
             "required": ["pattern"]
         })
@@ -93,6 +94,9 @@ impl Tool for RipgrepTool {
         }
         if args["fixed_strings"].as_bool().unwrap_or(false) {
             cmd_args.push("--fixed-strings");
+        }
+        if args["case_insensitive"].as_bool().unwrap_or(false) {
+            cmd_args.push("-i");
         }
         cmd_args.push(pattern);
         cmd_args.push(search_path);
