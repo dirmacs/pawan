@@ -2,6 +2,9 @@
 //!
 //! This module provides all the tools that Pawan can use to interact with
 //! the filesystem, execute commands, and perform coding operations.
+//!
+//! Native tools (rg, fd, sd, erd, mise) are thin wrappers over CLI binaries
+//! that provide structured JSON output and auto-install hints.
 
 pub mod agent;
 pub mod bash;
@@ -10,6 +13,7 @@ pub mod edit;
 mod edit_tests;
 pub mod file;
 pub mod git;
+pub mod native;
 pub mod search;
 
 #[cfg(feature = "ares")]
@@ -86,13 +90,9 @@ impl ToolRegistry {
         registry.register(Arc::new(edit::InsertAfterTool::new(workspace_root.clone())));
         registry.register(Arc::new(edit::AppendFileTool::new(workspace_root.clone())));
 
-        // Search tools
-        registry.register(Arc::new(search::GlobSearchTool::new(
-            workspace_root.clone(),
-        )));
-        registry.register(Arc::new(search::GrepSearchTool::new(
-            workspace_root.clone(),
-        )));
+        // Search tools (native rg/fd wrappers override old search module)
+        registry.register(Arc::new(native::GlobSearchTool::new(workspace_root.clone())));
+        registry.register(Arc::new(native::GrepSearchTool::new(workspace_root.clone())));
 
         // Bash tool
         registry.register(Arc::new(bash::BashTool::new(workspace_root.clone())));
@@ -108,10 +108,16 @@ impl ToolRegistry {
         registry.register(Arc::new(git::GitCheckoutTool::new(workspace_root.clone())));
         registry.register(Arc::new(git::GitStashTool::new(workspace_root.clone())));
 
-        // Sub-agent tool
         // Sub-agent tools
         registry.register(Arc::new(agent::SpawnAgentsTool::new(workspace_root.clone())));
-        registry.register(Arc::new(agent::SpawnAgentTool::new(workspace_root)));
+        registry.register(Arc::new(agent::SpawnAgentTool::new(workspace_root.clone())));
+
+        // Native CLI tools (rg, fd, sd, erd, mise)
+        registry.register(Arc::new(native::RipgrepTool::new(workspace_root.clone())));
+        registry.register(Arc::new(native::FdTool::new(workspace_root.clone())));
+        registry.register(Arc::new(native::SdTool::new(workspace_root.clone())));
+        registry.register(Arc::new(native::ErdTool::new(workspace_root.clone())));
+        registry.register(Arc::new(native::MiseTool::new(workspace_root)));
 
         registry
     }
