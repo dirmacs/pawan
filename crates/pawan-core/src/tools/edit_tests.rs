@@ -393,3 +393,68 @@ mod grep_native_tests {
         assert!(r["count"].as_u64().unwrap() >= 1);
     }
 }
+
+#[cfg(test)]
+mod write_verify_tests {
+    use crate::tools::file::WriteFileTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_write_reports_size() {
+        let tmp = TempDir::new().unwrap();
+        let tool = WriteFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"test.txt","content":"hello world"})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+        assert_eq!(r["bytes_written"].as_u64().unwrap(), 11);
+        assert!(r["size_verified"].as_bool().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_write_creates_parent_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let tool = WriteFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"a/b/c/deep.txt","content":"nested"})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+        assert!(tmp.path().join("a/b/c/deep.txt").exists());
+    }
+}
+
+#[cfg(test)]
+mod rg_advanced_tests {
+    use crate::tools::native::RipgrepTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_rg_case_insensitive() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "Hello WORLD hello").unwrap();
+        let tool = RipgrepTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"hello","case_insensitive":true})).await.unwrap();
+        let matches = r["matches"].as_str().unwrap();
+        assert!(matches.contains("Hello WORLD hello"));
+    }
+
+    #[tokio::test]
+    async fn test_rg_fixed_strings() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "foo.bar (test)").unwrap();
+        let tool = RipgrepTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"foo.bar","fixed_strings":true})).await.unwrap();
+        assert!(r["match_count"].as_u64().unwrap() >= 1);
+    }
+
+    #[tokio::test]
+    async fn test_rg_context_lines() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "aaa\nbbb\nccc\nddd\neee").unwrap();
+        let tool = RipgrepTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"ccc","context":1})).await.unwrap();
+        let matches = r["matches"].as_str().unwrap();
+        assert!(matches.contains("bbb"));
+        assert!(matches.contains("ddd"));
+    }
+}
