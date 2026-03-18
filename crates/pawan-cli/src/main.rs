@@ -180,7 +180,12 @@ enum Commands {
         check: bool,
     },
 
-    /// List saved sessions
+    /// Beads-style task tracking (deps, ready detection, memory decay)
+    Tasks {
+        #[command(subcommand)]
+        action: TasksAction,
+    },
+
     /// List saved sessions
     Sessions,
 
@@ -250,6 +255,86 @@ enum Commands {
         /// Stream NDJSON events (requires --output json)
         #[arg(long)]
         stream: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum TasksAction {
+    /// List beads (tasks) with optional filters
+    List {
+        /// Filter by status: open, in_progress, closed, all
+        #[arg(long, default_value = "all")]
+        status: String,
+        /// Filter by max priority (0=critical, 4=backlog)
+        #[arg(long)]
+        priority: Option<u8>,
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show ready (actionable, unblocked) beads
+    Ready {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Create a new bead
+    Create {
+        /// Title of the task
+        title: String,
+        /// Priority (0=critical, 4=backlog, default=2)
+        #[arg(short, long, default_value = "2")]
+        priority: u8,
+        /// Description
+        #[arg(short, long)]
+        desc: Option<String>,
+    },
+    /// Update a bead
+    Update {
+        /// Bead ID (bd-XXXXXXXX or just XXXXXXXX)
+        id: String,
+        /// New status: open, in_progress, closed
+        #[arg(long)]
+        status: Option<String>,
+        /// New priority
+        #[arg(long)]
+        priority: Option<u8>,
+        /// New title
+        #[arg(long)]
+        title: Option<String>,
+    },
+    /// Close a bead
+    Close {
+        /// Bead ID
+        id: String,
+        /// Reason for closing
+        #[arg(long)]
+        reason: Option<String>,
+    },
+    /// Manage dependencies
+    Dep {
+        #[command(subcommand)]
+        action: DepAction,
+    },
+    /// Run memory decay (archive old closed beads)
+    Decay {
+        /// Max age in days before archiving (default: 30)
+        #[arg(long, default_value = "30")]
+        max_age_days: u64,
+    },
+}
+
+#[derive(Subcommand)]
+enum DepAction {
+    /// Add dependency: <id> depends on <blocks_id>
+    Add {
+        id: String,
+        blocks_id: String,
+    },
+    /// Remove dependency
+    Rm {
+        id: String,
+        blocks_id: String,
     },
 }
 
@@ -330,6 +415,7 @@ async fn run() -> Result<()> {
         Some(Commands::Bench) => run_bench().await,
         Some(Commands::Notify { message, channel }) => run_notify(&message, &channel).await,
         Some(Commands::Fmt { check }) => run_fmt(workspace, check).await,
+        Some(Commands::Tasks { action }) => run_tasks(action).await,
         Some(Commands::Sessions) => run_sessions().await,
         Some(Commands::Completions { shell }) => {
             clap_complete::generate(shell, &mut Cli::command(), "pawan", &mut std::io::stdout());
@@ -1675,6 +1761,113 @@ max_tool_iterations = 15
             "\n{}",
             "Edit PAWAN.md to add project context for better AI assistance.".dimmed()
         );
+    }
+
+    Ok(())
+}
+
+async fn run_tasks(action: TasksAction) -> Result<()> {
+    use pawan::tasks::{BeadId, BeadStatus, BeadStore};
+
+    let store = BeadStore::open()?;
+
+    match action {
+        TasksAction::List { status, priority, json } => {
+            let status_filter = match status.as_str() {
+                "all" => None,
+                s => Some(s),
+            };
+            let beads = store.list(status_filter, priority)?;
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&beads).unwrap_or_default());
+                return Ok(());
+            }
+
+            if beads.is_empty() {
+                println!("{}", "No beads found.".dimmed());
+                return Ok(());
+            }
+
+            println!("{}", "Beads".green().bold());
+            println!("{}", "═".repeat(70).dimmed());
+            println!(
+                "  {:<12} {:<5} {:<12} {}",
+                "ID".cyan(), "Pri".cyan(), "Status".cyan(), "Title".cyan()
+            );
+            println!("{}", "─".repeat(70).dimmed());
+
+            for b in &beads {
+                let status_color = match b.status {
+                    BeadStatus::Open => format!("{:<12}", "open").yellow().to_string(),
+                    BeadStatus::InProgress => format!("{:<12}", "in_progress").blue().to_string(),
+                    BeadStatus::Closed => format!("{:<12}", "closed").dimmed().to_string(),
+                };
+                println!("  {:<12} {:<5} {} {}", b.id.display(), b.priority, status_color, b.title);
+            }
+            println!("\n  {} beads total", beads.len());
+        }
+
+        TasksAction::Ready { json } => {
+            let beads = store.ready()?;
+
+            if json {
+                println!("{}", serde_json::to_string_pretty(&beads).unwrap_or_default());
+                return Ok(());
+            }
+
+            if beads.is_empty() {
+                println!("{}", "No ready beads (all blocked or none open).".dimmed());
+                return Ok(());
+            }
+
+            println!("{} {} actionable beads:", "Ready:".green().bold(), beads.len());
+            for b in &beads {
+                println!("  {} [P{}] {}", b.id.display().cyan(), b.priority, b.title);
+            }
+        }
+
+        TasksAction::Create { title, priority, desc } => {
+            let bead = store.create(&title, desc.as_deref(), priority)?;
+            println!("{} {} — {}", "Created:".green().bold(), bead.id.display().cyan(), bead.title);
+        }
+
+        TasksAction::Update { id, status, priority, title } => {
+            let bid = BeadId::parse(&id);
+            let status = status.map(|s| BeadStatus::from_str(&s));
+            store.update(&bid, title.as_deref(), status, priority)?;
+            println!("{} {}", "Updated:".green().bold(), bid.display().cyan());
+        }
+
+        TasksAction::Close { id, reason } => {
+            let bid = BeadId::parse(&id);
+            store.close(&bid, reason.as_deref())?;
+            println!("{} {}", "Closed:".green().bold(), bid.display().cyan());
+        }
+
+        TasksAction::Dep { action } => match action {
+            DepAction::Add { id, blocks_id } => {
+                let bid = BeadId::parse(&id);
+                let dep = BeadId::parse(&blocks_id);
+                store.dep_add(&bid, &dep)?;
+                println!("{} {} depends on {}", "Dep added:".green().bold(), bid.display().cyan(), dep.display().cyan());
+            }
+            DepAction::Rm { id, blocks_id } => {
+                let bid = BeadId::parse(&id);
+                let dep = BeadId::parse(&blocks_id);
+                store.dep_remove(&bid, &dep)?;
+                println!("{} {} no longer depends on {}", "Dep removed:".green().bold(), bid.display().cyan(), dep.display().cyan());
+            }
+        },
+
+        TasksAction::Decay { max_age_days } => {
+            let count = store.memory_decay(max_age_days)?;
+            if count == 0 {
+                println!("{}", "No beads to archive.".dimmed());
+            } else {
+                println!("{} {} beads archived (older than {} days)", "Decayed:".green().bold(), count, max_age_days);
+            }
+        }
     }
 
     Ok(())
