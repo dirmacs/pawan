@@ -401,16 +401,77 @@ impl PawanAgent {
                 total_usage.total_tokens += usage.total_tokens;
             }
 
+            // --- Guardrail: strip thinking blocks from content ---
+            let clean_content = {
+                let mut s = response.content.clone();
+                loop {
+                    let lower = s.to_lowercase();
+                    let open = lower.find("<think>");
+                    let close = lower.find("</think>");
+                    match (open, close) {
+                        (Some(i), Some(j)) if j > i => {
+                            let before = s[..i].trim_end().to_string();
+                            let after = if s.len() > j + 8 { s[j + 8..].trim_start().to_string() } else { String::new() };
+                            s = if before.is_empty() { after } else if after.is_empty() { before } else { format!("{}\n{}", before, after) };
+                        }
+                        _ => break,
+                    }
+                }
+                s
+            };
+
             if response.tool_calls.is_empty() {
+                // --- Guardrail: detect empty/no-op responses and nudge ---
+                if clean_content.trim().is_empty() && iterations < max_iterations {
+                    tracing::warn!("Empty response with no tool calls at iteration {} — nudging model", iterations);
+                    self.history.push(Message {
+                        role: Role::Assistant,
+                        content: clean_content.clone(),
+                        tool_calls: vec![],
+                        tool_result: None,
+                    });
+                    self.history.push(Message {
+                        role: Role::User,
+                        content: "You returned an empty response with no tool calls. You must use tools to complete the task. Read the relevant files and make the required changes.".to_string(),
+                        tool_calls: vec![],
+                        tool_result: None,
+                    });
+                    continue;
+                }
+
+                // --- Guardrail: detect repeated responses ---
+                if iterations > 1 {
+                    let prev_assistant = self.history.iter().rev()
+                        .find(|m| m.role == Role::Assistant && !m.content.is_empty());
+                    if let Some(prev) = prev_assistant {
+                        if prev.content.trim() == clean_content.trim() && iterations < max_iterations {
+                            tracing::warn!("Repeated response detected at iteration {} — injecting correction", iterations);
+                            self.history.push(Message {
+                                role: Role::Assistant,
+                                content: clean_content.clone(),
+                                tool_calls: vec![],
+                                tool_result: None,
+                            });
+                            self.history.push(Message {
+                                role: Role::User,
+                                content: "You gave the same response as before. Try a different approach. Use anchor_text in edit_file_lines, or use insert_after, or use bash with sed.".to_string(),
+                                tool_calls: vec![],
+                                tool_result: None,
+                            });
+                            continue;
+                        }
+                    }
+                }
+
                 self.history.push(Message {
                     role: Role::Assistant,
-                    content: response.content.clone(),
+                    content: clean_content.clone(),
                     tool_calls: vec![],
                     tool_result: None,
                 });
 
                 return Ok(AgentResponse {
-                    content: response.content,
+                    content: clean_content,
                     tool_calls: all_tool_calls,
                     iterations,
                     usage: total_usage,
@@ -479,7 +540,9 @@ impl PawanAgent {
                 let result_value = {
                     let result_str = serde_json::to_string(&result_value).unwrap_or_default();
                     if result_str.len() > max_result_chars {
-                        let truncated = &result_str[..max_result_chars];
+                        // UTF-8 safe truncation
+                        let truncated: String = result_str.chars().take(max_result_chars).collect();
+                        let truncated = truncated.as_str();
                         serde_json::from_str(truncated).unwrap_or_else(|_| {
                             json!({"content": format!("{}...[truncated from {} chars]", &result_str[..max_result_chars], result_str.len())})
                         })
