@@ -509,3 +509,67 @@ impl Tool for MiseTool {
         }))
     }
 }
+
+// ─── zoxide (smart cd) ─────────────────────────────────────────────────────
+
+pub struct ZoxideTool {
+    workspace_root: PathBuf,
+}
+
+impl ZoxideTool {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
+    }
+}
+
+#[async_trait]
+impl Tool for ZoxideTool {
+    fn name(&self) -> &str { "z" }
+
+    fn description(&self) -> &str {
+        "zoxide — smart directory jumper. Learns from your cd history. \
+         Use 'query' to find a directory by fuzzy match (e.g. 'pawan' finds /opt/pawan). \
+         Use 'add' to teach it a new path. Use 'list' to see known paths."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "action": { "type": "string", "description": "query, add, or list" },
+                "path": { "type": "string", "description": "Path or search term" }
+            },
+            "required": ["action"]
+        })
+    }
+
+    async fn execute(&self, args: Value) -> crate::Result<Value> {
+        let action = args["action"].as_str()
+            .ok_or_else(|| crate::PawanError::Tool("action required (query/add/list)".into()))?;
+
+        let cmd_args: Vec<String> = match action {
+            "query" => {
+                let path = args["path"].as_str()
+                    .ok_or_else(|| crate::PawanError::Tool("path/search term required for query".into()))?;
+                vec!["query".into(), path.into()]
+            }
+            "add" => {
+                let path = args["path"].as_str()
+                    .ok_or_else(|| crate::PawanError::Tool("path required for add".into()))?;
+                vec!["add".into(), path.into()]
+            }
+            "list" => vec!["query".into(), "--list".into()],
+            _ => return Err(crate::PawanError::Tool(format!("Unknown action: {}. Use query/add/list", action))),
+        };
+
+        let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+        let (stdout, stderr, success) = run_cmd("zoxide", &cmd_refs, &self.workspace_root).await
+            .map_err(|e| crate::PawanError::Tool(e))?;
+
+        Ok(json!({
+            "success": success,
+            "result": stdout.trim(),
+            "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
+        }))
+    }
+}
