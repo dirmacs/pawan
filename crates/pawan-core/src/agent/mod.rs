@@ -9,6 +9,7 @@
 pub mod backend;
 mod preflight;
 pub mod session;
+pub mod git_session;
 
 use crate::config::{LlmProvider, PawanConfig};
 use crate::tools::{ToolDefinition, ToolRegistry};
