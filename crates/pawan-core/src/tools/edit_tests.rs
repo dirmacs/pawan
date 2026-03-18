@@ -1119,3 +1119,43 @@ mod healing_config_tests {
         assert!(!config.healing.auto_commit);
     }
 }
+
+#[cfg(test)]
+mod cloud_config_tests {
+    use crate::config::{PawanConfig, CloudConfig, LlmProvider};
+
+    #[test]
+    fn test_cloud_config_none_by_default() {
+        let config = PawanConfig::default();
+        assert!(config.cloud.is_none());
+    }
+
+    #[test]
+    fn test_cloud_config_creation() {
+        let cloud = CloudConfig {
+            provider: LlmProvider::Nvidia,
+            model: "test-model".into(),
+            fallback_models: vec!["fb1".into(), "fb2".into()],
+        };
+        assert_eq!(cloud.model, "test-model");
+        assert_eq!(cloud.fallback_models.len(), 2);
+    }
+}
+
+#[cfg(test)]
+mod permission_tests {
+    use crate::config::{PawanConfig, ToolPermission};
+
+    #[test]
+    fn test_no_permissions_by_default() {
+        let config = PawanConfig::default();
+        assert!(config.permissions.is_empty());
+    }
+
+    #[test]
+    fn test_permission_deny() {
+        let mut config = PawanConfig::default();
+        config.permissions.insert("bash".into(), ToolPermission::Deny);
+        assert_eq!(config.permissions.get("bash"), Some(&ToolPermission::Deny));
+    }
+}
