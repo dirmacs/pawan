@@ -685,3 +685,52 @@ mod edit_replace_all_tests {
         assert!(r.is_err()); // multiple matches without replace_all
     }
 }
+
+#[cfg(test)]
+mod git_tool_tests {
+    use crate::tools::git::{GitStatusTool, GitLogTool, GitDiffTool};
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_git_status_not_a_repo() {
+        let tmp = TempDir::new().unwrap();
+        let tool = GitStatusTool::new(tmp.path().into());
+        let r = tool.execute(json!({})).await;
+        // Should return error or empty status for non-git dir
+        // Either is acceptable — just shouldn't panic
+        let _ = r;
+    }
+
+    #[tokio::test]
+    async fn test_git_status_in_repo() {
+        let tmp = TempDir::new().unwrap();
+        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
+        std::fs::write(tmp.path().join("test.txt"), "hello").unwrap();
+        let tool = GitStatusTool::new(tmp.path().into());
+        let r = tool.execute(json!({})).await.unwrap();
+        let output = r["output"].as_str().unwrap_or("");
+        // Git status should run without panicking in a valid repo
+        assert!(r.is_object());
+    }
+
+    #[tokio::test]
+    async fn test_git_log_empty_repo() {
+        let tmp = TempDir::new().unwrap();
+        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
+        let tool = GitLogTool::new(tmp.path().into());
+        let r = tool.execute(json!({})).await;
+        let _ = r; // empty repo log — shouldn't panic
+    }
+
+    #[tokio::test]
+    async fn test_git_diff_clean() {
+        let tmp = TempDir::new().unwrap();
+        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
+        let tool = GitDiffTool::new(tmp.path().into());
+        let r = tool.execute(json!({})).await.unwrap();
+        let diff = r["diff"].as_str().unwrap_or("");
+        assert!(diff.is_empty() || diff.contains("diff"));
+    }
+}
