@@ -594,3 +594,37 @@ mod read_file_tests {
         assert!(r.is_err());
     }
 }
+
+#[cfg(test)]
+mod bash_tool_tests {
+    use crate::tools::bash::BashTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_bash_echo() {
+        let tmp = TempDir::new().unwrap();
+        let tool = BashTool::new(tmp.path().into());
+        let r = tool.execute(json!({"command":"echo hello"})).await.unwrap();
+        assert!(r["stdout"].as_str().unwrap().contains("hello"));
+        assert_eq!(r["exit_code"].as_i64().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_bash_failure() {
+        let tmp = TempDir::new().unwrap();
+        let tool = BashTool::new(tmp.path().into());
+        let r = tool.execute(json!({"command":"false"})).await.unwrap();
+        assert_ne!(r["exit_code"].as_i64().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_bash_cwd() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("marker.txt"), "found").unwrap();
+        let tool = BashTool::new(tmp.path().into());
+        let r = tool.execute(json!({"command":"cat marker.txt"})).await.unwrap();
+        assert!(r["stdout"].as_str().unwrap().contains("found"));
+    }
+}
