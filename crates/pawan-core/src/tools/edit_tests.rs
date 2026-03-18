@@ -336,3 +336,60 @@ mod mise_tests {
         assert!(r.is_err()); // missing tool name
     }
 }
+
+#[cfg(test)]
+mod glob_search_tests {
+    use crate::tools::native::GlobSearchTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_glob_rs_files() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("b.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("c.txt"), "").unwrap();
+        let tool = GlobSearchTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"*.rs"})).await.unwrap();
+        assert_eq!(r["count"].as_u64().unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_glob_no_match() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "").unwrap();
+        let tool = GlobSearchTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"*.zzz"})).await.unwrap();
+        assert_eq!(r["count"].as_u64().unwrap(), 0);
+    }
+}
+
+#[cfg(test)]
+mod grep_native_tests {
+    use crate::tools::native::GrepSearchTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_grep_with_include() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.rs"), "fn main() {}").unwrap();
+        std::fs::write(tmp.path().join("b.py"), "def main(): pass").unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"main","include":"*.rs"})).await.unwrap();
+        let results = r["results"].as_str().unwrap();
+        assert!(results.contains("a.rs"));
+        assert!(!results.contains("b.py"));
+    }
+
+    #[tokio::test]
+    async fn test_grep_count() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "aaa\nbbb\naaa\n").unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"aaa"})).await.unwrap();
+        assert!(r["count"].as_u64().unwrap() >= 1);
+    }
+}
