@@ -1,9 +1,7 @@
-<p align="center">
-  <img src="docs/img/pawan-logo.svg" alt="Pawan" width="200">
-</p>
+# Pawan — Self-healing CLI Coding Agent
 
 <p align="center">
-  <strong>पवन — Self-healing CLI coding agent</strong>
+  <strong>पवन — Your AI-powered development partner</strong>
 </p>
 
 <p align="center">
@@ -16,14 +14,14 @@
 
 ---
 
-**Pawan** (पवन) is a Rust-native CLI coding agent. Named after [Power Star Pawan Kalyan](https://en.wikipedia.org/wiki/Pawan_Kalyan) — martial artist, Telugu cinema icon, Deputy CM of Andhra Pradesh. That energy: raw power, cult following, fearless execution. It reads, writes, and heals code autonomously — no subscription, no vendor lock-in. Built for the [dirmacs](https://github.com/dirmacs) ecosystem, works with any OpenAI-compatible API.
+**Pawan** (पवन) is a Rust-native CLI coding agent that reads, writes, and heals code autonomously. No subscription, no vendor lock-in. Works with any OpenAI-compatible API including NVIDIA NIM, local Ollama, or llama.cpp via localhost.
 
 ## Why Pawan
 
-- **Self-hosted** — runs on your own machine, uses your own API keys
+- **Self-hosted** — runs on your machine, uses your own API keys
 - **17 tools** — file ops, search, bash, git (status/diff/add/commit/log/blame/branch/checkout/stash), sub-agents
 - **18 subcommands** — from interactive TUI to headless scripting
-- **107 tests** — markdown rendering, API error handling, CLI parsing, git tools, integration
+- **107 tests** — comprehensive coverage across all features
 - **Streaming TUI** — ratatui with markdown rendering, vim keybindings, live token display
 - **AI workflows** — commit, review, explain, test analysis, watch mode
 
@@ -37,10 +35,14 @@ cargo install --path crates/pawan-cli
 # Set API key (NVIDIA NIM free tier)
 export NVIDIA_API_KEY=nvapi-...
 
+# Or use local Ollama (no API key needed)
+export PAWAN_PROVIDER=ollama
+export PAWAN_MODEL=llama3.2
+
 # Interactive TUI
 pawan
 
-# AI-powered commit (stage + generate message + commit)
+# AI-powered commit
 pawan commit -a
 
 # Self-heal: fix errors, warnings, test failures
@@ -65,29 +67,324 @@ pawan watch --interval 10
 pawan doctor
 ```
 
-## Subcommands
+## Command Reference
 
-| Category | Command | Description |
-|----------|---------|-------------|
-| **Interactive** | `pawan` | TUI chat with streaming + markdown |
-| | `pawan chat --resume ID` | Resume a saved session |
-| **Code** | `pawan heal` | Auto-fix compilation errors, warnings, tests |
-| | `pawan task "..."` | Execute a coding task |
-| | `pawan commit -a` | AI commit: stage, generate message, commit |
-| | `pawan improve docs` | Improve code (docs, refactor, tests) |
-| | `pawan test --fix` | Run tests, AI-analyze + fix failures |
-| | `pawan review --staged` | AI code review with severity levels |
-| | `pawan explain <query>` | AI explanation of files/functions |
-| **Automation** | `pawan run "prompt"` | Headless single-prompt execution |
-| | `pawan run -f prompt.md` | File-based prompt |
-| | `pawan watch -i 10` | Poll cargo check, auto-heal loop |
-| **Project** | `pawan init` | Scaffold PAWAN.md + pawan.toml |
-| | `pawan doctor` | Diagnose setup (keys, connectivity, tools) |
-| | `pawan status` | Project health summary |
-| | `pawan sessions` | List saved sessions |
-| **Config** | `pawan config show` | Display resolved config |
-| | `pawan mcp list` | Show MCP servers and tools |
-| | `pawan completions bash` | Generate shell completions |
+### 🎯 Core Commands
+
+#### `pawan heal`
+Auto-fix compilation errors, warnings, and test failures.
+
+```bash
+# Fix all issues
+pawan heal
+
+# Fix specific error types
+pawan heal --errors    # Only compilation errors
+pawan heal --warnings  # Only warnings
+pawan heal --tests     # Only test failures
+```
+
+#### `pawan task "..."`
+Execute a coding task with AI assistance.
+
+```bash
+# Simple task
+pawan task "add user authentication to the API"
+
+# With specific files
+pawan task "refactor the database module" --files src/db.rs
+
+# With context
+pawan task "optimize query performance" --context "current implementation is slow"
+```
+
+#### `pawan commit [-a]`
+AI-powered commit messages with optional auto-stage.
+
+```bash
+# Stage changes + generate message + commit
+pawan commit -a
+
+# Generate message only
+pawan commit --message-only
+
+# Custom message override
+pawan commit -m "feat: add new feature"
+```
+
+#### `pawan improve <target>`
+Improve code quality (documentation, refactoring, tests).
+
+```bash
+# Improve documentation
+pawan improve docs
+
+# Improve specific file
+pawan improve src/parser.rs
+
+# Full improvement
+pawan improve --all
+```
+
+#### `pawan test [--fix]`
+Run tests with AI analysis of failures.
+
+```bash
+# Run all tests
+pawan test
+
+# Run with auto-fix for failures
+pawan test --fix
+
+# Run specific test
+pawan test src/lib.rs::test_function
+
+# Show detailed output
+pawan test --verbose
+```
+
+#### `pawan review [--staged]`
+AI code review with severity-level feedback.
+
+```bash
+# Review staged changes
+pawan review --staged
+
+# Review all changes
+pawan review
+
+# Focus on specific issues
+pawan review --security
+pawan review --performance
+pawan review --style
+```
+
+#### `pawan explain <query>`
+AI explanation of files, functions, or concepts.
+
+```bash
+# Explain a file
+pawan explain src/lib.rs
+
+# Explain a function
+pawan explain "how does the parser work?"
+
+# Explain code block
+pawan explain --code "snippet of code"
+```
+
+### ⚙️ Automation Commands
+
+#### `pawan run "prompt"`
+Headless single-prompt execution (for scripting).
+
+```bash
+# Simple prompt
+pawan run "add input validation to the config parser"
+
+# File-based prompt
+pawan run -f prompt.md
+
+# With timeout
+pawan run "task" --timeout 300
+
+# Save results
+pawan run "task" --output result.md
+```
+
+#### `pawan watch [-i INTERVAL]`
+Poll cargo check and auto-heal on file changes.
+
+```bash
+# Watch with 10s interval
+pawan watch --interval 10
+
+# Watch with verbose output
+pawan watch --verbose
+
+# Watch specific crate
+pawan watch --crate pawan-core
+```
+
+### 📁 Project Commands
+
+#### `pawan init`
+Scaffold PAWAN.md + pawan.toml configuration.
+
+```bash
+# Initialize new project
+pawan init
+
+# With custom settings
+pawan init --provider ollama --model llama3.2
+```
+
+#### `pawan doctor`
+Diagnose setup (API keys, connectivity, tools).
+
+```bash
+# Full diagnosis
+pawan doctor
+
+# Check specific items
+pawan doctor --keys
+pawan doctor --connectivity
+pawan doctor --tools
+```
+
+#### `pawan status`
+Show project health summary.
+
+```bash
+# Full status
+pawan status
+
+# Quick status
+pawan status --short
+```
+
+#### `pawan sessions`
+List and manage saved sessions.
+
+```bash
+# List sessions
+pawan sessions
+
+# Resume session
+pawan sessions --resume SESSION_ID
+
+# Delete session
+pawan sessions --delete SESSION_ID
+```
+
+### ⚙️ Configuration Commands
+
+#### `pawan config show`
+Display resolved configuration.
+
+```bash
+# Show full config
+pawan config show
+
+# Show specific section
+pawan config show provider
+pawan config show model
+```
+
+#### `pawan mcp list`
+Show configured MCP servers and available tools.
+
+```bash
+# List all MCP servers
+pawan mcp list
+
+# List tools for specific server
+pawan mcp list --server daedra
+```
+
+#### `pawan completions <shell>`
+Generate shell completions.
+
+```bash
+# Bash
+pawan completions bash
+
+# Zsh
+pawan completions zsh
+
+# Fish
+pawan completions fish
+```
+
+### 🎨 Interactive Mode
+
+#### `pawan`
+Launch interactive TUI with streaming markdown.
+
+```bash
+# Start TUI
+pawan
+
+# Resume saved session
+pawan chat --resume SESSION_ID
+
+# With specific model
+pawan --model qwen/qwen3.5-397b-a17b
+```
+
+**TUI Features:**
+- Markdown rendering with dark code blocks
+- Streaming tokens as they arrive
+- Tool execution progress notifications
+- Vim keybindings: `/` search, `n`/`N` navigation, `g`/`G` scroll
+- Token usage tracking in status bar
+
+## Configuration
+
+Pawan loads config in priority order: **CLI flags > env vars > pawan.toml > defaults**
+
+### Environment Variables
+
+```bash
+# Provider (nvidia | ollama | openai)
+export PAWAN_PROVIDER=nvidia
+
+# Model (required)
+export PAWAN_MODEL=mistralai/devstral-2-123b-instruct-2512
+
+# Temperature (0.0-2.0, default: 0.8)
+export PAWAN_TEMPERATURE=1.0
+
+# Max tokens (default: 8192)
+export PAWAN_MAX_TOKENS=8192
+
+# API key (auto-loaded from .env if PAWAN_API_KEY not set)
+export NVIDIA_API_KEY=nvapi-...
+```
+
+### pawan.toml Configuration
+
+```toml
+# Main settings
+provider = "nvidia"
+model = "mistralai/devstral-2-123b-instruct-2512"
+temperature = 1.0
+max_tokens = 8192
+
+# MCP servers configuration
+[mcp.daedra]
+command = "daedra"
+args = ["serve", "--transport", "stdio", "--quiet"]
+
+[mcp.wikipedia]
+command = "wikipedia-mcp"
+args = ["serve"]
+```
+
+### Working with Local Models (llama.cpp)
+
+Use the OpenAI provider pointing at localhost:
+
+```toml
+# pawan.toml
+provider = "openai"
+model = "localhost:11434/llama3.2"
+temperature = 0.8
+```
+
+```bash
+# Run llama.cpp server in background
+ollama serve llama3.2
+
+# Or with llama.cpp directly
+./build/bin/llama-server -m ./models/llama3.2.gguf -c 4096 -np 1 -sp 0.8 --host 0.0.0.0 --port 11434
+```
+
+Then use:
+
+```bash
+pawan --provider openai --model localhost:11434/llama3.2
+```
 
 ## Architecture
 
@@ -101,41 +398,6 @@ pawan/
 ```
 
 `pawan-core` has zero internal dependencies — it works standalone with any OpenAI-compatible API.
-
-## Configuration
-
-Pawan loads config in priority order: **CLI flags > env vars > pawan.toml > defaults**
-
-```bash
-# Environment variables
-export PAWAN_MODEL=qwen/qwen3.5-397b-a17b
-export PAWAN_PROVIDER=nvidia    # nvidia | ollama | openai
-export PAWAN_TEMPERATURE=0.8
-export PAWAN_MAX_TOKENS=8192
-```
-
-```toml
-# pawan.toml
-provider = "nvidia"
-model = "mistralai/devstral-2-123b-instruct-2512"
-temperature = 1.0
-max_tokens = 8192
-
-[mcp.daedra]
-command = "daedra"
-args = ["serve", "--transport", "stdio", "--quiet"]
-```
-
-Add `PAWAN.md` to your project root for per-project context (like CLAUDE.md).
-
-## TUI Features
-
-- Markdown rendering: headers, **bold**, *italic*, `code`, code blocks with dark bg, bullets, numbered lists, blockquotes
-- Streaming tokens (appear as they arrive)
-- Tool execution progress (start/complete notifications)
-- Vim keybindings: `/` search, `n`/`N` next/prev, `g`/`G` top/bottom, `Ctrl+u`/`d` half-page
-- Token usage tracking in status bar
-- Mouse scroll support
 
 ## Ecosystem
 
