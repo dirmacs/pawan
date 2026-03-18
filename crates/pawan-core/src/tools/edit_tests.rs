@@ -514,3 +514,42 @@ mod insert_edge_tests {
         assert!(c.ends_with("fn appended() {}\n") || c.contains("fn appended() {}"));
     }
 }
+
+#[cfg(test)]
+mod rg_invert_tests {
+    use crate::tools::native::RipgrepTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_rg_invert_match() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "aaa\nbbb\nccc\n").unwrap();
+        let tool = RipgrepTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"bbb","invert":true})).await.unwrap();
+        let matches = r["matches"].as_str().unwrap();
+        assert!(matches.contains("aaa"));
+        assert!(matches.contains("ccc"));
+        assert!(!matches.contains("bbb"));
+    }
+}
+
+#[cfg(test)]
+mod anchor_edge_tests {
+    use crate::tools::edit::EditFileLinesTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_anchor_first_match_wins() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "fn a() {}\nfn a() {}\nfn b() {}\n").unwrap();
+        let tool = EditFileLinesTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.rs","anchor_text":"fn a()","anchor_count":1,"new_content":"fn replaced() {}"})).await.unwrap();
+        let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
+        assert!(c.starts_with("fn replaced()"));
+        assert!(c.contains("fn a() {}"));
+    }
+}
