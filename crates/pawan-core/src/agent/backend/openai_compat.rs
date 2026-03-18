@@ -686,6 +686,7 @@ mod tests {
             use_thinking: false,
             max_retries: 3,
             fallback_models: vec![],
+            cloud: None,
         });
 
         let json = json!({"choices": []});
@@ -748,6 +749,7 @@ mod tests {
             use_thinking: false,
             max_retries: 3,
             fallback_models: vec![],
+            cloud: None,
         });
 
         // No structured tool_calls, but content has [TOOL_CALLS] marker
@@ -780,6 +782,7 @@ mod tests {
             use_thinking: false,
             max_retries: 3,
             fallback_models: vec![],
+            cloud: None,
         });
 
         let messages = vec![
