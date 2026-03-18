@@ -8,6 +8,14 @@ use crate::{PawanError, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 
+/// Cloud fallback endpoint — different API URL/key for hybrid routing
+pub struct CloudFallback {
+    pub api_url: String,
+    pub api_key: Option<String>,
+    pub model: String,
+    pub fallback_models: Vec<String>,
+}
+
 /// Configuration for OpenAI-compatible backend
 pub struct OpenAiCompatConfig {
     pub api_url: String,
@@ -20,6 +28,8 @@ pub struct OpenAiCompatConfig {
     pub use_thinking: bool,
     pub max_retries: usize,
     pub fallback_models: Vec<String>,
+    /// Optional cloud fallback for hybrid local+cloud routing
+    pub cloud: Option<CloudFallback>,
 }
 /// Backend for OpenAI-compatible APIs (NVIDIA NIM, OpenAI, DeepSeek)
 pub struct OpenAiCompatBackend {
@@ -525,62 +535,92 @@ impl LlmBackend for OpenAiCompatBackend {
 
         request_body["seed"] = json!(42);
 
-        let url = format!("{}/chat/completions", self.cfg.api_url);
-        // Build model chain: primary model + fallback models
-        let mut models = vec![self.cfg.model.clone()];
-        models.extend(self.cfg.fallback_models.clone());
-        
+        // Build model chain: primary model + fallback models (same provider)
+        let mut model_chains: Vec<(String, Option<String>, Vec<String>)> = vec![
+            (self.cfg.api_url.clone(), self.cfg.api_key.clone(), {
+                let mut m = vec![self.cfg.model.clone()];
+                m.extend(self.cfg.fallback_models.clone());
+                m
+            }),
+        ];
+
+        // Add cloud fallback chain if configured (different provider/URL)
+        if let Some(ref cloud) = self.cfg.cloud {
+            let mut cloud_models = vec![cloud.model.clone()];
+            cloud_models.extend(cloud.fallback_models.clone());
+            model_chains.push((cloud.api_url.clone(), cloud.api_key.clone(), cloud_models));
+        }
+
         let mut last_error = None;
         let max_retries = self.cfg.max_retries;
-        
-        for model in &models {
-            // Update model in request body for this attempt
-            request_body["model"] = json!(model);
-            
-            for attempt in 0..=max_retries {
-                let mut request = self.http_client.post(&url).json(&request_body);
 
-                if let Some(ref api_key) = self.cfg.api_key {
-                    request = request.header("Authorization", format!("Bearer {}", api_key));
+        for (chain_idx, (api_url, api_key, models)) in model_chains.iter().enumerate() {
+            let url = format!("{}/chat/completions", api_url);
+            let is_cloud = chain_idx > 0;
+
+            for model in models {
+                request_body["model"] = json!(model);
+
+                // Disable thinking mode for cloud models (different providers)
+                if is_cloud {
+                    request_body.as_object_mut().map(|o| o.remove("chat_template_kwargs"));
                 }
 
-                let result = if on_token.is_some() {
-                    self.streaming(request, on_token).await
-                } else {
-                    self.non_streaming(request).await
-                };
+                for attempt in 0..=max_retries {
+                    let mut request = self.http_client.post(&url).json(&request_body);
 
-                match result {
-                    Ok(response) => return Ok(response),
-                    Err(err) => {
-                        last_error = Some(err);
-                        
-                        if let Some(PawanError::Llm(ref msg)) = last_error.as_ref() {
-                            if (msg.contains("429") || msg.contains("500") || msg.contains("501") || 
-                                msg.contains("502") || msg.contains("503") || msg.contains("504")) && 
-                                attempt < max_retries {
-                                let delay = Self::calculate_backoff_delay(attempt);
-                                tracing::warn!(
-                                    attempt = attempt + 1,
-                                    model = model.as_str(),
-                                    delay_ms = delay.as_millis() as u64,
-                                    "Retrying after LLM API error"
-                                );
-                                tokio::time::sleep(delay).await;
-                                continue;
+                    if let Some(ref key) = api_key {
+                        request = request.header("Authorization", format!("Bearer {}", key));
+                    }
+
+                    let result = if on_token.is_some() {
+                        self.streaming(request, on_token).await
+                    } else {
+                        self.non_streaming(request).await
+                    };
+
+                    match result {
+                        Ok(response) => {
+                            if is_cloud {
+                                tracing::info!(model = model.as_str(), "Succeeded via cloud fallback");
                             }
+                            return Ok(response);
                         }
-                        break; // Non-retryable or max retries for this model — try next model
+                        Err(err) => {
+                            last_error = Some(err);
+
+                            if let Some(PawanError::Llm(ref msg)) = last_error.as_ref() {
+                                if (msg.contains("429") || msg.contains("500") || msg.contains("501") ||
+                                    msg.contains("502") || msg.contains("503") || msg.contains("504")) &&
+                                    attempt < max_retries {
+                                    let delay = Self::calculate_backoff_delay(attempt);
+                                    tracing::warn!(
+                                        attempt = attempt + 1,
+                                        model = model.as_str(),
+                                        delay_ms = delay.as_millis() as u64,
+                                        "Retrying after LLM API error"
+                                    );
+                                    tokio::time::sleep(delay).await;
+                                    continue;
+                                }
+                            }
+                            break;
+                        }
                     }
                 }
+
+                tracing::warn!(
+                    model = model.as_str(),
+                    cloud = is_cloud,
+                    "Model exhausted retries, trying next"
+                );
             }
-            
-            // Log fallback
-            if models.len() > 1 {
-                tracing::warn!(model = model.as_str(), "Model exhausted retries, trying next fallback");
+
+            if self.cfg.cloud.is_some() && !is_cloud {
+                tracing::warn!("Local models exhausted — falling back to cloud");
             }
         }
-        
+
         Err(last_error.expect("No error recorded in retry loop"))
     }
 }

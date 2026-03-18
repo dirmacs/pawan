@@ -184,6 +184,34 @@ impl PawanAgent {
                     _ => unreachable!(),
                 };
                 
+                // Build cloud fallback if configured
+                let cloud = config.cloud.as_ref().map(|c| {
+                    let (cloud_url, cloud_key) = match c.provider {
+                        LlmProvider::Nvidia => {
+                            let url = std::env::var("NVIDIA_API_URL")
+                                .unwrap_or_else(|_| crate::DEFAULT_NVIDIA_API_URL.to_string());
+                            let key = std::env::var("NVIDIA_API_KEY").ok();
+                            (url, key)
+                        },
+                        LlmProvider::OpenAI => {
+                            let url = std::env::var("OPENAI_API_URL")
+                                .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+                            let key = std::env::var("OPENAI_API_KEY").ok();
+                            (url, key)
+                        },
+                        _ => {
+                            tracing::warn!("Cloud fallback only supports nvidia/openai providers");
+                            ("https://integrate.api.nvidia.com/v1".to_string(), None)
+                        }
+                    };
+                    backend::openai_compat::CloudFallback {
+                        api_url: cloud_url,
+                        api_key: cloud_key,
+                        model: c.model.clone(),
+                        fallback_models: c.fallback_models.clone(),
+                    }
+                });
+
                 Box::new(OpenAiCompatBackend::new(OpenAiCompatConfig {
                     api_url,
                     api_key,
@@ -195,6 +223,7 @@ impl PawanAgent {
                     use_thinking: config.use_thinking_mode(),
                     max_retries: config.max_retries,
                     fallback_models: config.fallback_models.clone(),
+                    cloud,
                 }))
             }
             LlmProvider::Ollama => {

@@ -93,6 +93,23 @@ pub struct PawanConfig {
     /// Tool permission overrides (tool_name -> permission)
     #[serde(default)]
     pub permissions: HashMap<String, ToolPermission>,
+
+    /// Cloud fallback: when primary model fails, fall back to cloud provider.
+    /// Enables hybrid local+cloud routing.
+    pub cloud: Option<CloudConfig>,
+}
+
+/// Cloud fallback configuration for hybrid local+cloud routing.
+/// When the primary (local) model fails, pawan falls back to cloud.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CloudConfig {
+    /// Cloud provider (nvidia, openai)
+    pub provider: LlmProvider,
+    /// Cloud model to use
+    pub model: String,
+    /// Additional fallback models on cloud
+    #[serde(default)]
+    pub fallback_models: Vec<String>,
 }
 
 /// Permission level for a tool
@@ -146,6 +163,7 @@ impl Default for PawanConfig {
             tui: TuiConfig::default(),
             mcp: HashMap::new(),
             permissions: HashMap::new(),
+            cloud: None,
         }
     }
 }
