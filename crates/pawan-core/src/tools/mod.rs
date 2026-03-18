@@ -78,9 +78,11 @@ impl ToolRegistry {
             workspace_root.clone(),
         )));
 
-        // Edit tools (edit_file_lines is preferred; edit_file is the fallback)
+        // Edit tools (anchor mode is most reliable, then insert_after, then line numbers)
         registry.register(Arc::new(edit::EditFileLinesTool::new(workspace_root.clone())));
         registry.register(Arc::new(edit::EditFileTool::new(workspace_root.clone())));
+        registry.register(Arc::new(edit::InsertAfterTool::new(workspace_root.clone())));
+        registry.register(Arc::new(edit::AppendFileTool::new(workspace_root.clone())));
 
         // Search tools
         registry.register(Arc::new(search::GlobSearchTool::new(

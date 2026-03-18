@@ -162,11 +162,11 @@ impl Tool for EditFileLinesTool {
     }
 
     fn description(&self) -> &str {
-        "PREFERRED edit tool. Replace a range of lines in a file with new content. \
-         Workflow: (1) read_file to see line numbers, (2) call this tool with \
-         start_line and end_line (1-based, inclusive). \
-         More reliable than edit_file because it never fails due to exact string \
-         matching — use it for any edit in a file longer than ~20 lines. \
+        "PREFERRED edit tool. Replace lines in a file. Two modes:\n\
+         Mode 1 (line numbers): pass start_line + end_line (1-based, inclusive).\n\
+         Mode 2 (anchor — MORE RELIABLE): pass anchor_text + anchor_count instead of line numbers. \
+         The tool finds the line containing anchor_text, then replaces anchor_count lines starting from that line.\n\
+         Always prefer Mode 2 (anchor) to avoid line-number miscounting.\n\
          Set new_content to \"\" to delete lines."
     }
 
@@ -180,18 +180,26 @@ impl Tool for EditFileLinesTool {
                 },
                 "start_line": {
                     "type": "integer",
-                    "description": "First line to replace (1-based, inclusive)"
+                    "description": "First line to replace (1-based, inclusive). Optional if anchor_text is provided."
                 },
                 "end_line": {
                     "type": "integer",
-                    "description": "Last line to replace (1-based, inclusive)"
+                    "description": "Last line to replace (1-based, inclusive). Optional if anchor_text is provided."
+                },
+                "anchor_text": {
+                    "type": "string",
+                    "description": "PREFERRED: unique text that appears on the first line to replace. The tool finds this line automatically — no line-number math needed."
+                },
+                "anchor_count": {
+                    "type": "integer",
+                    "description": "Number of lines to replace starting from the anchor line (default: 1). Only used with anchor_text."
                 },
                 "new_content": {
                     "type": "string",
                     "description": "Replacement text for the specified lines. Empty string to delete lines."
                 }
             },
-            "required": ["path", "start_line", "end_line", "new_content"]
+            "required": ["path", "new_content"]
         })
     }
 
@@ -200,13 +208,51 @@ impl Tool for EditFileLinesTool {
             .as_str()
             .ok_or_else(|| crate::PawanError::Tool("path is required".into()))?;
 
-        let start_line = args["start_line"]
-            .as_u64()
-            .ok_or_else(|| crate::PawanError::Tool("start_line is required".into()))? as usize;
+        let full_path = self.resolve_path(path);
+        if !full_path.exists() {
+            return Err(crate::PawanError::NotFound(format!(
+                "File not found: {}", full_path.display()
+            )));
+        }
 
-        let end_line = args["end_line"]
-            .as_u64()
-            .ok_or_else(|| crate::PawanError::Tool("end_line is required".into()))? as usize;
+        let content = tokio::fs::read_to_string(&full_path)
+            .await
+            .map_err(crate::PawanError::Io)?;
+
+        let had_trailing_newline = content.ends_with('\n');
+        let lines: Vec<&str> = content.lines().collect();
+        let total_lines = lines.len();
+
+        // Resolve start_line and end_line — either from explicit numbers or anchor
+        let (start_line, end_line) = if let Some(anchor) = args["anchor_text"].as_str() {
+            // Anchor mode: find line containing anchor_text
+            let anchor_count = args["anchor_count"].as_u64().unwrap_or(1) as usize;
+            let found = lines.iter().position(|l| l.contains(anchor));
+            match found {
+                Some(idx) => {
+                    let start = idx + 1; // convert to 1-based
+                    let end = (start + anchor_count - 1).min(total_lines);
+                    (start, end)
+                }
+                None => {
+                    return Err(crate::PawanError::Tool(format!(
+                        "anchor_text {:?} not found in file ({} lines). Try a different anchor string.",
+                        anchor, total_lines
+                    )));
+                }
+            }
+        } else {
+            // Line number mode
+            let start = args["start_line"]
+                .as_u64()
+                .ok_or_else(|| crate::PawanError::Tool(
+                    "Either anchor_text or start_line+end_line is required".into()
+                ))? as usize;
+            let end = args["end_line"]
+                .as_u64()
+                .ok_or_else(|| crate::PawanError::Tool("end_line is required".into()))? as usize;
+            (start, end)
+        };
 
         let new_content = args["new_content"]
             .as_str()
@@ -223,23 +269,6 @@ impl Tool for EditFileLinesTool {
                 "end_line ({end_line}) must be >= start_line ({start_line})"
             )));
         }
-
-        let full_path = self.resolve_path(path);
-
-        if !full_path.exists() {
-            return Err(crate::PawanError::NotFound(format!(
-                "File not found: {}",
-                full_path.display()
-            )));
-        }
-
-        let content = tokio::fs::read_to_string(&full_path)
-            .await
-            .map_err(crate::PawanError::Io)?;
-
-        let had_trailing_newline = content.ends_with('\n');
-        let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
 
         if start_line > total_lines {
             return Err(crate::PawanError::Tool(format!(
@@ -323,6 +352,163 @@ fn generate_diff(old: &str, new: &str, filename: &str) -> String {
     }
 
     result
+}
+
+/// Tool for inserting text after a line matching a pattern
+pub struct InsertAfterTool {
+    workspace_root: PathBuf,
+}
+
+impl InsertAfterTool {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
+    }
+
+    fn resolve_path(&self, path: &str) -> PathBuf {
+        let path = PathBuf::from(path);
+        if path.is_absolute() { path } else { self.workspace_root.join(path) }
+    }
+}
+
+#[async_trait]
+impl Tool for InsertAfterTool {
+    fn name(&self) -> &str {
+        "insert_after"
+    }
+
+    fn description(&self) -> &str {
+        "Insert text after a line matching a pattern. Finds the FIRST line containing \
+         the anchor text and inserts new content on the next line. Does not replace anything. \
+         Use for adding new code without disturbing existing lines."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Path to the file" },
+                "anchor_text": { "type": "string", "description": "Text to find — insertion happens AFTER this line" },
+                "content": { "type": "string", "description": "Text to insert after the anchor line" }
+            },
+            "required": ["path", "anchor_text", "content"]
+        })
+    }
+
+    async fn execute(&self, args: Value) -> crate::Result<Value> {
+        let path = args["path"].as_str()
+            .ok_or_else(|| crate::PawanError::Tool("path is required".into()))?;
+        let anchor = args["anchor_text"].as_str()
+            .ok_or_else(|| crate::PawanError::Tool("anchor_text is required".into()))?;
+        let insert_content = args["content"].as_str()
+            .ok_or_else(|| crate::PawanError::Tool("content is required".into()))?;
+
+        let full_path = self.resolve_path(path);
+        if !full_path.exists() {
+            return Err(crate::PawanError::NotFound(format!("File not found: {}", full_path.display())));
+        }
+
+        let content = tokio::fs::read_to_string(&full_path).await.map_err(crate::PawanError::Io)?;
+        let had_trailing_newline = content.ends_with('\n');
+        let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
+
+        let found = lines.iter().position(|l| l.contains(anchor));
+        match found {
+            Some(idx) => {
+                let insert_lines: Vec<String> = insert_content.lines().map(|l| l.to_string()).collect();
+                let insert_count = insert_lines.len();
+                let insert_at = idx + 1;
+                for (i, line) in insert_lines.into_iter().enumerate() {
+                    lines.insert(insert_at + i, line);
+                }
+                let mut new_content = lines.join("\n");
+                if had_trailing_newline { new_content.push('\n'); }
+                let diff = generate_diff(&content, &new_content, path);
+                tokio::fs::write(&full_path, &new_content).await.map_err(crate::PawanError::Io)?;
+                Ok(json!({
+                    "success": true,
+                    "path": full_path.display().to_string(),
+                    "inserted_after_line": idx + 1,
+                    "lines_inserted": insert_count,
+                    "anchor_matched": lines.get(idx).unwrap_or(&String::new()).trim(),
+                    "diff": diff
+                }))
+            }
+            None => Err(crate::PawanError::Tool(format!(
+                "anchor_text {:?} not found in file", anchor
+            ))),
+        }
+    }
+}
+
+/// Tool for appending content to the end of a file
+pub struct AppendFileTool {
+    workspace_root: PathBuf,
+}
+
+impl AppendFileTool {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
+    }
+
+    fn resolve_path(&self, path: &str) -> PathBuf {
+        let path = PathBuf::from(path);
+        if path.is_absolute() { path } else { self.workspace_root.join(path) }
+    }
+}
+
+#[async_trait]
+impl Tool for AppendFileTool {
+    fn name(&self) -> &str {
+        "append_file"
+    }
+
+    fn description(&self) -> &str {
+        "Append content to the end of a file. Creates the file if it doesn't exist. \
+         Use for adding new functions, tests, or sections without touching existing content. \
+         Safer than write_file for large additions."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "path": { "type": "string", "description": "Path to the file" },
+                "content": { "type": "string", "description": "Content to append" }
+            },
+            "required": ["path", "content"]
+        })
+    }
+
+    async fn execute(&self, args: Value) -> crate::Result<Value> {
+        let path = args["path"].as_str()
+            .ok_or_else(|| crate::PawanError::Tool("path is required".into()))?;
+        let append_content = args["content"].as_str()
+            .ok_or_else(|| crate::PawanError::Tool("content is required".into()))?;
+
+        let full_path = self.resolve_path(path);
+        if let Some(parent) = full_path.parent() {
+            tokio::fs::create_dir_all(parent).await.map_err(crate::PawanError::Io)?;
+        }
+
+        let existing = if full_path.exists() {
+            tokio::fs::read_to_string(&full_path).await.map_err(crate::PawanError::Io)?
+        } else {
+            String::new()
+        };
+
+        let separator = if existing.is_empty() || existing.ends_with('\n') { "" } else { "\n" };
+        let new_content = format!("{}{}{}\n", existing, separator, append_content);
+        let appended_lines = append_content.lines().count();
+
+        tokio::fs::write(&full_path, &new_content).await.map_err(crate::PawanError::Io)?;
+
+        Ok(json!({
+            "success": true,
+            "path": full_path.display().to_string(),
+            "lines_appended": appended_lines,
+            "total_lines": new_content.lines().count()
+        }))
+    }
 }
 
 #[cfg(test)]

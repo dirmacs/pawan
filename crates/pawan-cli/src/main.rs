@@ -1901,9 +1901,21 @@ async fn run_headless(
 
     #[cfg(feature = "mcp")]
     setup_mcp_tools(&mut agent, &config_ref).await;
+
+    // Pre-flight: verify model is reachable before starting work
+    if let Err(e) = agent.preflight_check().await {
+        if output_format == "json" {
+            println!("{}", serde_json::json!({"error": e.to_string(), "success": false}));
+        } else {
+            eprintln!("\x1b[31mModel health check failed:\x1b[0m {}", e);
+            eprintln!("Check: is the model server running? Is the API URL correct?");
+        }
+        std::process::exit(1);
+    }
+
     if verbose && output_format != "json" {
         eprintln!("Model: {}", agent.config().model);
-       let display_prompt: String = prompt_text.chars().take(100).collect();
+        let display_prompt: String = prompt_text.chars().take(100).collect();
         eprintln!("Prompt: {}", display_prompt);
     }
     let on_token: Option<pawan::agent::TokenCallback> = if stream && output_format == "json" {
