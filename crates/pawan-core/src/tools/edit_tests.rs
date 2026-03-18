@@ -844,3 +844,38 @@ mod git_extended_tests {
         assert!(r.is_object());
     }
 }
+
+#[cfg(test)]
+mod git_checkout_stash_tests {
+    use crate::tools::git::{GitCheckoutTool, GitStashTool};
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    fn init_repo(tmp: &TempDir) {
+        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git").args(["config","user.email","t@t.com"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git").args(["config","user.name","t"]).current_dir(tmp.path()).output().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "v1").unwrap();
+        std::process::Command::new("git").args(["add","."]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git").args(["commit","-m","init"]).current_dir(tmp.path()).output().unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_git_checkout_new_branch() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(&tmp);
+        let tool = GitCheckoutTool::new(tmp.path().into());
+        let r = tool.execute(json!({"branch":"test-branch","create":true})).await;
+        let _ = r; // shouldn't panic
+    }
+
+    #[tokio::test]
+    async fn test_git_stash_empty() {
+        let tmp = TempDir::new().unwrap();
+        init_repo(&tmp);
+        let tool = GitStashTool::new(tmp.path().into());
+        let r = tool.execute(json!({})).await;
+        let _ = r; // stashing clean tree — shouldn't panic
+    }
+}
