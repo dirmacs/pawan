@@ -1903,7 +1903,8 @@ async fn run_headless(
     setup_mcp_tools(&mut agent, &config_ref).await;
     if verbose && output_format != "json" {
         eprintln!("Model: {}", agent.config().model);
-        eprintln!("Prompt: {}", &prompt_text[..prompt_text.len().min(100)]);
+       let display_prompt: String = prompt_text.chars().take(100).collect();
+        eprintln!("Prompt: {}", display_prompt);
     }
     let on_token: Option<pawan::agent::TokenCallback> = if stream && output_format == "json" {
         Some(Box::new(|token: &str| {
