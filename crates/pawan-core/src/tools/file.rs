@@ -62,7 +62,7 @@ impl Tool for ReadFileTool {
             .ok_or_else(|| crate::PawanError::Tool("path is required".into()))?;
 
         let offset = args["offset"].as_u64().unwrap_or(0) as usize;
-        let limit = args["limit"].as_u64().unwrap_or(2000) as usize;
+        let limit = args["limit"].as_u64().unwrap_or(200) as usize;
 
         let full_path = self.resolve_path(path);
 
