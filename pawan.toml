@@ -1,8 +1,15 @@
-model = "mistralai/devstral-2-123b-instruct-2512"
+# Pawan — hybrid local+cloud configuration
+# Primary: Qwen3.5-9B on Shanjeth's Mac via shadow net tunnel (localhost:8080)
+# Cloud fallback: NVIDIA NIM (devstral) when local is unavailable
+provider = "openai"
+model = "Qwen3.5-9B-Q4_K_M"
 temperature = 0.6
+max_tokens = 4096
 
-# [permissions]
-# write_file = "deny"  # Uncomment to disable write_file tool
+# Cloud fallback — kicks in automatically when local model fails
+[cloud]
+provider = "nvidia"
+model = "mistralai/devstral-2-123b-instruct-2512"
 
 [mcp.daedra]
 command = "daedra"
