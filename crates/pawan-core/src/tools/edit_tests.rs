@@ -80,4 +80,17 @@ mod anchor_tests {
         let r = tool.execute(json!({"path":"f.rs","start_line":2,"end_line":2,"new_content":"XX"})).await.unwrap();
         assert!(r["replaced_content"].as_str().unwrap().contains("bb"));
     }
+
+    #[tokio::test]
+    async fn test_anchor_with_special_chars() {
+        let tmp = TempDir::new().unwrap();
+        let content = "fn main() {\n    println!(\"hello\");\n}\n";
+        std::fs::write(tmp.path().join("f.rs"), content).unwrap();
+        let tool = EditFileLinesTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.rs","anchor_text":"println","anchor_count":1,"new_content":"    println!(\"world\");"})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+        let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
+        assert!(c.contains("world"));
+        assert!(!c.contains("hello"));
+    }
 }
