@@ -99,15 +99,28 @@ pub struct PawanConfig {
     pub cloud: Option<CloudConfig>,
 }
 
-/// Cloud fallback configuration for hybrid local+cloud routing.
-/// When the primary (local) model fails, pawan falls back to cloud.
+/// Cloud fallback configuration for hybrid local+cloud model routing.
+///
+/// When the primary provider (typically a local model via OpenAI-compatible API)
+/// fails or is unavailable, pawan automatically falls back to this cloud provider.
+/// This enables zero-cost local inference with cloud reliability as a safety net.
+///
+/// # Example (pawan.toml)
+/// ```toml
+/// provider = "openai"
+/// model = "Qwen3.5-9B-Q4_K_M"
+///
+/// [cloud]
+/// provider = "nvidia"
+/// model = "mistralai/devstral-2-123b-instruct-2512"
+/// ```
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudConfig {
-    /// Cloud provider (nvidia, openai)
+    /// Cloud LLM provider to fall back to (nvidia or openai)
     pub provider: LlmProvider,
-    /// Cloud model to use
+    /// Primary cloud model to try first on fallback
     pub model: String,
-    /// Additional fallback models on cloud
+    /// Additional cloud models to try if the primary cloud model also fails
     #[serde(default)]
     pub fallback_models: Vec<String>,
 }
