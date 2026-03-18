@@ -6,6 +6,8 @@
 pub mod agent;
 pub mod bash;
 pub mod edit;
+#[cfg(test)]
+mod edit_tests;
 pub mod file;
 pub mod git;
 pub mod search;
