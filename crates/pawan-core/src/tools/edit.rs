@@ -356,8 +356,10 @@ fn generate_diff(old: &str, new: &str, filename: &str) -> String {
     result
 }
 
-/// Tool for inserting text after a line matching a pattern
+/// Tool for inserting text after a line matching a pattern.
+/// Safer than edit_file_lines for additions — never replaces existing content.
 pub struct InsertAfterTool {
+/// Tool for inserting text after a line matching a pattern.
     workspace_root: PathBuf,
 }
 
