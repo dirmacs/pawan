@@ -449,10 +449,14 @@ impl Tool for InsertAfterTool {
                 if had_trailing_newline { new_content.push('\n'); }
                 let diff = generate_diff(&content, &new_content, path);
                 tokio::fs::write(&full_path, &new_content).await.map_err(crate::PawanError::Io)?;
+                let block_skipped = insert_at != idx + 1;
                 Ok(json!({
                     "success": true,
                     "path": full_path.display().to_string(),
-                    "inserted_after_line": idx + 1,
+                    "anchor_line": idx + 1,
+                    "inserted_after_line": insert_at,
+                    "block_skipped": block_skipped,
+                    "block_skip_note": if block_skipped { format!("Anchor line {} opens a block — inserted after closing '}}' at line {}", idx + 1, insert_at) } else { String::new() },
                     "lines_inserted": insert_count,
                     "anchor_matched": lines.get(idx).unwrap_or(&String::new()).trim(),
                     "diff": diff
