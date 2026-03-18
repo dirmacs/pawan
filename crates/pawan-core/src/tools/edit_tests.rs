@@ -553,3 +553,44 @@ mod anchor_edge_tests {
         assert!(c.contains("fn a() {}"));
     }
 }
+
+#[cfg(test)]
+mod read_file_tests {
+    use crate::tools::file::ReadFileTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_read_with_offset() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "line1\nline2\nline3\nline4\nline5\n").unwrap();
+        let tool = ReadFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.txt","offset":2,"limit":2})).await.unwrap();
+        let content = r["content"].as_str().unwrap();
+        assert!(content.contains("line3"));
+        assert!(content.contains("line4"));
+        assert!(!content.contains("line1"));
+        assert_eq!(r["lines_shown"].as_u64().unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_read_default_limit() {
+        let tmp = TempDir::new().unwrap();
+        let big: String = (0..300).map(|i| format!("line{}\n", i)).collect();
+        std::fs::write(tmp.path().join("big.txt"), &big).unwrap();
+        let tool = ReadFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"big.txt"})).await.unwrap();
+        assert_eq!(r["lines_shown"].as_u64().unwrap(), 200);
+        assert_eq!(r["total_lines"].as_u64().unwrap(), 300);
+        // warning only fires when ALL lines shown (limit=200 means truncated, no warning)
+    }
+
+    #[tokio::test]
+    async fn test_read_not_found() {
+        let tmp = TempDir::new().unwrap();
+        let tool = ReadFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"nope.txt"})).await;
+        assert!(r.is_err());
+    }
+}
