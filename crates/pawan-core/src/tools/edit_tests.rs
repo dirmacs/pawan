@@ -193,3 +193,91 @@ mod rg_tests {
         assert!(!matches.contains("b.py"));
     }
 }
+
+#[cfg(test)]
+mod fd_tests {
+    use crate::tools::native::FdTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_fd_find_by_name() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("foo.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("bar.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("baz.txt"), "").unwrap();
+        let tool = FdTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"foo"})).await.unwrap();
+        let files = r["files"].as_array().unwrap();
+        assert_eq!(files.len(), 1);
+        assert!(files[0].as_str().unwrap().contains("foo.rs"));
+    }
+
+    #[tokio::test]
+    async fn test_fd_extension_filter() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("b.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("c.txt"), "").unwrap();
+        let tool = FdTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":".", "extension":"rs"})).await.unwrap();
+        assert_eq!(r["count"].as_u64().unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_fd_no_results() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.txt"), "").unwrap();
+        let tool = FdTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":"zzzzz"})).await.unwrap();
+        assert_eq!(r["count"].as_u64().unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_fd_max_depth() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("a/b/c")).unwrap();
+        std::fs::write(tmp.path().join("top.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("a/mid.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("a/b/c/deep.rs"), "").unwrap();
+        let tool = FdTool::new(tmp.path().into());
+        let r = tool.execute(json!({"pattern":".rs","max_depth":1})).await.unwrap();
+        let files = r["files"].as_array().unwrap();
+        assert!(files.len() <= 1);
+    }
+}
+
+#[cfg(test)]
+mod zoxide_tests {
+    use crate::tools::native::ZoxideTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_z_add_and_query() {
+        if which::which("zoxide").is_err() { return; }
+        let tmp = TempDir::new().unwrap();
+        let tool = ZoxideTool::new(tmp.path().into());
+        let r = tool.execute(json!({"action":"add","path":"/tmp"})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_z_list() {
+        if which::which("zoxide").is_err() { return; }
+        let tmp = TempDir::new().unwrap();
+        let tool = ZoxideTool::new(tmp.path().into());
+        let r = tool.execute(json!({"action":"list"})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_z_bad_action() {
+        let tmp = TempDir::new().unwrap();
+        let tool = ZoxideTool::new(tmp.path().into());
+        let r = tool.execute(json!({"action":"invalid"})).await;
+        assert!(r.is_err());
+    }
+}
