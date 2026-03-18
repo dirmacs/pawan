@@ -142,6 +142,9 @@ pub struct PawanAgent {
 
     /// Estimated token count for current context
     context_tokens_estimate: usize,
+
+    /// Eruka bridge for 3-tier memory injection
+    eruka: Option<crate::eruka_bridge::ErukaClient>,
 }
 
 impl PawanAgent {
@@ -150,6 +153,12 @@ impl PawanAgent {
         let tools = ToolRegistry::with_defaults(workspace_root.clone());
         let system_prompt = config.get_system_prompt();
         let backend = Self::create_backend(&config, &system_prompt);
+        let eruka = if config.eruka.enabled {
+            Some(crate::eruka_bridge::ErukaClient::new(config.eruka.clone()))
+        } else {
+            None
+        };
+
         Self {
             config,
             tools,
@@ -157,6 +166,7 @@ impl PawanAgent {
             workspace_root,
             backend,
             context_tokens_estimate: 0,
+            eruka,
         }
     }
 
@@ -363,6 +373,13 @@ impl PawanAgent {
         on_tool: Option<ToolCallback>,
         on_tool_start: Option<ToolStartCallback>,
     ) -> Result<AgentResponse> {
+        // Inject Eruka core memory before first LLM call
+        if let Some(eruka) = &self.eruka {
+            if let Err(e) = eruka.inject_core_memory(&mut self.history).await {
+                tracing::warn!("Eruka memory injection failed (non-fatal): {}", e);
+            }
+        }
+
         self.history.push(Message {
             role: Role::User,
             content: user_prompt.to_string(),
