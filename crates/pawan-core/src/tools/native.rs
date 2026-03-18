@@ -10,11 +10,13 @@ use std::path::PathBuf;
 use std::process::Stdio;
 
 /// Check if a binary exists in PATH
+/// Check if a CLI binary is available in PATH.
 fn binary_exists(name: &str) -> bool {
     which::which(name).is_ok()
 }
 
 /// Run a command and capture stdout+stderr
+/// Execute a command and capture stdout, stderr, and success status.
 async fn run_cmd(cmd: &str, args: &[&str], cwd: &std::path::Path) -> Result<(String, String, bool), String> {
     let output = tokio::process::Command::new(cmd)
         .args(args)
