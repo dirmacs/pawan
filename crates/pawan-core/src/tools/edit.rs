@@ -272,13 +272,15 @@ impl Tool for EditFileLinesTool {
 
         if start_line > total_lines {
             return Err(crate::PawanError::Tool(format!(
-                "start_line ({start_line}) exceeds file length ({total_lines} lines)"
+                "start_line ({start_line}) exceeds file length ({total_lines} lines). \
+                 TIP: use anchor_text instead of line numbers to avoid this error."
             )));
         }
 
         if end_line > total_lines {
             return Err(crate::PawanError::Tool(format!(
-                "end_line ({end_line}) exceeds file length ({total_lines} lines)"
+                "end_line ({end_line}) exceeds file length ({total_lines} lines). \
+                 TIP: use anchor_text instead of line numbers to avoid this error."
             )));
         }
 
