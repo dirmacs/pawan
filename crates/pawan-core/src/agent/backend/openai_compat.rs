@@ -518,6 +518,9 @@ impl LlmBackend for OpenAiCompatBackend {
 
         if self.cfg.use_thinking {
             request_body["chat_template_kwargs"] = json!({ "thinking": true });
+        } else {
+            // Explicitly disable thinking for models like Qwen3.5 that default to thinking ON
+            request_body["chat_template_kwargs"] = json!({ "enable_thinking": false });
         }
 
         request_body["seed"] = json!(42);
