@@ -281,3 +281,58 @@ mod zoxide_tests {
         assert!(r.is_err());
     }
 }
+
+#[cfg(test)]
+mod erd_tests {
+    use crate::tools::native::ErdTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_tree_basic() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+        std::fs::write(tmp.path().join("src/main.rs"), "fn main() {}").unwrap();
+        std::fs::write(tmp.path().join("Cargo.toml"), "[package]").unwrap();
+        let tool = ErdTool::new(tmp.path().into());
+        let r = tool.execute(json!({"depth":2})).await.unwrap();
+        let tree = r["tree"].as_str().unwrap();
+        assert!(tree.contains("main.rs") || tree.contains("src") || tree.contains("Cargo"));
+    }
+
+    #[tokio::test]
+    async fn test_tree_depth_limit() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("a/b/c/d")).unwrap();
+        std::fs::write(tmp.path().join("a/b/c/d/deep.txt"), "").unwrap();
+        let tool = ErdTool::new(tmp.path().into());
+        let r = tool.execute(json!({"depth":1})).await.unwrap();
+        let tree = r["tree"].as_str().unwrap();
+        assert!(!tree.contains("deep.txt"));
+    }
+}
+
+#[cfg(test)]
+mod mise_tests {
+    use crate::tools::native::MiseTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_mise_bad_action() {
+        let tmp = TempDir::new().unwrap();
+        let tool = MiseTool::new(tmp.path().into());
+        let r = tool.execute(json!({"action":"invalid"})).await;
+        assert!(r.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mise_install_missing_tool() {
+        let tmp = TempDir::new().unwrap();
+        let tool = MiseTool::new(tmp.path().into());
+        let r = tool.execute(json!({"action":"install"})).await;
+        assert!(r.is_err()); // missing tool name
+    }
+}
