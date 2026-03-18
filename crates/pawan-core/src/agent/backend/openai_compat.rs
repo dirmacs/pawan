@@ -269,9 +269,15 @@ impl OpenAiCompatBackend {
         }
 
         // Parse tool call arguments from JSON strings
+        // StepFun/Qwen models may interleave <think>...</think> tokens inside arguments
         for tc in &mut tool_calls {
             if let Some(args_str) = tc.arguments.as_str() {
-                if let Ok(parsed) = serde_json::from_str::<Value>(args_str) {
+                // Strip think blocks from arguments before JSON parse
+                let clean_args = Self::strip_think_from_str(args_str);
+                if let Ok(parsed) = serde_json::from_str::<Value>(&clean_args) {
+                    tc.arguments = parsed;
+                } else if let Ok(parsed) = serde_json::from_str::<Value>(args_str) {
+                    // Fallback: try original if stripping broke the JSON
                     tc.arguments = parsed;
                 }
             }
@@ -292,6 +298,9 @@ impl OpenAiCompatBackend {
             finish_reason = "tool_calls".to_string();
         }
 
+        // Strip think blocks from content (StepFun/Qwen interleave reasoning)
+        let content = Self::strip_think_from_str(&content);
+
         // Streaming responses don't include usage in individual chunks
         Ok(LLMResponse {
             content,
@@ -299,6 +308,38 @@ impl OpenAiCompatBackend {
             finish_reason,
             usage: None,
         })
+    }
+
+    /// Strip <think>...</think> blocks from a string. Handles case-insensitive,
+    /// nested blocks, and blocks interleaved with content (StepFun pattern).
+    fn strip_think_from_str(s: &str) -> String {
+        let mut out = s.to_string();
+        loop {
+            let lower = out.to_lowercase();
+            let open = lower.find("<think>");
+            let close = lower.find("</think>");
+            match (open, close) {
+                (Some(i), Some(j)) if j > i => {
+                    let before = out[..i].trim_end().to_string();
+                    let after = if out.len() > j + 8 {
+                        out[j + 8..].trim_start().to_string()
+                    } else {
+                        String::new()
+                    };
+                    out = if before.is_empty() && after.is_empty() {
+                        String::new()
+                    } else if before.is_empty() {
+                        after
+                    } else if after.is_empty() {
+                        before
+                    } else {
+                        format!("{} {}", before, after)
+                    };
+                }
+                _ => break,
+            }
+        }
+        out
     }
 
     fn parse_response(&self, json: &Value) -> Result<LLMResponse> {
@@ -315,11 +356,11 @@ impl OpenAiCompatBackend {
             .get("message")
             .ok_or_else(|| PawanError::Llm("No message in choice".into()))?;
 
-        let content = message
+        let raw_content = message
             .get("content")
             .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .to_string();
+            .unwrap_or("");
+        let content = Self::strip_think_from_str(raw_content);
 
         let mut tool_calls = Vec::new();
         let finish_reason = choice
@@ -345,7 +386,11 @@ impl OpenAiCompatBackend {
 
                     let arguments =
                         if let Some(args_str) = func.get("arguments").and_then(|v| v.as_str()) {
-                            serde_json::from_str(args_str).unwrap_or(json!({}))
+                            // Strip think blocks from arguments (StepFun interleaves reasoning)
+                            let clean = Self::strip_think_from_str(args_str);
+                            serde_json::from_str(&clean)
+                                .or_else(|_| serde_json::from_str(args_str))
+                                .unwrap_or(json!({}))
                         } else {
                             func.get("arguments").cloned().unwrap_or(json!({}))
                         };
