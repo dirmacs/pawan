@@ -1037,3 +1037,38 @@ mod write_file_edge_tests {
         assert!(c.contains("🦀"));
     }
 }
+
+#[cfg(test)]
+mod config_tests {
+    use crate::config::PawanConfig;
+
+    #[test]
+    fn test_default_config() {
+        let config = PawanConfig::default();
+        assert!(!config.model.is_empty());
+        assert!(config.temperature > 0.0);
+        assert!(config.max_tokens > 0);
+        assert!(config.max_tool_iterations > 0);
+        assert!(config.max_context_tokens > 0);
+        assert!(config.cloud.is_none());
+    }
+
+    #[test]
+    fn test_system_prompt() {
+        let config = PawanConfig::default();
+        let prompt = config.get_system_prompt();
+        assert!(prompt.contains("Pawan"));
+        assert!(prompt.contains("tools"));
+        assert!(prompt.len() > 100);
+    }
+
+    #[test]
+    fn test_thinking_mode_only_deepseek() {
+        let mut config = PawanConfig::default();
+        config.reasoning_mode = true;
+        config.model = "stepfun-ai/step-3.5-flash".into();
+        assert!(!config.use_thinking_mode());
+        config.model = "deepseek-ai/deepseek-v3".into();
+        assert!(config.use_thinking_mode());
+    }
+}
