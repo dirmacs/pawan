@@ -66,7 +66,8 @@ impl Tool for RipgrepTool {
                 "fixed_strings": { "type": "boolean", "description": "Treat pattern as literal string, not regex" },
                 "case_insensitive": { "type": "boolean", "description": "Case insensitive search (default: false)" },
                 "invert": { "type": "boolean", "description": "Invert match: show lines that do NOT match (default: false)" },
-                "hidden": { "type": "boolean", "description": "Search hidden files and directories (default: false)" }
+                "hidden": { "type": "boolean", "description": "Search hidden files and directories (default: false)" },
+                "max_depth": { "type": "integer", "description": "Max directory depth to search (default: unlimited)" }
             },
             "required": ["pattern"]
         })
@@ -105,6 +106,11 @@ impl Tool for RipgrepTool {
         }
         if args["hidden"].as_bool().unwrap_or(false) {
             cmd_args.push("--hidden");
+        }
+        let depth_str = args["max_depth"].as_u64().map(|d| d.to_string());
+        if let Some(ref ds) = depth_str {
+            cmd_args.push("--max-depth");
+            cmd_args.push(ds);
         }
         cmd_args.push(pattern);
         cmd_args.push(search_path);
