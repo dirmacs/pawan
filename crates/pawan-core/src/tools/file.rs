@@ -99,12 +99,23 @@ impl Tool for ReadFileTool {
 
         let output = selected_lines.join("\n");
 
+        let warning = if total_lines > 300 && selected_lines.len() == total_lines {
+            Some(format!(
+                "Large file ({} lines). Consider using offset/limit to read specific sections, \
+                 or use anchor_text in edit_file_lines to avoid line-number math.",
+                total_lines
+            ))
+        } else {
+            None
+        };
+
         Ok(json!({
             "content": output,
             "path": full_path.display().to_string(),
             "total_lines": total_lines,
             "lines_shown": selected_lines.len(),
-            "offset": offset
+            "offset": offset,
+            "warning": warning
         }))
     }
 }
