@@ -45,6 +45,26 @@ impl OpenAiCompatBackend {
         }
     }
 
+    /// Check if a model supports the `chat_template_kwargs` parameter.
+    /// Only Qwen-family models on NIM support this. Mistral, LLaMA, and others reject it with 400.
+    fn supports_chat_template_kwargs(model: &str) -> bool {
+        let m = model.to_lowercase();
+        m.contains("qwen") || m.contains("deepseek")
+    }
+
+    /// Check if a model supports tool use (function calling).
+    /// Models known NOT to support tools on NIM: mistral-small, llama-3.1-8b, etc.
+    /// Models known to support tools: devstral, qwen, deepseek, nemotron, llama-3.1-70b+
+    fn supports_tool_use(model: &str) -> bool {
+        let m = model.to_lowercase();
+        // Explicit deny list — models that reject tools on NIM
+        if m.contains("mistral-small") || m.contains("mistral-7b") {
+            return false;
+        }
+        // Everything else: assume tool use support (fail gracefully in retry loop)
+        true
+    }
+
     /// Calculate exponential backoff delay with jitter
     /// Start at 1s, double each time, with ±20% random jitter
     fn calculate_backoff_delay(attempt: usize) -> std::time::Duration {
@@ -519,18 +539,25 @@ impl LlmBackend for OpenAiCompatBackend {
         let mut request_body = json!({
             "model": self.cfg.model,
             "messages": api_messages,
-            "tools": api_tools,
             "temperature": self.cfg.temperature,
             "top_p": self.cfg.top_p,
             "max_tokens": self.cfg.max_tokens,
             "stream": on_token.is_some()
         });
 
-        if self.cfg.use_thinking {
-            request_body["chat_template_kwargs"] = json!({ "thinking": true });
-        } else {
-            // Explicitly disable thinking for models like Qwen3.5 that default to thinking ON
-            request_body["chat_template_kwargs"] = json!({ "enable_thinking": false });
+        // Only include tools if non-empty AND model supports tool use
+        if !api_tools.is_empty() && Self::supports_tool_use(&self.cfg.model) {
+            request_body["tools"] = json!(api_tools);
+        }
+
+        // Only send chat_template_kwargs for models that support it (Qwen family).
+        // Mistral, LLaMA, and other models reject this parameter with 400 errors.
+        if Self::supports_chat_template_kwargs(&self.cfg.model) {
+            if self.cfg.use_thinking {
+                request_body["chat_template_kwargs"] = json!({ "thinking": true });
+            } else {
+                request_body["chat_template_kwargs"] = json!({ "enable_thinking": false });
+            }
         }
 
         request_body["seed"] = json!(42);
@@ -561,9 +588,26 @@ impl LlmBackend for OpenAiCompatBackend {
             for model in models {
                 request_body["model"] = json!(model);
 
-                // Disable thinking mode for cloud models (different providers)
-                if is_cloud {
+                // Dynamically add/remove chat_template_kwargs based on model support
+                if Self::supports_chat_template_kwargs(model) {
+                    if !request_body.get("chat_template_kwargs").is_some() {
+                        if self.cfg.use_thinking {
+                            request_body["chat_template_kwargs"] = json!({ "thinking": true });
+                        } else {
+                            request_body["chat_template_kwargs"] = json!({ "enable_thinking": false });
+                        }
+                    }
+                } else {
                     request_body.as_object_mut().map(|o| o.remove("chat_template_kwargs"));
+                }
+
+                // Dynamically add/remove tools based on model support
+                if Self::supports_tool_use(model) {
+                    if !api_tools.is_empty() && !request_body.get("tools").is_some() {
+                        request_body["tools"] = json!(api_tools);
+                    }
+                } else {
+                    request_body.as_object_mut().map(|o| o.remove("tools"));
                 }
 
                 for attempt in 0..=max_retries {
