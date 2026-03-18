@@ -64,7 +64,8 @@ impl Tool for RipgrepTool {
                 "max_count": { "type": "integer", "description": "Max matches per file (default: 20)" },
                 "context": { "type": "integer", "description": "Lines of context around each match (default: 0)" },
                 "fixed_strings": { "type": "boolean", "description": "Treat pattern as literal string, not regex" },
-                "case_insensitive": { "type": "boolean", "description": "Case insensitive search (default: false)" }
+                "case_insensitive": { "type": "boolean", "description": "Case insensitive search (default: false)" },
+                "invert": { "type": "boolean", "description": "Invert match: show lines that do NOT match (default: false)" }
             },
             "required": ["pattern"]
         })
@@ -97,6 +98,9 @@ impl Tool for RipgrepTool {
         }
         if args["case_insensitive"].as_bool().unwrap_or(false) {
             cmd_args.push("-i");
+        }
+        if args["invert"].as_bool().unwrap_or(false) {
+            cmd_args.push("--invert-match");
         }
         cmd_args.push(pattern);
         cmd_args.push(search_path);
