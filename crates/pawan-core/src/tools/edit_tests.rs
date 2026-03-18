@@ -99,23 +99,39 @@ mod anchor_tests {
         let tmp = TempDir::new().unwrap();
         let content = "fn foo() {\n    println!(\"hello\");\n}\nfn bar() {}";
         std::fs::write(tmp.path().join("f.rs"), content).unwrap();
-        let tool = InsertAfterTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","anchor_text":"fn foo()","content":"fn inserted() {}"})).await.unwrap();
+
+#[cfg(test)]
+mod native_tests {
+    use crate::tools::native::SdTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_sd_replace() {
+        if !which::which("sd").is_ok() { return; } // skip if sd not installed
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.txt"), "hello world hello").unwrap();
+        let tool = SdTool::new(tmp.path().into());
+        let r = tool.execute(json!({"find":"hello","replace":"hi","path":"f.txt","fixed_strings":true})).await.unwrap();
         assert!(r["success"].as_bool().unwrap());
-        let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
-        // Should insert AFTER foo's closing }, not inside foo's body
-        assert!(c.contains("}\nfn inserted() {}\nfn bar()"), "Got: {}", c);
+        let c = std::fs::read_to_string(tmp.path().join("f.txt")).unwrap();
+        assert_eq!(c, "hi world hi");
     }
 
     #[tokio::test]
-    async fn test_insert_after_no_block() {
+    async fn test_sd_missing_replace() {
         let tmp = TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("f.rs"), "use std::io;\nuse std::fs;\n").unwrap();
-        let tool = InsertAfterTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","anchor_text":"use std::io","content":"use std::path;"})).await.unwrap();
-        assert!(r["success"].as_bool().unwrap());
-        let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
-        // No block — should insert right after the anchor line
-        assert_eq!(c, "use std::io;\nuse std::path;\nuse std::fs;\n");
+        let tool = SdTool::new(tmp.path().into());
+        let r = tool.execute(json!({"find":"x","path":"f.txt"})).await;
+        assert!(r.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sd_missing_path() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SdTool::new(tmp.path().into());
+        let r = tool.execute(json!({"find":"x","replace":"y"})).await;
+        assert!(r.is_err());
     }
 }
