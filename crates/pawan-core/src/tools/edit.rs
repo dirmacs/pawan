@@ -382,8 +382,9 @@ impl Tool for InsertAfterTool {
 
     fn description(&self) -> &str {
         "Insert text after a line matching a pattern. Finds the FIRST line containing \
-         the anchor text and inserts new content on the next line. Does not replace anything. \
-         Use for adding new code without disturbing existing lines."
+         the anchor text. If that line opens a block (ends with '{'), inserts AFTER the \
+         closing '}' of that block — safe for functions, structs, impls. Otherwise inserts \
+         on the next line. Does not replace anything. Use for adding new code."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -420,7 +421,27 @@ impl Tool for InsertAfterTool {
             Some(idx) => {
                 let insert_lines: Vec<String> = insert_content.lines().map(|l| l.to_string()).collect();
                 let insert_count = insert_lines.len();
-                let insert_at = idx + 1;
+
+                // Smart insertion: if anchor line opens a block ({), insert AFTER the block closes
+                let anchor_line = &lines[idx];
+                let insert_at = if anchor_line.trim_end().ends_with('{') {
+                    // Find matching closing brace
+                    let mut depth = 0i32;
+                    let mut close_idx = idx;
+                    for (i, line) in lines.iter().enumerate().skip(idx) {
+                        for ch in line.chars() {
+                            if ch == '{' { depth += 1; }
+                            if ch == '}' { depth -= 1; }
+                        }
+                        if depth == 0 {
+                            close_idx = i;
+                            break;
+                        }
+                    }
+                    close_idx + 1
+                } else {
+                    idx + 1
+                };
                 for (i, line) in insert_lines.into_iter().enumerate() {
                     lines.insert(insert_at + i, line);
                 }
