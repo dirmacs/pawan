@@ -389,10 +389,70 @@ impl PawanAgent {
             }
 
             let tool_defs = self.tools.get_definitions();
-            let response = self
-                .backend
-                .generate(&self.history, &tool_defs, on_token.as_ref())
-                .await?;
+
+            // --- Resilient LLM call: retry on transient failures instead of crashing ---
+            let response = {
+                let mut last_err = None;
+                let max_llm_retries = 3;
+                let mut attempt = 0;
+                loop {
+                    attempt += 1;
+                    match self.backend.generate(&self.history, &tool_defs, on_token.as_ref()).await {
+                        Ok(resp) => break resp,
+                        Err(e) => {
+                            let err_str = e.to_string();
+                            let is_transient = err_str.contains("timeout")
+                                || err_str.contains("connection")
+                                || err_str.contains("429")
+                                || err_str.contains("500")
+                                || err_str.contains("502")
+                                || err_str.contains("503")
+                                || err_str.contains("504")
+                                || err_str.contains("reset")
+                                || err_str.contains("broken pipe");
+
+                            if is_transient && attempt <= max_llm_retries {
+                                let delay = std::time::Duration::from_secs(2u64.pow(attempt as u32));
+                                tracing::warn!(
+                                    attempt = attempt,
+                                    delay_secs = delay.as_secs(),
+                                    error = err_str.as_str(),
+                                    "LLM call failed (transient) — retrying"
+                                );
+                                tokio::time::sleep(delay).await;
+
+                                // If context is too large, prune before retry
+                                if err_str.contains("context") || err_str.contains("token") {
+                                    tracing::info!("Pruning history before retry (possible context overflow)");
+                                    self.prune_history();
+                                }
+                                continue;
+                            }
+
+                            // Non-transient or max retries exhausted
+                            last_err = Some(e);
+                            break {
+                                // Return a synthetic "give up" response instead of crashing
+                                tracing::error!(
+                                    attempt = attempt,
+                                    error = last_err.as_ref().map(|e| e.to_string()).unwrap_or_default().as_str(),
+                                    "LLM call failed permanently — returning error as content"
+                                );
+                                LLMResponse {
+                                    content: format!(
+                                        "LLM error after {} attempts: {}. The task could not be completed.",
+                                        attempt,
+                                        last_err.as_ref().map(|e| e.to_string()).unwrap_or_default()
+                                    ),
+                                    tool_calls: vec![],
+                                    finish_reason: "error".to_string(),
+                                    usage: None,
+                                }
+                            };
+                        }
+                    }
+                }
+            };
 
             // Accumulate token usage
             if let Some(ref usage) = response.usage {
@@ -524,15 +584,30 @@ impl PawanAgent {
 
                 let start = std::time::Instant::now();
 
-                let result = self
-                    .tools
-                    .execute(&tool_call.name, tool_call.arguments.clone())
-                    .await;
+                // Resilient tool execution: catch panics + errors
+                let result = {
+                    let tool_future = self.tools.execute(&tool_call.name, tool_call.arguments.clone());
+                    // Timeout individual tool calls (prevent hangs)
+                    let timeout_dur = if tool_call.name == "bash" {
+                        std::time::Duration::from_secs(self.config.bash_timeout_secs)
+                    } else {
+                        std::time::Duration::from_secs(30)
+                    };
+                    match tokio::time::timeout(timeout_dur, tool_future).await {
+                        Ok(inner) => inner,
+                        Err(_) => Err(PawanError::Tool(format!(
+                            "Tool '{}' timed out after {}s", tool_call.name, timeout_dur.as_secs()
+                        ))),
+                    }
+                };
                 let duration_ms = start.elapsed().as_millis() as u64;
 
                 let (result_value, success) = match result {
                     Ok(v) => (v, true),
-                    Err(e) => (json!({"error": e.to_string()}), false),
+                    Err(e) => {
+                        tracing::warn!(tool = tool_call.name.as_str(), error = %e, "Tool execution failed");
+                        (json!({"error": e.to_string(), "tool": tool_call.name, "hint": "Try a different approach or tool"}), false)
+                    }
                 };
 
                 // Truncate tool results that exceed max chars to prevent context bloat
