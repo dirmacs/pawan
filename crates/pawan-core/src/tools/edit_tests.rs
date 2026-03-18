@@ -628,3 +628,60 @@ mod bash_tool_tests {
         assert!(r["stdout"].as_str().unwrap().contains("found"));
     }
 }
+
+#[cfg(test)]
+mod list_dir_tests {
+    use crate::tools::file::ListDirectoryTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_list_dir_basic() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("b.txt"), "").unwrap();
+        std::fs::create_dir(tmp.path().join("subdir")).unwrap();
+        let tool = ListDirectoryTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"."})).await.unwrap();
+        let entries = r["entries"].as_array().unwrap();
+        assert!(entries.len() >= 3);
+    }
+
+    #[tokio::test]
+    async fn test_list_dir_not_found() {
+        let tmp = TempDir::new().unwrap();
+        let tool = ListDirectoryTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"nonexistent"})).await;
+        assert!(r.is_err());
+    }
+}
+
+#[cfg(test)]
+mod edit_replace_all_tests {
+    use crate::tools::edit::EditFileTool;
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_replace_all() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "let x = 1;\nlet x = 2;\nlet x = 3;\n").unwrap();
+        let tool = EditFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.rs","old_string":"let x","new_string":"let y","replace_all":true})).await.unwrap();
+        assert_eq!(r["replacements"].as_u64().unwrap(), 3);
+        let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
+        assert!(!c.contains("let x"));
+        assert_eq!(c.matches("let y").count(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_replace_ambiguous_fails() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "aaa\naaa\n").unwrap();
+        let tool = EditFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path":"f.rs","old_string":"aaa","new_string":"bbb"})).await;
+        assert!(r.is_err()); // multiple matches without replace_all
+    }
+}
