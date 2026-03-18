@@ -24,6 +24,7 @@
 pub mod agent;
 pub mod config;
 pub mod healing;
+pub mod tasks;
 pub mod tools;
 
 pub use agent::PawanAgent;
