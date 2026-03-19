@@ -38,5 +38,9 @@ chrono = { workspace = true }
 # Streaming
 tokio-stream = "0.1"
 
+# System
+hostname = "0.4"
+toml = { workspace = true }
+
 # Config
 dotenvy = "0.15"

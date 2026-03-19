@@ -37,6 +37,7 @@ pub struct AppState {
     agents: Arc<RwLock<HashMap<String, PawanAgent>>>,
     config: Arc<PawanConfig>,
     workspace: PathBuf,
+    agent_id: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +64,7 @@ pub struct HealthResponse {
     pub status: &'static str,
     pub version: &'static str,
     pub uptime_secs: u64,
+    pub agent_id: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -81,12 +83,50 @@ pub struct ModelsResponse {
 // Handlers
 // ---------------------------------------------------------------------------
 
-async fn health_handler() -> Json<HealthResponse> {
+async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
         uptime_secs: 0, // TODO: track real uptime
+        agent_id: state.agent_id.clone(),
     })
+}
+
+/// List known agents from aegis-net peer config
+async fn agents_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
+    // Read aegis-net peers if available
+    let peers = read_aegis_peers();
+    Json(serde_json::json!({
+        "self": state.agent_id,
+        "peers": peers,
+    }))
+}
+
+fn read_aegis_peers() -> Vec<serde_json::Value> {
+    let path = std::path::Path::new("/opt/aegis/aegis-net.toml");
+    if !path.exists() {
+        return vec![];
+    }
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(_) => return vec![],
+    };
+    let parsed: toml::Value = match content.parse() {
+        Ok(v) => v,
+        Err(_) => return vec![],
+    };
+    let peers = match parsed.get("peers").and_then(|p| p.as_table()) {
+        Some(t) => t,
+        None => return vec![],
+    };
+    peers.iter().map(|(name, config)| {
+        serde_json::json!({
+            "name": name,
+            "agent_id": format!("pawan@{}", name),
+            "ip": config.get("ip").and_then(|v| v.as_str()),
+            "groups": config.get("groups").and_then(|v| v.as_array()),
+        })
+    }).collect()
 }
 
 async fn models_handler(State(state): State<AppState>) -> Json<ModelsResponse> {
@@ -254,11 +294,22 @@ async fn main() {
     let config = PawanConfig::default();
     let workspace = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/opt"));
 
+    // Derive agent_id from PAWAN_AGENT_ID env, or hostname, or aegis-net peer name
+    let agent_id = std::env::var("PAWAN_AGENT_ID").unwrap_or_else(|_| {
+        let hostname = hostname::get()
+            .map(|h| h.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "unknown".into());
+        format!("pawan@{}", hostname)
+    });
+
     let state = AppState {
         agents: Arc::new(RwLock::new(HashMap::new())),
         config: Arc::new(config),
         workspace,
+        agent_id: agent_id.clone(),
     };
+
+    tracing::info!("Agent identity: {}", agent_id);
 
     let cors = CorsLayer::new()
         .allow_origin(Any)
@@ -274,6 +325,7 @@ async fn main() {
         .route("/api/sessions", post(create_session_handler))
         .route("/api/sessions/{id}", get(get_session_handler))
         .route("/api/sessions/{id}", delete(delete_session_handler))
+        .route("/api/agents", get(agents_handler))
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
