@@ -720,6 +720,47 @@ impl PawanAgent {
                         success,
                     }),
                 });
+
+                // Compile-gated confidence: after writing a .rs file, auto-run cargo check
+                // and inject the result so the model can self-correct on the same iteration
+                if success && tool_call.name == "write_file" {
+                    let wrote_rs = tool_call.arguments.get("path")
+                        .and_then(|p| p.as_str())
+                        .map(|p| p.ends_with(".rs"))
+                        .unwrap_or(false);
+                    if wrote_rs {
+                        let ws = self.workspace_root.clone();
+                        let check_result = tokio::process::Command::new("cargo")
+                            .arg("check")
+                            .arg("--message-format=short")
+                            .current_dir(&ws)
+                            .output()
+                            .await;
+                        match check_result {
+                            Ok(output) if !output.status.success() => {
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+                                // Only inject first 1500 chars of errors to avoid context bloat
+                                let err_msg: String = stderr.chars().take(1500).collect();
+                                tracing::info!("Compile-gate: cargo check failed after write_file, injecting errors");
+                                self.history.push(Message {
+                                    role: Role::User,
+                                    content: format!(
+                                        "[SYSTEM] cargo check failed after your write_file. Fix the errors:\n```\n{}\n```",
+                                        err_msg
+                                    ),
+                                    tool_calls: vec![],
+                                    tool_result: None,
+                                });
+                            }
+                            Ok(_) => {
+                                tracing::debug!("Compile-gate: cargo check passed");
+                            }
+                            Err(e) => {
+                                tracing::warn!("Compile-gate: cargo check failed to run: {}", e);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
