@@ -62,6 +62,21 @@ model = "step-ai/step-2-flash"
 
 The local model runs at $0/token. If it's down (OOM, Mac asleep), pawan seamlessly falls back to NIM cloud. Zero manual intervention.
 
+## MLX vs llama.cpp
+
+Both run models locally on Mac, but they differ in performance and format:
+
+| | mlx_lm.server | llama.cpp |
+|---|---|---|
+| **Hardware** | Apple Silicon (Metal GPU) | Cross-platform (CPU + GPU) |
+| **Format** | MLX native (safetensors) | GGUF |
+| **Speed on M4** | ~2x faster than llama.cpp | Baseline |
+| **Memory** | Unified memory — efficient on M4 | Separate GPU/CPU split |
+| **API** | OpenAI-compatible, localhost:8080 | OpenAI-compatible, localhost:8080 |
+| **API key** | None needed | None needed |
+
+**Recommendation:** prefer MLX on Mac M4. The unified memory architecture and Metal GPU give a significant throughput advantage, especially on 4–8 bit quantized models like `mlx-community/Qwen3.5-9B-4bit`.
+
 ## Dogfood Stats
 
 From the 2026-03-18 marathon session:
