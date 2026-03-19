@@ -1159,3 +1159,57 @@ mod permission_tests {
         assert_eq!(config.permissions.get("bash"), Some(&ToolPermission::Deny));
     }
 }
+
+#[cfg(test)]
+mod file_tool_tests {
+    use crate::tools::file::{ReadFileTool, WriteFileTool, ListDirectoryTool};
+    use crate::tools::Tool;
+    use serde_json::json;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn test_write_empty_content() {
+        let tmp = TempDir::new().unwrap();
+        let tool = WriteFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path": "empty.txt", "content": ""})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+        assert_eq!(std::fs::read_to_string(tmp.path().join("empty.txt")).unwrap(), "");
+    }
+
+    #[tokio::test]
+    async fn test_read_offset_beyond_file() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("short.txt"), "line1\nline2\n").unwrap();
+        let tool = ReadFileTool::new(tmp.path().into());
+        // Offset beyond file length should return empty or gracefully handle
+        let r = tool.execute(json!({"path": "short.txt", "offset": 999, "limit": 10})).await.unwrap();
+        // Should not panic — either empty content or an error, but not a crash
+        assert!(r.get("content").is_some() || r.get("error").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_write_creates_parent_dirs() {
+        let tmp = TempDir::new().unwrap();
+        let tool = WriteFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path": "nested/deep/file.txt", "content": "hello"})).await.unwrap();
+        assert!(r["success"].as_bool().unwrap());
+        assert_eq!(std::fs::read_to_string(tmp.path().join("nested/deep/file.txt")).unwrap(), "hello");
+    }
+
+    #[tokio::test]
+    async fn test_list_directory_empty() {
+        let tmp = TempDir::new().unwrap();
+        let tool = ListDirectoryTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path": "."})).await.unwrap();
+        // Empty directory — should succeed without panicking
+        assert!(r.get("entries").is_some() || r.get("error").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_read_nonexistent_file() {
+        let tmp = TempDir::new().unwrap();
+        let tool = ReadFileTool::new(tmp.path().into());
+        let r = tool.execute(json!({"path": "does_not_exist.rs"})).await;
+        assert!(r.is_err());
+    }
+}

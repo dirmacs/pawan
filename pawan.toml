@@ -3,6 +3,7 @@
 # Fallback: NVIDIA NIM StepFun Flash (best tool-call success rate)
 provider = "mlx"
 model = "mlx-community/Qwen3.5-9B-4bit"
+base_url = "http://10.42.0.2:8080/v1"   # Mac Mini M4 MLX server via aegis-net
 temperature = 0.6
 max_tokens = 4096
 max_tool_iterations = 20
