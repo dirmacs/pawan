@@ -1,21 +1,23 @@
-# Pawan — VPS configuration
-# Primary: NVIDIA NIM (mistral-small, reliable)
-# Cloud fallback: devstral when primary is slow
-provider = "nvidia"
-model = "mistralai/mistral-small-24b-instruct"
+# Pawan — local-first config
+# Primary: Qwen3.5-9B via llama.cpp on Mac Mini M4 (free, via aegis-net tunnel)
+# Fallback: NVIDIA NIM StepFun Flash (best tool-call success rate)
+provider = "openai"
+model = "Qwen3.5-9B-Q4_K_M.gguf"
+base_url = "http://localhost:8080/v1"
 temperature = 0.6
 max_tokens = 4096
+max_tool_iterations = 20
 
-# Cloud fallback
 [cloud]
 provider = "nvidia"
-model = "mistralai/devstral-2-123b-instruct-2512"
+model = "step-ai/step-2-flash"
 
 [mcp.daedra]
 command = "daedra"
 args = ["serve", "--transport", "stdio", "--quiet"]
 
-[mcp.eruka]
-command = "/opt/eruka/target/release/eruka-mcp"
-args = ["--transport", "stdio", "--user-id", "63cca910-aff3-48b8-bb32-e0cdcd5f9a2e"]
-env = { DATABASE_URL = "postgres://dirmacs:2ab91004d735521aa189e446b0344aca@localhost/eruka" }
+# eruka MCP: enable when eruka-mcp binary is built
+# [mcp.eruka]
+# command = "/opt/eruka/target/release/eruka-mcp"
+# args = ["--transport", "stdio", "--user-id", "63cca910-aff3-48b8-bb32-e0cdcd5f9a2e"]
+# env = { DATABASE_URL = "postgres://dirmacs:2ab91004d735521aa189e446b0344aca@localhost/eruka" }
