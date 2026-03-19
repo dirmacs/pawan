@@ -20,7 +20,7 @@
 
 Pawan reads, writes, and heals code. It has a tool-calling loop, streaming TUI, git integration, and works with any OpenAI-compatible API — NVIDIA NIM, Ollama, llama.cpp, or your own endpoint.
 
-Built by [DIRMACS](https://dirmacs.com). Named after the Hindi word for wind (पवन).
+Built by [DIRMACS](https://dirmacs.com). Named after [Power Star Pawan Kalyan](https://en.wikipedia.org/wiki/Pawan_Kalyan) — martial artist, Telugu cinema icon, Deputy CM of Andhra Pradesh. That energy: raw power, cult following, fearless execution.
 
 ## Install
 
