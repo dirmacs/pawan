@@ -185,12 +185,10 @@ impl PawanAgent {
                         (url, key)
                     },
                     LlmProvider::OpenAI => {
-                        let url = std::env::var("OPENAI_API_URL")
-                            .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+                        let url = config.base_url.clone()
+                            .or_else(|| std::env::var("OPENAI_API_URL").ok())
+                            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
                         let key = std::env::var("OPENAI_API_KEY").ok();
-                        if key.is_none() {
-                            tracing::warn!("OPENAI_API_KEY not set. Add it to .env or export it.");
-                        }
                         (url, key)
                     },
                     _ => unreachable!(),
