@@ -32,6 +32,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "leftist_heap"
+version = "0.1.0"
+
+[[package]]
 name = "libc"
 version = "0.2.183"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -104,6 +108,10 @@ version = "0.1.0"
 dependencies = [
  "rand",
 ]
+
+[[package]]
+name = "suffix_array"
+version = "0.1.0"
 
 [[package]]
 name = "syn"
