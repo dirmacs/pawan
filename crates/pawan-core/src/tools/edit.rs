@@ -1,6 +1,7 @@
 //! Edit tool for precise string replacement
 
 use super::Tool;
+use super::file::normalize_path;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -16,12 +17,7 @@ impl EditFileTool {
     }
 
     fn resolve_path(&self, path: &str) -> PathBuf {
-        let path = PathBuf::from(path);
-        if path.is_absolute() {
-            path
-        } else {
-            self.workspace_root.join(path)
-        }
+        normalize_path(&self.workspace_root, path)
     }
 }
 
@@ -146,12 +142,7 @@ impl EditFileLinesTool {
     }
 
     fn resolve_path(&self, path: &str) -> PathBuf {
-        let path = PathBuf::from(path);
-        if path.is_absolute() {
-            path
-        } else {
-            self.workspace_root.join(path)
-        }
+        normalize_path(&self.workspace_root, path)
     }
 }
 
@@ -369,8 +360,7 @@ impl InsertAfterTool {
     }
 
     fn resolve_path(&self, path: &str) -> PathBuf {
-        let path = PathBuf::from(path);
-        if path.is_absolute() { path } else { self.workspace_root.join(path) }
+        normalize_path(&self.workspace_root, path)
     }
 }
 
@@ -480,8 +470,7 @@ impl AppendFileTool {
     }
 
     fn resolve_path(&self, path: &str) -> PathBuf {
-        let path = PathBuf::from(path);
-        if path.is_absolute() { path } else { self.workspace_root.join(path) }
+        normalize_path(&self.workspace_root, path)
     }
 }
 
