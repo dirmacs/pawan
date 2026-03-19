@@ -97,7 +97,7 @@ impl<'a> App<'a> {
     ) -> Self {
         let mut input = TextArea::default();
         input.set_cursor_line_style(Style::default());
-        input.set_placeholder_text("Type your message... (Ctrl+Enter to send, Ctrl+C to quit)");
+        input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to quit)");
 
         Self {
             config,
@@ -249,9 +249,7 @@ impl<'a> App<'a> {
 
                 match self.focus {
                     Panel::Input => {
-                        if key.modifiers.contains(KeyModifiers::CONTROL)
-                            && key.code == KeyCode::Enter
-                        {
+                        if key.code == KeyCode::Enter {
                             self.submit_input();
                         } else if key.code == KeyCode::Tab {
                             self.focus = Panel::Messages;
@@ -340,7 +338,7 @@ impl<'a> App<'a> {
         self.input = TextArea::default();
         self.input.set_cursor_line_style(Style::default());
         self.input
-            .set_placeholder_text("Type your message... (Ctrl+Enter to send, Ctrl+C to quit)");
+            .set_placeholder_text("Type your message... (Enter to send, Ctrl+C to quit)");
 
         self.messages.push(DisplayMessage {
             role: Role::User,
@@ -497,7 +495,7 @@ impl<'a> App<'a> {
         let title = if self.processing {
             " Input (processing...) "
         } else {
-            " Input (Ctrl+Enter to send) "
+            " Input (Enter to send) "
         };
 
         let block = Block::default()
