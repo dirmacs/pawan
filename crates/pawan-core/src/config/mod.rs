@@ -481,3 +481,46 @@ When fixing issues:
 Be concise in explanations but thorough in code changes.
 
 Git commits: always use author `bkataru <baalateja.k@gmail.com>`. Pass -c user.name="bkataru" -c user.email="baalateja.k@gmail.com" on every git commit. Never use: kavesbteja@gmail.com, baalateja.kataru@gmail.com, or noreply emails."#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_provider_mlx_parsing() {
+        // "mlx" string parses to LlmProvider::Mlx via serde rename_all = "lowercase"
+        let toml = r#"
+provider = "mlx"
+model = "mlx-community/Qwen3.5-9B-4bit"
+"#;
+        let config: PawanConfig = toml::from_str(toml).expect("should parse without error");
+        assert_eq!(config.provider, LlmProvider::Mlx);
+        assert_eq!(config.model, "mlx-community/Qwen3.5-9B-4bit");
+    }
+
+    #[test]
+    fn test_provider_mlx_lm_alias() {
+        // "mlx-lm" is an alias for mlx via apply_env_overrides (env var path)
+        let mut config = PawanConfig::default();
+        std::env::set_var("PAWAN_PROVIDER", "mlx-lm");
+        config.apply_env_overrides();
+        std::env::remove_var("PAWAN_PROVIDER");
+        assert_eq!(config.provider, LlmProvider::Mlx);
+    }
+
+    #[test]
+    fn test_mlx_base_url_override() {
+        // When provider=mlx and base_url is set, base_url is preserved in config
+        let toml = r#"
+provider = "mlx"
+model = "test-model"
+base_url = "http://192.168.1.100:8080/v1"
+"#;
+        let config: PawanConfig = toml::from_str(toml).expect("should parse without error");
+        assert_eq!(config.provider, LlmProvider::Mlx);
+        assert_eq!(
+            config.base_url.as_deref(),
+            Some("http://192.168.1.100:8080/v1")
+        );
+    }
+}
