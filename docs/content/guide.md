@@ -9,6 +9,12 @@ title = "Getting Started"
 ## Install
 
 ```bash
+cargo install pawan
+```
+
+Or build from source:
+
+```bash
 git clone https://github.com/dirmacs/pawan && cd pawan
 cargo install --path crates/pawan-cli
 ```

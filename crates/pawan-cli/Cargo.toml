@@ -1,5 +1,5 @@
 [package]
-name = "pawan-cli"
+name = "pawan"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
