@@ -5,6 +5,30 @@ use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
 
+/// Normalize a path relative to the workspace root.
+/// Handles the double-prefix bug where the model passes an absolute path
+/// like "/opt/pawan/grind/opt/pawan/grind/foo.rs" — it joins the workspace
+/// root with itself. We detect and strip the redundant prefix.
+fn normalize_path(workspace_root: &PathBuf, path: &str) -> PathBuf {
+    let path = PathBuf::from(path);
+    if path.is_absolute() {
+        // Check for double-prefix: if the path contains workspace_root
+        // more than once (e.g. /opt/pawan/grind/opt/pawan/grind/foo.rs)
+        let ws_str = workspace_root.to_string_lossy();
+        let path_str = path.to_string_lossy();
+        if let Some(second) = path_str[ws_str.len()..].strip_prefix('/').and_then(|rest| {
+            rest.find(&*ws_str).map(|pos| pos + ws_str.len() + 1)
+        }) {
+            // Found workspace_root repeated inside the path — use the tail after the second occurrence
+            let tail = &path_str[ws_str.len() + 1 + path_str[ws_str.len() + 1..].find(&*ws_str).unwrap()..];
+            return PathBuf::from(tail.to_string());
+        }
+        path
+    } else {
+        workspace_root.join(path)
+    }
+}
+
 /// Tool for reading file contents
 pub struct ReadFileTool {
     workspace_root: PathBuf,
