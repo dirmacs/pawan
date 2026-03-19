@@ -25,9 +25,14 @@ Built by [DIRMACS](https://dirmacs.com). Named after the Hindi word for wind (рд
 ## Install
 
 ```bash
+cargo install pawan
+
+# Or from source
 git clone https://github.com/dirmacs/pawan && cd pawan
 cargo install --path crates/pawan-cli
+```
 
+```bash
 # NVIDIA NIM (free tier)
 export NVIDIA_API_KEY=nvapi-...
 pawan
