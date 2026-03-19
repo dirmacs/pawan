@@ -1782,18 +1782,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b867cad97c0791bbd3aaa6472142568c6c9e8f71937e98379f584cfb0cf35bec"
 
 [[package]]
-name = "pawan-aegis"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "toml",
- "tracing",
-]
-
-[[package]]
-name = "pawan-cli"
+name = "pawan"
 version = "0.1.0"
 dependencies = [
  "assert_cmd",
@@ -1816,6 +1805,17 @@ dependencies = [
  "tokio",
  "toml",
  "tui-textarea",
+]
+
+[[package]]
+name = "pawan-aegis"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "toml",
+ "tracing",
 ]
 
 [[package]]
