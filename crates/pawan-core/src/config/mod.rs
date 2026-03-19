@@ -34,6 +34,10 @@ pub struct PawanConfig {
     /// LLM model to use for coding tasks
     pub model: String,
 
+    /// Override the API base URL (e.g. "http://localhost:8080/v1" for llama.cpp).
+    /// Takes priority over OPENAI_API_URL / NVIDIA_API_URL env vars.
+    pub base_url: Option<String>,
+
     /// Enable dry-run mode (show changes without applying)
     pub dry_run: bool,
 
@@ -160,6 +164,7 @@ impl Default for PawanConfig {
         Self {
             provider: LlmProvider::Nvidia,
             model: crate::DEFAULT_MODEL.to_string(),
+            base_url: None,
             dry_run: false,
             auto_backup: true,
             require_git_clean: false,
@@ -292,16 +297,24 @@ impl PawanConfig {
     /// Load configuration from file
     pub fn load(path: Option<&PathBuf>) -> crate::Result<Self> {
         let config_path = path.cloned().or_else(|| {
-            // Try pawan.toml first
+            // 1. pawan.toml in CWD
             let pawan_toml = PathBuf::from("pawan.toml");
             if pawan_toml.exists() {
                 return Some(pawan_toml);
             }
 
-            // Try ares.toml
+            // 2. ares.toml in CWD
             let ares_toml = PathBuf::from("ares.toml");
             if ares_toml.exists() {
                 return Some(ares_toml);
+            }
+
+            // 3. Global user config: ~/.config/pawan/pawan.toml
+            if let Some(home) = dirs::home_dir() {
+                let global = home.join(".config/pawan/pawan.toml");
+                if global.exists() {
+                    return Some(global);
+                }
             }
 
             None
