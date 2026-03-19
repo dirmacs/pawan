@@ -280,10 +280,48 @@ impl LlmBackend for OllamaBackend {
 
         let url = format!("{}/api/chat", self.api_url);
 
-        if on_token.is_some() {
+        let prompt_len: usize = messages.iter().map(|m| m.content.len()).sum();
+        tracing::info!(
+            model = self.model.as_str(),
+            url = url.as_str(),
+            provider = "ollama",
+            prompt_len,
+            tools = api_tools.len(),
+            streaming = on_token.is_some(),
+            "llm call"
+        );
+
+        let t0 = std::time::Instant::now();
+        let result = if on_token.is_some() {
             self.streaming(&url, request_body, on_token).await
         } else {
             self.non_streaming(&url, request_body).await
+        };
+        let latency_ms = t0.elapsed().as_millis() as u64;
+
+        match result {
+            Ok(ref response) => {
+                tracing::info!(
+                    model = self.model.as_str(),
+                    provider = "ollama",
+                    latency_ms,
+                    prompt_tokens = response.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+                    completion_tokens = response.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+                    finish_reason = response.finish_reason.as_str(),
+                    response_len = response.content.len(),
+                    "llm ok"
+                );
+            }
+            Err(ref e) => {
+                tracing::warn!(
+                    model = self.model.as_str(),
+                    provider = "ollama",
+                    latency_ms,
+                    error = %e,
+                    "llm error"
+                );
+            }
         }
+        result
     }
 }

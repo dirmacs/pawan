@@ -662,20 +662,52 @@ impl LlmBackend for OpenAiCompatBackend {
                         request = request.header("Authorization", format!("Bearer {}", key));
                     }
 
+                    let prompt_len: usize = messages.iter().map(|m| m.content.len()).sum();
+                    let tools_count = tools.len();
+                    tracing::info!(
+                        model = model.as_str(),
+                        url = url.as_str(),
+                        provider = if is_cloud { "cloud" } else { "local" },
+                        prompt_len,
+                        tools = tools_count,
+                        attempt,
+                        streaming = on_token.is_some(),
+                        "llm call"
+                    );
+
+                    let t0 = std::time::Instant::now();
                     let result = if on_token.is_some() {
                         self.streaming(request, on_token).await
                     } else {
                         self.non_streaming(request).await
                     };
+                    let latency_ms = t0.elapsed().as_millis() as u64;
 
                     match result {
                         Ok(response) => {
-                            if is_cloud {
-                                tracing::info!(model = model.as_str(), "Succeeded via cloud fallback");
-                            }
+                            tracing::info!(
+                                model = model.as_str(),
+                                provider = if is_cloud { "cloud" } else { "local" },
+                                latency_ms,
+                                prompt_tokens = response.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
+                                completion_tokens = response.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+                                finish_reason = response.finish_reason.as_str(),
+                                response_len = response.content.len(),
+                                tool_calls = response.tool_calls.len(),
+                                "llm ok"
+                            );
                             return Ok(response);
                         }
                         Err(err) => {
+                            let err_msg = err.to_string();
+                            tracing::warn!(
+                                model = model.as_str(),
+                                provider = if is_cloud { "cloud" } else { "local" },
+                                latency_ms,
+                                attempt,
+                                error = %err_msg,
+                                "llm error"
+                            );
                             last_error = Some(err);
 
                             if let Some(PawanError::Llm(ref msg)) = last_error.as_ref() {
@@ -687,7 +719,7 @@ impl LlmBackend for OpenAiCompatBackend {
                                         attempt = attempt + 1,
                                         model = model.as_str(),
                                         delay_ms = delay.as_millis() as u64,
-                                        "Retrying after LLM API error"
+                                        "retrying"
                                     );
                                     tokio::time::sleep(delay).await;
                                     continue;
