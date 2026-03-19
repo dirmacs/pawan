@@ -408,6 +408,22 @@ impl PawanAgent {
                     max_iterations
                 )));
             }
+
+            // Budget awareness: when running low on iterations, nudge the model
+            let remaining = max_iterations.saturating_sub(iterations);
+            if remaining == 3 && iterations > 1 {
+                self.history.push(Message {
+                    role: Role::User,
+                    content: format!(
+                        "[SYSTEM] You have {} tool iterations remaining. \
+                         Stop exploring and write the most important output now. \
+                         If you have code to write, write it immediately.",
+                        remaining
+                    ),
+                    tool_calls: vec![],
+                    tool_result: None,
+                });
+            }
             // Estimate context tokens
             self.context_tokens_estimate = self.history.iter().map(|m| m.content.len()).sum::<usize>() / 4;
             if self.context_tokens_estimate > self.config.max_context_tokens {

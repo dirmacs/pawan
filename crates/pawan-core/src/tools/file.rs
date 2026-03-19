@@ -6,26 +6,31 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 
 /// Normalize a path relative to the workspace root.
+///
 /// Handles the double-prefix bug where the model passes an absolute path
-/// like "/opt/pawan/grind/opt/pawan/grind/foo.rs" — it joins the workspace
-/// root with itself. We detect and strip the redundant prefix.
-fn normalize_path(workspace_root: &PathBuf, path: &str) -> PathBuf {
-    let path = PathBuf::from(path);
-    if path.is_absolute() {
-        // Check for double-prefix: if the path contains workspace_root
-        // more than once (e.g. /opt/pawan/grind/opt/pawan/grind/foo.rs)
-        let ws_str = workspace_root.to_string_lossy();
-        let path_str = path.to_string_lossy();
-        if let Some(second) = path_str[ws_str.len()..].strip_prefix('/').and_then(|rest| {
-            rest.find(&*ws_str).map(|pos| pos + ws_str.len() + 1)
-        }) {
-            // Found workspace_root repeated inside the path — use the tail after the second occurrence
-            let tail = &path_str[ws_str.len() + 1 + path_str[ws_str.len() + 1..].find(&*ws_str).unwrap()..];
-            return PathBuf::from(tail.to_string());
+/// like "/opt/pawan/grind/opt/pawan/grind/foo.rs" — it joined the workspace
+/// root with an absolute path instead of a relative one. We detect the
+/// workspace root appearing twice and collapse to the second occurrence.
+pub fn normalize_path(workspace_root: &PathBuf, path: &str) -> PathBuf {
+    let p = PathBuf::from(path);
+    if p.is_absolute() {
+        let ws = workspace_root.to_string_lossy();
+        let ps = p.to_string_lossy();
+        // If path starts with workspace_root, check if ws appears again in the remainder
+        if ps.starts_with(&*ws) {
+            let tail = &ps[ws.len()..];
+            if let Some(idx) = tail.find(&*ws) {
+                let corrected = &tail[idx..];
+                tracing::warn!(
+                    original = %ps, corrected = %corrected,
+                    "Path normalization: double workspace prefix detected"
+                );
+                return PathBuf::from(corrected.to_string());
+            }
         }
-        path
+        p
     } else {
-        workspace_root.join(path)
+        workspace_root.join(p)
     }
 }
 
@@ -40,12 +45,7 @@ impl ReadFileTool {
     }
 
     fn resolve_path(&self, path: &str) -> PathBuf {
-        let path = PathBuf::from(path);
-        if path.is_absolute() {
-            path
-        } else {
-            self.workspace_root.join(path)
-        }
+        normalize_path(&self.workspace_root, path)
     }
 }
 
@@ -155,12 +155,7 @@ impl WriteFileTool {
     }
 
     fn resolve_path(&self, path: &str) -> PathBuf {
-        let path = PathBuf::from(path);
-        if path.is_absolute() {
-            path
-        } else {
-            self.workspace_root.join(path)
-        }
+        normalize_path(&self.workspace_root, path)
     }
 }
 
@@ -244,12 +239,7 @@ impl ListDirectoryTool {
     }
 
     fn resolve_path(&self, path: &str) -> PathBuf {
-        let path = PathBuf::from(path);
-        if path.is_absolute() {
-            path
-        } else {
-            self.workspace_root.join(path)
-        }
+        normalize_path(&self.workspace_root, path)
     }
 }
 
@@ -409,5 +399,38 @@ mod tests {
         let result = tool.execute(json!({"path": "."})).await.unwrap();
 
         assert_eq!(result["count"], 3);
+    }
+
+    #[test]
+    fn test_normalize_path_double_prefix() {
+        let ws = PathBuf::from("/opt/pawan/grind");
+        // Model passes absolute path with workspace root repeated
+        let bad = "/opt/pawan/grind/opt/pawan/grind/leftist_heap/src/lib.rs";
+        let result = normalize_path(&ws, bad);
+        assert_eq!(result, PathBuf::from("/opt/pawan/grind/leftist_heap/src/lib.rs"));
+    }
+
+    #[test]
+    fn test_normalize_path_normal_absolute() {
+        let ws = PathBuf::from("/opt/pawan/grind");
+        let normal = "/opt/pawan/grind/trie/src/lib.rs";
+        let result = normalize_path(&ws, normal);
+        assert_eq!(result, PathBuf::from("/opt/pawan/grind/trie/src/lib.rs"));
+    }
+
+    #[test]
+    fn test_normalize_path_relative() {
+        let ws = PathBuf::from("/opt/pawan/grind");
+        let rel = "trie/src/lib.rs";
+        let result = normalize_path(&ws, rel);
+        assert_eq!(result, PathBuf::from("/opt/pawan/grind/trie/src/lib.rs"));
+    }
+
+    #[test]
+    fn test_normalize_path_unrelated_absolute() {
+        let ws = PathBuf::from("/opt/pawan/grind");
+        let other = "/tmp/foo/bar.rs";
+        let result = normalize_path(&ws, other);
+        assert_eq!(result, PathBuf::from("/tmp/foo/bar.rs"));
     }
 }
