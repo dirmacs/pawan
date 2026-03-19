@@ -410,6 +410,7 @@ impl PawanAgent {
 
             // --- Resilient LLM call: retry on transient failures instead of crashing ---
             let response = {
+                #[allow(unused_assignments)]
                 let mut last_err = None;
                 let max_llm_retries = 3;
                 let mut attempt = 0;
