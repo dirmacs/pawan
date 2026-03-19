@@ -1559,6 +1559,11 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
             let url = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
             println!("{}", url.cyan());
         }
+        LlmProvider::Mlx => {
+            print!("    MLX URL: ");
+            let url = std::env::var("MLX_URL").unwrap_or_else(|_| "http://localhost:8080".into());
+            println!("{}", url.cyan());
+        }
     }
 
     // 5. Check model connectivity
@@ -1580,6 +1585,10 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
         LlmProvider::Ollama => {
             std::env::var("OLLAMA_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string())
+        }
+        LlmProvider::Mlx => {
+            std::env::var("MLX_URL")
+                .unwrap_or_else(|_| "http://localhost:8080".to_string())
         }
     };
 
