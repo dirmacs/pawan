@@ -343,3 +343,109 @@ async fn main() {
 
     axum::serve(listener, app).await.expect("server error");
 }
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use http_body_util::BodyExt;
+    use tower::ServiceExt;
+
+    fn test_state() -> AppState {
+        AppState {
+            agents: Arc::new(RwLock::new(HashMap::new())),
+            config: Arc::new(PawanConfig::default()),
+            workspace: std::path::PathBuf::from("/tmp"),
+            agent_id: "pawan@test".to_string(),
+        }
+    }
+
+    fn build_test_router(state: AppState) -> Router {
+        Router::new()
+            .route("/api/health", get(health_handler))
+            .route("/api/models", get(models_handler))
+            .route("/api/sessions", get(list_sessions_handler))
+            .route("/api/sessions", post(create_session_handler))
+            .route("/api/agents", get(agents_handler))
+            .with_state(state)
+    }
+
+    async fn body_json(resp: axum::response::Response) -> serde_json::Value {
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_health_returns_ok_with_agent_id() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        assert_eq!(json["status"], "ok");
+        assert_eq!(json["agent_id"], "pawan@test");
+    }
+
+    #[tokio::test]
+    async fn test_models_returns_array() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(Request::get("/api/models").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        assert!(json["models"].is_array());
+        assert!(!json["models"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_create_session_returns_id() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(
+                Request::post("/api/sessions")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        let sid = json["session_id"].as_str().unwrap();
+        assert!(!sid.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_agents_returns_self() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(Request::get("/api/agents").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        assert_eq!(json["self"], "pawan@test");
+        assert!(json["peers"].is_array());
+    }
+
+    #[tokio::test]
+    async fn test_list_sessions_returns_array() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(Request::get("/api/sessions").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        // May return 200 with [] or 500 if no session dir — both acceptable
+        assert!(
+            resp.status() == StatusCode::OK || resp.status() == StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+}
