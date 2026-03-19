@@ -173,7 +173,7 @@ impl PawanAgent {
     /// Create the appropriate backend based on config
     fn create_backend(config: &PawanConfig, system_prompt: &str) -> Box<dyn LlmBackend> {
         match config.provider {
-            LlmProvider::Nvidia | LlmProvider::OpenAI => {
+            LlmProvider::Nvidia | LlmProvider::OpenAI | LlmProvider::Mlx => {
                 let (api_url, api_key) = match config.provider {
                     LlmProvider::Nvidia => {
                         let url = std::env::var("NVIDIA_API_URL")
@@ -190,6 +190,13 @@ impl PawanAgent {
                             .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
                         let key = std::env::var("OPENAI_API_KEY").ok();
                         (url, key)
+                    },
+                    LlmProvider::Mlx => {
+                        // MLX LM server — Apple Silicon native, always local
+                        let url = config.base_url.clone()
+                            .unwrap_or_else(|| "http://localhost:8080/v1".to_string());
+                        tracing::info!(url = %url, "Using MLX LM server (Apple Silicon native)");
+                        (url, None) // mlx_lm.server requires no API key
                     },
                     _ => unreachable!(),
                 };
@@ -209,8 +216,11 @@ impl PawanAgent {
                             let key = std::env::var("OPENAI_API_KEY").ok();
                             (url, key)
                         },
+                        LlmProvider::Mlx => {
+                            ("http://localhost:8080/v1".to_string(), None)
+                        },
                         _ => {
-                            tracing::warn!("Cloud fallback only supports nvidia/openai providers");
+                            tracing::warn!("Cloud fallback only supports nvidia/openai/mlx providers");
                             ("https://integrate.api.nvidia.com/v1".to_string(), None)
                         }
                     };

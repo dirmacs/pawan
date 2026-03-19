@@ -1,9 +1,8 @@
-# Pawan — local-first config
-# Primary: Qwen3.5-9B via llama.cpp on Mac Mini M4 (free, via aegis-net tunnel)
+# Pawan — MLX-first config
+# Primary: Qwen3.5-9B via mlx_lm.server on Mac Mini M4 (Apple Silicon native, ~2x faster than llama.cpp)
 # Fallback: NVIDIA NIM StepFun Flash (best tool-call success rate)
-provider = "openai"
-model = "Qwen3.5-9B-Q4_K_M.gguf"
-base_url = "http://localhost:8080/v1"
+provider = "mlx"
+model = "mlx-community/Qwen3.5-9B-4bit"
 temperature = 0.6
 max_tokens = 4096
 max_tool_iterations = 20

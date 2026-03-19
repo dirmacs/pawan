@@ -22,6 +22,8 @@ pub enum LlmProvider {
     Ollama,
     /// OpenAI-compatible API
     OpenAI,
+    /// MLX LM server (Apple Silicon native, mlx_lm.server) — auto-routes to localhost:8080
+    Mlx,
 }
 
 /// Main configuration for Pawan
@@ -375,6 +377,7 @@ impl PawanConfig {
                 "nvidia" | "nim" => self.provider = LlmProvider::Nvidia,
                 "ollama" => self.provider = LlmProvider::Ollama,
                 "openai" => self.provider = LlmProvider::OpenAI,
+                "mlx" | "mlx-lm" => self.provider = LlmProvider::Mlx,
                 _ => tracing::warn!(provider = provider.as_str(), "Unknown PAWAN_PROVIDER, ignoring"),
             }
         }
