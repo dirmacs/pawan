@@ -72,6 +72,11 @@ pub struct PawanConfig {
     /// Maximum tokens in response
     pub max_tokens: usize,
 
+    /// Maximum tokens allowed for reasoning/thinking (0 = unlimited).
+    /// When set, pawan tracks thinking vs action token usage per call.
+    /// If thinking exceeds this budget, a warning is logged.
+    pub thinking_budget: usize,
+
     /// Maximum retries for LLM API calls (429 or 5xx errors)
     pub max_retries: usize,
 
@@ -178,6 +183,7 @@ impl Default for PawanConfig {
             temperature: 1.0,
             top_p: 0.95,
             max_tokens: 8192,
+            thinking_budget: 0, // 0 = unlimited
             reasoning_mode: true,
             max_retries: 3,
             fallback_models: Vec::new(),

@@ -2249,11 +2249,17 @@ async fn run_headless(
             }
 
             if verbose {
+                let budget_info = if response.usage.reasoning_tokens > 0 {
+                    format!(" (think:{} act:{})", response.usage.reasoning_tokens, response.usage.action_tokens)
+                } else {
+                    String::new()
+                };
                 eprintln!(
-                    "\n--- {} iterations, {} tool calls, {} tokens ---",
+                    "\n--- {} iterations, {} tool calls, {} tokens{} ---",
                     response.iterations,
                     response.tool_calls.len(),
-                    response.usage.total_tokens
+                    response.usage.total_tokens,
+                    budget_info
                 );
                 for tc in &response.tool_calls {
                     let s = if tc.success { "ok" } else { "FAIL" };
