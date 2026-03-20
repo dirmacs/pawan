@@ -90,10 +90,11 @@ Priority: CLI flags > environment variables > pawan.toml > defaults
 
 ```toml
 provider = "mlx"
-model = "mlx-community/Qwen3.5-9B-4bit"
+model = "mlx-community/Qwen3.5-9B-OptiQ-4bit"
 temperature = 0.6
 max_tokens = 4096
 max_tool_iterations = 20
+thinking_budget = 0  # 0 = unlimited, or set max thinking tokens per call
 
 [cloud]
 provider = "nvidia"

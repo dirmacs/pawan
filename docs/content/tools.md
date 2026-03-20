@@ -2,15 +2,16 @@
 title = "Tools"
 +++
 
-Pawan ships 27 built-in tools plus dynamic MCP tool discovery.
+Pawan ships 28 built-in tools plus dynamic MCP tool discovery.
 
 ## File Tools
 
 | Tool | Description |
 |------|-------------|
 | `read_file` | Read file contents (supports line offset/limit) |
-| `write_file` | Create or overwrite a file |
+| `write_file` | Create or overwrite a file. Auto-creates parent dirs. Path normalization detects double workspace prefix. |
 | `edit_file_lines` | Precise editing with anchor-mode (find line by content, not number) |
+| `edit_file` | String replacement editing (old_string → new_string) |
 | `insert_after` | Block-aware insertion (skips over function/struct bodies) |
 | `append_file` | Append content to end of file |
 | `list_directory` | List directory contents with file metadata |
@@ -24,13 +25,35 @@ Pawan ships 27 built-in tools plus dynamic MCP tool discovery.
 | `ripgrep` | Native `rg` wrapper — pattern, type filter, context, case-insensitive, invert, hidden, max-depth |
 | `fd` | Native `fd` wrapper — find files by name/extension/type with max-depth and max-results |
 
+## Code Intelligence
+
+| Tool | Description |
+|------|-------------|
+| `ast_grep` | **AST-level code search and rewrite** — structural patterns via tree-sitter. `$VAR` for single-node wildcards, `$$$VAR` for variadic. Supports rust, python, js, ts, go, c, cpp, java. |
+
+### ast-grep examples
+
+```bash
+# Find all unwrap() calls
+ast_grep(action="search", pattern="$EXPR.unwrap()", lang="rust", path="src/")
+
+# Replace unwrap() with ? operator
+ast_grep(action="rewrite", pattern="$EXPR.unwrap()", rewrite="$EXPR?", lang="rust", path="src/")
+
+# Find all function signatures
+ast_grep(action="search", pattern="fn $F($$$A) { $$$ }", lang="rust", path=".")
+
+# Rename a struct across the codebase
+ast_grep(action="rewrite", pattern="OldName", rewrite="NewName", lang="rust", path="src/")
+```
+
 ## Shell & System
 
 | Tool | Description |
 |------|-------------|
 | `bash` | Execute shell commands with configurable timeout |
 | `sd` | Native `sd` wrapper — find-and-replace in files (fixed strings or regex) |
-| `erd` | Native `erd`/`fd` tree view — directory structure with depth and pattern filters |
+| `tree` | Native `erd` tree view — directory structure with depth and pattern filters |
 | `mise` | Runtime manager — install, list, use, exec tools (any language/toolchain) |
 | `zoxide` | Smart directory navigation — query, add, list paths |
 
@@ -53,6 +76,7 @@ Pawan ships 27 built-in tools plus dynamic MCP tool discovery.
 | Tool | Description |
 |------|-------------|
 | `spawn_agent` | Spawn a sub-agent for delegated tasks |
+| `spawn_agents` | Spawn multiple sub-agents in parallel |
 
 ## MCP Tools
 
@@ -84,3 +108,10 @@ new_content: "fn main() -> Result<()>"
 
 ### Block-Aware Insert
 `insert_after` detects if the anchor line ends with `{` and skips to the matching `}` before inserting. No more accidentally splitting function bodies.
+
+## Safety Features
+
+- **Path normalization**: All file tools detect and correct double workspace prefix (e.g., `/ws/root/ws/root/file` → `/ws/root/file`)
+- **Compile-gated confidence**: After writing `.rs` files, `cargo check` runs automatically — errors injected back to the model for self-correction
+- **Iteration budget awareness**: Model is warned when 3 tool iterations remain
+- **Token budget tracking**: Thinking vs action tokens tracked per call, visible in TUI and CLI output
