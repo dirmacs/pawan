@@ -2,7 +2,21 @@
 title = "Tools"
 +++
 
-Pawan ships 28 built-in tools plus dynamic MCP tool discovery.
+Pawan ships 29 built-in tools with tiered visibility, auto-install, and dynamic MCP discovery.
+
+## Tool Tiers
+
+Tools are organized into tiers to save LLM prompt tokens:
+
+| Tier | Tools | Visibility |
+|------|-------|------------|
+| **Core** (7) | bash, read_file, write_file, edit_file, ast_grep, glob_search, grep_search | Always in LLM prompt |
+| **Standard** (15) | git tools, agents, list_directory, edit_file_lines, insert_after, append_file | In prompt by default |
+| **Extended** (7) | ripgrep, fd, sd, tree, mise, zoxide, lsp | Hidden until first use, then auto-activated |
+
+Extended tools are always executable — they just don't appear in the LLM prompt until the model calls one. This saves ~40% prompt tokens on simple tasks.
+
+**Auto-install**: If a native tool (erd, ast-grep, rg, fd, sd) is missing, pawan auto-installs it via mise on first use. No manual setup needed.
 
 ## File Tools
 
@@ -10,11 +24,56 @@ Pawan ships 28 built-in tools plus dynamic MCP tool discovery.
 |------|-------------|
 | `read_file` | Read file contents (supports line offset/limit) |
 | `write_file` | Create or overwrite a file. Auto-creates parent dirs. Path normalization detects double workspace prefix. |
-| `edit_file_lines` | Precise editing with anchor-mode (find line by content, not number) |
 | `edit_file` | String replacement editing (old_string → new_string) |
+| `edit_file_lines` | Precise editing with anchor-mode (find line by content, not number) |
 | `insert_after` | Block-aware insertion (skips over function/struct bodies) |
 | `append_file` | Append content to end of file |
 | `list_directory` | List directory contents with file metadata |
+
+## Code Intelligence
+
+| Tool | Description |
+|------|-------------|
+| `ast_grep` | **AST-level code search and rewrite** — structural patterns via tree-sitter. Multi-language. Fast. |
+| `lsp` | **LSP code intelligence** via rust-analyzer — type-aware diagnostics, structural search/replace, symbol extraction. |
+
+### ast-grep — structural patterns (multi-language)
+
+```bash
+# Find all unwrap() calls
+ast_grep(action="search", pattern="$EXPR.unwrap()", lang="rust", path="src/")
+
+# Replace unwrap() with ? operator in one shot
+ast_grep(action="rewrite", pattern="$EXPR.unwrap()", rewrite="$EXPR?", lang="rust", path="src/")
+
+# Find all function signatures
+ast_grep(action="search", pattern="fn $F($$$A) { $$$ }", lang="rust", path=".")
+```
+
+`$VAR` matches single AST node, `$$$VAR` matches variadic (multiple nodes). Supports rust, python, js, ts, go, c, cpp, java.
+
+### lsp — type-aware intelligence (Rust)
+
+```bash
+# Find errors/warnings without cargo check
+lsp(action="diagnostics", path=".")
+
+# Structural search with type awareness
+lsp(action="search", pattern="$a.foo($b)")
+
+# Type-aware search+replace (knows $a is Option<T>)
+lsp(action="ssr", pattern="$a.unwrap() ==>> $a?")
+
+# Parse file symbols with types and hierarchy
+lsp(action="symbols", path="src/lib.rs")
+
+# Project-wide analysis stats
+lsp(action="analyze", path=".")
+```
+
+**When to use which:**
+- `ast_grep`: fast, multi-language, no project context needed — use for most edits
+- `lsp`: slower, Rust-only, but type-aware — use when you need type system information
 
 ## Search Tools
 
@@ -22,30 +81,8 @@ Pawan ships 28 built-in tools plus dynamic MCP tool discovery.
 |------|-------------|
 | `glob_search` | Find files by glob pattern (e.g., `**/*.rs`) |
 | `grep_search` | Search file contents by regex pattern |
-| `ripgrep` | Native `rg` wrapper — pattern, type filter, context, case-insensitive, invert, hidden, max-depth |
+| `ripgrep` | Native `rg` wrapper — pattern, type filter, context, case-insensitive, max-depth |
 | `fd` | Native `fd` wrapper — find files by name/extension/type with max-depth and max-results |
-
-## Code Intelligence
-
-| Tool | Description |
-|------|-------------|
-| `ast_grep` | **AST-level code search and rewrite** — structural patterns via tree-sitter. `$VAR` for single-node wildcards, `$$$VAR` for variadic. Supports rust, python, js, ts, go, c, cpp, java. |
-
-### ast-grep examples
-
-```bash
-# Find all unwrap() calls
-ast_grep(action="search", pattern="$EXPR.unwrap()", lang="rust", path="src/")
-
-# Replace unwrap() with ? operator
-ast_grep(action="rewrite", pattern="$EXPR.unwrap()", rewrite="$EXPR?", lang="rust", path="src/")
-
-# Find all function signatures
-ast_grep(action="search", pattern="fn $F($$$A) { $$$ }", lang="rust", path=".")
-
-# Rename a struct across the codebase
-ast_grep(action="rewrite", pattern="OldName", rewrite="NewName", lang="rust", path="src/")
-```
 
 ## Shell & System
 
@@ -53,9 +90,47 @@ ast_grep(action="rewrite", pattern="OldName", rewrite="NewName", lang="rust", pa
 |------|-------------|
 | `bash` | Execute shell commands with configurable timeout |
 | `sd` | Native `sd` wrapper — find-and-replace in files (fixed strings or regex) |
-| `tree` | Native `erd` tree view — directory structure with depth and pattern filters |
-| `mise` | Runtime manager — install, list, use, exec tools (any language/toolchain) |
+| `tree` | **erdtree** — fast filesystem tree with disk usage, line counts, metadata |
+| `mise` | **Polyglot tool/runtime/task/env manager** — install tools, run tasks, manage envs |
 | `zoxide` | Smart directory navigation — query, add, list paths |
+
+### tree (erdtree) — full-power filesystem intelligence
+
+```bash
+# Lines of code per directory
+tree(path="src/", disk_usage="line", layout="inverted")
+
+# Find large files with human-readable sizes
+tree(path=".", sort="size", human=true)
+
+# Flat file listing (for piping)
+tree(path=".", layout="flat", pattern="*.rs")
+
+# Extended metadata: permissions, owner, timestamps
+tree(path=".", long=true, hidden=true)
+```
+
+### mise — tool/task/env manager
+
+```bash
+# Self-install any missing tool
+mise(action="install", tool="erdtree")
+
+# Run project tasks defined in mise.toml
+mise(action="run", task="test")
+
+# Watch for changes and rerun
+mise(action="watch", task="build")
+
+# Search for available tools
+mise(action="search", tool="python")
+
+# Check for outdated tools
+mise(action="outdated")
+
+# Environment management
+mise(action="env")
+```
 
 ## Git Tools
 
@@ -107,11 +182,14 @@ new_content: "fn main() -> Result<()>"
 ```
 
 ### Block-Aware Insert
-`insert_after` detects if the anchor line ends with `{` and skips to the matching `}` before inserting. No more accidentally splitting function bodies.
+`insert_after` detects if the anchor line ends with `{` and skips to the matching `}` before inserting.
 
-## Safety Features
+## Safety & Intelligence
 
-- **Path normalization**: All file tools detect and correct double workspace prefix (e.g., `/ws/root/ws/root/file` → `/ws/root/file`)
-- **Compile-gated confidence**: After writing `.rs` files, `cargo check` runs automatically — errors injected back to the model for self-correction
-- **Iteration budget awareness**: Model is warned when 3 tool iterations remain
-- **Token budget tracking**: Thinking vs action tokens tracked per call, visible in TUI and CLI output
+- **Auto-install**: Missing CLI tools (erd, ast-grep, rg, fd, sd) are auto-installed via mise on first use
+- **Tiered visibility**: Only core tools in LLM prompt by default — extended tools activate on first use
+- **Path normalization**: All file tools detect and correct double workspace prefix
+- **Compile-gated confidence**: After writing `.rs` files, `cargo check` runs automatically
+- **Iteration budget awareness**: Model warned at 3 remaining iterations
+- **Token budget tracking**: Thinking vs action tokens tracked per call, visible in TUI
+- **Enforceable thinking budget**: `thinking_budget > 0` disables thinking, all tokens go to action

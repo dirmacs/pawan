@@ -74,6 +74,81 @@ fn test_tool_registry_definitions() {
     }
 }
 
+#[test]
+fn test_tiered_tool_visibility() {
+    let temp_dir = TempDir::new().unwrap();
+    let registry = ToolRegistry::with_defaults(temp_dir.path().to_path_buf());
+
+    let visible = registry.get_definitions();
+    let all = registry.get_all_definitions();
+    let visible_names: Vec<&str> = visible.iter().map(|d| d.name.as_str()).collect();
+    let all_names: Vec<&str> = all.iter().map(|d| d.name.as_str()).collect();
+
+    // Core tools must always be visible
+    assert!(visible_names.contains(&"bash"), "bash should be core");
+    assert!(visible_names.contains(&"read_file"), "read_file should be core");
+    assert!(visible_names.contains(&"write_file"), "write_file should be core");
+    assert!(visible_names.contains(&"edit_file"), "edit_file should be core");
+    assert!(visible_names.contains(&"ast_grep"), "ast_grep should be core");
+    assert!(visible_names.contains(&"glob_search"), "glob_search should be core");
+    assert!(visible_names.contains(&"grep_search"), "grep_search should be core");
+
+    // Extended tools should NOT be visible by default
+    assert!(!visible_names.contains(&"rg"), "rg should be hidden (extended)");
+    assert!(!visible_names.contains(&"fd"), "fd should be hidden (extended)");
+    assert!(!visible_names.contains(&"mise"), "mise should be hidden (extended)");
+    assert!(!visible_names.contains(&"lsp"), "lsp should be hidden (extended)");
+
+    // But they should exist in all_definitions
+    assert!(all_names.contains(&"rg"));
+    assert!(all_names.contains(&"fd"));
+    assert!(all_names.contains(&"mise"));
+    assert!(all_names.contains(&"lsp"));
+
+    // Extended tools are still executable even when hidden
+    assert!(registry.has_tool("rg"));
+    assert!(registry.has_tool("mise"));
+    assert!(registry.has_tool("lsp"));
+}
+
+#[test]
+fn test_tool_activation_multiple() {
+    let temp_dir = TempDir::new().unwrap();
+    let registry = ToolRegistry::with_defaults(temp_dir.path().to_path_buf());
+
+    let before = registry.get_definitions().len();
+
+    // Activate multiple extended tools
+    registry.activate("rg");
+    registry.activate("fd");
+    registry.activate("lsp");
+
+    let after = registry.get_definitions().len();
+    assert_eq!(after, before + 3, "Three extended tools should now be visible");
+
+    // Activating same tool twice is idempotent
+    registry.activate("rg");
+    assert_eq!(registry.get_definitions().len(), after);
+
+    // Activating nonexistent tool is a no-op
+    registry.activate("nonexistent_tool");
+    assert_eq!(registry.get_definitions().len(), after);
+}
+
+#[test]
+fn test_tool_tier_core_count() {
+    let temp_dir = TempDir::new().unwrap();
+    let registry = ToolRegistry::with_defaults(temp_dir.path().to_path_buf());
+
+    // With no activations, visible = core + standard
+    let visible = registry.get_definitions();
+    let all = registry.get_all_definitions();
+
+    // Extended = all - visible
+    let extended_count = all.len() - visible.len();
+    assert_eq!(extended_count, 7, "Should have 7 extended tools");
+}
+
 #[tokio::test]
 async fn test_read_file_tool() {
     let temp_dir = TempDir::new().unwrap();
