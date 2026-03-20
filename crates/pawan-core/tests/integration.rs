@@ -54,8 +54,8 @@ fn test_tool_registry_definitions() {
 
     let definitions = registry.get_all_definitions();
 
-    // 28 total tools (7 core + 15 standard + 6 extended)
-    assert_eq!(definitions.len(), 28);
+    // 29 total tools (7 core + 15 standard + 7 extended)
+    assert_eq!(definitions.len(), 29);
 
     // get_definitions should only return core + standard (22 tools, not extended)
     let visible = registry.get_definitions();

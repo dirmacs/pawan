@@ -954,3 +954,183 @@ impl Tool for AstGrepTool {
         }))
     }
 }
+
+// ─── LSP (rust-analyzer powered code intelligence) ──────────────────────────
+
+pub struct LspTool {
+    workspace_root: PathBuf,
+}
+
+impl LspTool {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
+    }
+}
+
+#[async_trait]
+impl Tool for LspTool {
+    fn name(&self) -> &str { "lsp" }
+
+    fn description(&self) -> &str {
+        "LSP code intelligence via rust-analyzer. Provides type-aware code understanding \
+         that grep/ast-grep can't: diagnostics without cargo check, structural search with \
+         type info, symbol extraction, and analysis stats. Actions: diagnostics (find errors), \
+         search (structural pattern search), ssr (structural search+replace with types), \
+         symbols (parse file symbols), analyze (project-wide type stats)."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["diagnostics", "search", "ssr", "symbols", "analyze"],
+                    "description": "diagnostics: find errors/warnings in project. \
+                                    search: structural pattern search (e.g. '$a.foo($b)'). \
+                                    ssr: structural search+replace (e.g. '$a.unwrap() ==>> $a?'). \
+                                    symbols: parse file and list symbols. \
+                                    analyze: project-wide type analysis stats."
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "For search: pattern like '$a.foo($b)'. For ssr: rule like '$a.unwrap() ==>> $a?'"
+                },
+                "path": {
+                    "type": "string",
+                    "description": "Project path (directory with Cargo.toml) for diagnostics/analyze. File path for symbols."
+                },
+                "severity": {
+                    "type": "string",
+                    "enum": ["error", "warning", "info", "hint"],
+                    "description": "Minimum severity for diagnostics (default: warning)"
+                }
+            },
+            "required": ["action"]
+        })
+    }
+
+    async fn execute(&self, args: Value) -> crate::Result<Value> {
+        ensure_binary("rust-analyzer", &self.workspace_root).await?;
+
+        let action = args["action"].as_str()
+            .ok_or_else(|| crate::PawanError::Tool("action required".into()))?;
+
+        let timeout_dur = std::time::Duration::from_secs(60);
+
+        match action {
+            "diagnostics" => {
+                let path = args["path"].as_str()
+                    .unwrap_or(self.workspace_root.to_str().unwrap_or("."));
+                let mut cmd_args = vec!["diagnostics", path];
+                if let Some(sev) = args["severity"].as_str() {
+                    cmd_args.extend(["--severity", sev]);
+                }
+                let result = tokio::time::timeout(timeout_dur,
+                    run_cmd("rust-analyzer", &cmd_args, &self.workspace_root)
+                ).await;
+                match result {
+                    Ok(Ok((stdout, stderr, success))) => Ok(json!({
+                        "success": success,
+                        "diagnostics": stdout,
+                        "count": stdout.lines().filter(|l| !l.is_empty()).count(),
+                        "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
+                    })),
+                    Ok(Err(e)) => Err(crate::PawanError::Tool(e)),
+                    Err(_) => Err(crate::PawanError::Tool("rust-analyzer diagnostics timed out (60s)".into())),
+                }
+            }
+            "search" => {
+                let pattern = args["pattern"].as_str()
+                    .ok_or_else(|| crate::PawanError::Tool("pattern required for search".into()))?;
+                let result = tokio::time::timeout(timeout_dur,
+                    run_cmd("rust-analyzer", &["search", pattern], &self.workspace_root)
+                ).await;
+                match result {
+                    Ok(Ok((stdout, stderr, success))) => Ok(json!({
+                        "success": success,
+                        "matches": stdout,
+                        "count": stdout.lines().filter(|l| !l.is_empty()).count(),
+                        "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
+                    })),
+                    Ok(Err(e)) => Err(crate::PawanError::Tool(e)),
+                    Err(_) => Err(crate::PawanError::Tool("rust-analyzer search timed out (60s)".into())),
+                }
+            }
+            "ssr" => {
+                let pattern = args["pattern"].as_str()
+                    .ok_or_else(|| crate::PawanError::Tool(
+                        "pattern required for ssr (format: '$a.unwrap() ==>> $a?')".into()
+                    ))?;
+                let result = tokio::time::timeout(timeout_dur,
+                    run_cmd("rust-analyzer", &["ssr", pattern], &self.workspace_root)
+                ).await;
+                match result {
+                    Ok(Ok((stdout, stderr, success))) => Ok(json!({
+                        "success": success,
+                        "output": stdout,
+                        "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
+                    })),
+                    Ok(Err(e)) => Err(crate::PawanError::Tool(e)),
+                    Err(_) => Err(crate::PawanError::Tool("rust-analyzer ssr timed out (60s)".into())),
+                }
+            }
+            "symbols" => {
+                // Parse stdin and list symbols — pipe file content to rust-analyzer symbols
+                let path = args["path"].as_str()
+                    .ok_or_else(|| crate::PawanError::Tool("path required for symbols".into()))?;
+                let full_path = if std::path::Path::new(path).is_absolute() {
+                    PathBuf::from(path)
+                } else {
+                    self.workspace_root.join(path)
+                };
+                let content = tokio::fs::read_to_string(&full_path).await
+                    .map_err(|e| crate::PawanError::Tool(format!("Failed to read {}: {}", path, e)))?;
+
+                let mut child = tokio::process::Command::new("rust-analyzer")
+                    .arg("symbols")
+                    .stdin(Stdio::piped())
+                    .stdout(Stdio::piped())
+                    .stderr(Stdio::piped())
+                    .spawn()
+                    .map_err(|e| crate::PawanError::Tool(format!("Failed to spawn rust-analyzer: {}", e)))?;
+
+                // Write file content to stdin
+                if let Some(mut stdin) = child.stdin.take() {
+                    use tokio::io::AsyncWriteExt;
+                    let _ = stdin.write_all(content.as_bytes()).await;
+                    drop(stdin);
+                }
+
+                let output = child.wait_with_output().await
+                    .map_err(|e| crate::PawanError::Tool(format!("rust-analyzer symbols failed: {}", e)))?;
+
+                let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+                Ok(json!({
+                    "success": output.status.success(),
+                    "symbols": stdout,
+                    "count": stdout.lines().filter(|l| !l.is_empty()).count()
+                }))
+            }
+            "analyze" => {
+                let path = args["path"].as_str()
+                    .unwrap_or(self.workspace_root.to_str().unwrap_or("."));
+                let result = tokio::time::timeout(timeout_dur,
+                    run_cmd("rust-analyzer", &["analysis-stats", "--skip-inference", path], &self.workspace_root)
+                ).await;
+                match result {
+                    Ok(Ok((stdout, stderr, success))) => Ok(json!({
+                        "success": success,
+                        "stats": stdout,
+                        "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
+                    })),
+                    Ok(Err(e)) => Err(crate::PawanError::Tool(e)),
+                    Err(_) => Err(crate::PawanError::Tool("rust-analyzer analysis-stats timed out (60s)".into())),
+                }
+            }
+            _ => Err(crate::PawanError::Tool(
+                format!("Unknown action: {action}. Use diagnostics/search/ssr/symbols/analyze")
+            )),
+        }
+    }
+}
