@@ -318,46 +318,104 @@ impl Tool for ErdTool {
     fn name(&self) -> &str { "tree" }
 
     fn description(&self) -> &str {
-        "erdtree — fast directory tree with file sizes. Use to understand project structure, \
-         find large files, get overview of codebase layout. Much faster than find + du."
+        "erdtree (erd) — fast filesystem tree with disk usage, file counts, and metadata. \
+         Use to map project structure, find large files/dirs, count lines of code, \
+         audit disk usage, or get a flat file listing. Much faster than find + du."
     }
 
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "path": { "type": "string", "description": "Root directory (default: workspace)" },
-                "depth": { "type": "integer", "description": "Max depth (default: 3)" },
-                "pattern": { "type": "string", "description": "Filter by glob pattern (e.g. '*.rs')" },
-                "sort": { "type": "string", "description": "Sort by: name, size, type (default: name)" }
+                "path": { "type": "string", "description": "Root directory (default: workspace root)" },
+                "depth": { "type": "integer", "description": "Max traversal depth (default: 3)" },
+                "pattern": { "type": "string", "description": "Filter by glob pattern (e.g. '*.rs', 'Cargo*')" },
+                "sort": {
+                    "type": "string",
+                    "enum": ["name", "size", "type"],
+                    "description": "Sort entries by name, size, or file type (default: name)"
+                },
+                "disk_usage": {
+                    "type": "string",
+                    "enum": ["physical", "logical", "line", "word", "block"],
+                    "description": "Disk usage mode: physical (bytes on disk), logical (file size), line (line count), word (word count). Default: physical."
+                },
+                "layout": {
+                    "type": "string",
+                    "enum": ["regular", "inverted", "flat", "iflat"],
+                    "description": "Output layout: regular (root at bottom), inverted (root at top), flat (paths only), iflat (flat + root at top). Default: inverted."
+                },
+                "long": { "type": "boolean", "description": "Show extended metadata: permissions, owner, group, timestamps (default: false)" },
+                "hidden": { "type": "boolean", "description": "Show hidden (dot) files (default: false)" },
+                "dirs_only": { "type": "boolean", "description": "Only show directories, not files (default: false)" },
+                "human": { "type": "boolean", "description": "Human-readable sizes like 4.2M instead of bytes (default: true)" },
+                "icons": { "type": "boolean", "description": "Show file type icons (default: false)" },
+                "no_ignore": { "type": "boolean", "description": "Don't respect .gitignore (default: false)" },
+                "suppress_size": { "type": "boolean", "description": "Hide disk usage column (default: false)" }
             }
         })
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
-        // Fallback to basic ls -la if erd not installed
-        let use_erd = binary_exists("erd");
-        let path = args["path"].as_str().unwrap_or(".");
-        let depth = args["depth"].as_u64().unwrap_or(3);
-
-        if use_erd {
-            let depth_str = depth.to_string();
-            let mut cmd_args = vec!["--level", &depth_str, "--no-config"];
-            if let Some(p) = args["pattern"].as_str() {
-                cmd_args.extend_from_slice(&["--pattern", p]);
-            }
-            cmd_args.push(path);
-            let (stdout, _, _) = run_cmd("erd", &cmd_args, &self.workspace_root).await
-                .map_err(|e| crate::PawanError::Tool(e))?;
-            Ok(json!({ "tree": stdout, "tool": "erd" }))
-        } else {
-            // Fallback: fd + basic tree
-            let depth_str = depth.to_string();
-            let cmd_args = vec![".", path, "--max-depth", &depth_str, "--color", "never"];
+        if !binary_exists("erd") {
+            // Fallback: fd-based flat listing
+            let path = args["path"].as_str().unwrap_or(".");
+            let depth = args["depth"].as_u64().unwrap_or(3).to_string();
+            let cmd_args = vec![".", path, "--max-depth", &depth, "--color", "never"];
             let (stdout, _, _) = run_cmd("fd", &cmd_args, &self.workspace_root).await
-                .unwrap_or(("(fd not available)".into(), String::new(), false));
-            Ok(json!({ "tree": stdout, "tool": "fd-fallback" }))
+                .unwrap_or(("(fd not available — install erd: cargo install erdtree)".into(), String::new(), false));
+            return Ok(json!({ "tree": stdout, "tool": "fd-fallback" }));
         }
+
+        let path = args["path"].as_str().unwrap_or(".");
+        let depth_str = args["depth"].as_u64().unwrap_or(3).to_string();
+
+        let mut cmd_args: Vec<String> = vec![
+            "--level".into(), depth_str,
+            "--no-config".into(),
+            "--color".into(), "none".into(),
+        ];
+
+        // Disk usage mode
+        if let Some(du) = args["disk_usage"].as_str() {
+            cmd_args.extend(["--disk-usage".into(), du.into()]);
+        }
+
+        // Layout
+        let layout = args["layout"].as_str().unwrap_or("inverted");
+        cmd_args.extend(["--layout".into(), layout.into()]);
+
+        // Sort
+        if let Some(sort) = args["sort"].as_str() {
+            cmd_args.extend(["--sort".into(), sort.into()]);
+        }
+
+        // Pattern filter
+        if let Some(p) = args["pattern"].as_str() {
+            cmd_args.extend(["--pattern".into(), p.into()]);
+        }
+
+        // Boolean flags
+        if args["long"].as_bool().unwrap_or(false) { cmd_args.push("--long".into()); }
+        if args["hidden"].as_bool().unwrap_or(false) { cmd_args.push("--hidden".into()); }
+        if args["dirs_only"].as_bool().unwrap_or(false) { cmd_args.push("--dirs-only".into()); }
+        if args["human"].as_bool().unwrap_or(true) { cmd_args.push("--human".into()); }
+        if args["icons"].as_bool().unwrap_or(false) { cmd_args.push("--icons".into()); }
+        if args["no_ignore"].as_bool().unwrap_or(false) { cmd_args.push("--no-ignore".into()); }
+        if args["suppress_size"].as_bool().unwrap_or(false) { cmd_args.push("--suppress-size".into()); }
+
+        cmd_args.push(path.into());
+
+        let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+        let (stdout, stderr, success) = run_cmd("erd", &cmd_refs, &self.workspace_root).await
+            .map_err(|e| crate::PawanError::Tool(e))?;
+
+        Ok(json!({
+            "success": success,
+            "tree": stdout,
+            "tool": "erd",
+            "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
+        }))
     }
 }
 
@@ -493,18 +551,36 @@ impl Tool for MiseTool {
     fn name(&self) -> &str { "mise" }
 
     fn description(&self) -> &str {
-        "mise — universal tool version manager and installer. Can install any dev tool: \
-         node, python, rust, go, bun, deno, java, ruby, etc. Also installs CLI tools like \
-         ripgrep, fd, sd, delta, bat, eza, jq, yq. Use to bootstrap missing tools."
+        "mise — universal tool and runtime manager. Install, manage, and run any dev tool \
+         or language runtime. Use to bootstrap missing tools (erd, ast-grep, fd, rg, sd, \
+         node, python, go, bun, deno, java, ruby, etc). Pawan should use this to self-install \
+         any CLI tool it needs. Actions: install, uninstall, upgrade, list, use, search, exec, doctor."
     }
 
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
             "properties": {
-                "action": { "type": "string", "description": "install, list, use, or exec" },
-                "tool": { "type": "string", "description": "Tool name (e.g. 'ripgrep', 'node@22', 'python@3.12')" },
-                "args": { "type": "string", "description": "Additional args for exec action" }
+                "action": {
+                    "type": "string",
+                    "enum": ["install", "uninstall", "upgrade", "list", "use", "search", "exec", "doctor"],
+                    "description": "install: install a tool. uninstall: remove it. upgrade: update to latest. \
+                                    list: show installed tools. use: activate a version. search: find available tools. \
+                                    exec: run a tool with args. doctor: check mise health."
+                },
+                "tool": {
+                    "type": "string",
+                    "description": "Tool name with optional version. Examples: 'erdtree', 'node@22', 'python@3.12', \
+                                    'ast-grep', 'ripgrep', 'fd', 'sd', 'bat', 'delta', 'jq', 'yq'"
+                },
+                "args": {
+                    "type": "string",
+                    "description": "Arguments for exec action (space-separated)"
+                },
+                "global": {
+                    "type": "boolean",
+                    "description": "Install/use globally (--global flag). Default: false (project-local)."
+                }
             },
             "required": ["action"]
         })
@@ -515,11 +591,17 @@ impl Tool for MiseTool {
             "mise".to_string()
         } else {
             let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
-            format!("{}/.local/bin/mise", home)
+            let local = format!("{}/.local/bin/mise", home);
+            if std::path::Path::new(&local).exists() { local } else {
+                return Err(crate::PawanError::Tool(
+                    "mise not found. Install: curl https://mise.run | sh".into()
+                ));
+            }
         };
 
         let action = args["action"].as_str()
-            .ok_or_else(|| crate::PawanError::Tool("action required (install/list/use/exec)".into()))?;
+            .ok_or_else(|| crate::PawanError::Tool("action required".into()))?;
+        let global = args["global"].as_bool().unwrap_or(false);
 
         let cmd_args: Vec<String> = match action {
             "install" => {
@@ -527,11 +609,31 @@ impl Tool for MiseTool {
                     .ok_or_else(|| crate::PawanError::Tool("tool name required for install".into()))?;
                 vec!["install".into(), tool.into(), "-y".into()]
             }
+            "uninstall" => {
+                let tool = args["tool"].as_str()
+                    .ok_or_else(|| crate::PawanError::Tool("tool name required for uninstall".into()))?;
+                vec!["uninstall".into(), tool.into()]
+            }
+            "upgrade" => {
+                let mut v = vec!["upgrade".into()];
+                if let Some(tool) = args["tool"].as_str() {
+                    v.push(tool.into());
+                }
+                v
+            }
             "list" => vec!["list".into()],
+            "search" => {
+                let tool = args["tool"].as_str()
+                    .ok_or_else(|| crate::PawanError::Tool("tool name required for search".into()))?;
+                vec!["registry".into(), tool.into()]
+            }
             "use" => {
                 let tool = args["tool"].as_str()
                     .ok_or_else(|| crate::PawanError::Tool("tool name required for use".into()))?;
-                vec!["use".into(), tool.into()]
+                let mut v = vec!["use".into()];
+                if global { v.push("--global".into()); }
+                v.push(tool.into());
+                v
             }
             "exec" => {
                 let tool = args["tool"].as_str()
@@ -543,7 +645,10 @@ impl Tool for MiseTool {
                 }
                 v
             }
-            _ => return Err(crate::PawanError::Tool(format!("Unknown action: {}. Use install/list/use/exec", action))),
+            "doctor" => vec!["doctor".into()],
+            _ => return Err(crate::PawanError::Tool(
+                format!("Unknown action: {}. Use install/uninstall/upgrade/list/use/search/exec/doctor", action)
+            )),
         };
 
         let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
@@ -552,6 +657,7 @@ impl Tool for MiseTool {
 
         Ok(json!({
             "success": success,
+            "action": action,
             "output": stdout,
             "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
         }))
