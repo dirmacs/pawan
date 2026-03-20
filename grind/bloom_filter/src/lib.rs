@@ -79,4 +79,8 @@ mod tests {
         for i in 0..1000u32 { bf.insert(&i); }
         for i in 0..1000u32 { assert!(bf.contains(&i)); }
     }
+    #[test] fn test_empty_filter() {
+        let bf = BloomFilter::new(100, 0.01);
+        assert!(!bf.contains(&"anything"));
+    }
 }
