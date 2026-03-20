@@ -551,10 +551,10 @@ impl Tool for MiseTool {
     fn name(&self) -> &str { "mise" }
 
     fn description(&self) -> &str {
-        "mise — universal tool and runtime manager. Install, manage, and run any dev tool \
-         or language runtime. Use to bootstrap missing tools (erd, ast-grep, fd, rg, sd, \
-         node, python, go, bun, deno, java, ruby, etc). Pawan should use this to self-install \
-         any CLI tool it needs. Actions: install, uninstall, upgrade, list, use, search, exec, doctor."
+        "mise — polyglot tool manager, environment manager, and task runner. Replaces asdf, nvm, \
+         pyenv, direnv, make, and npm scripts. Three powers: (1) install/manage any dev tool or \
+         language runtime, (2) manage per-project env vars, (3) run/watch project tasks. \
+         Pawan should use this to self-install any missing CLI tool (erd, ast-grep, fd, rg, etc)."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -563,23 +563,32 @@ impl Tool for MiseTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["install", "uninstall", "upgrade", "list", "use", "search", "exec", "doctor"],
-                    "description": "install: install a tool. uninstall: remove it. upgrade: update to latest. \
-                                    list: show installed tools. use: activate a version. search: find available tools. \
-                                    exec: run a tool with args. doctor: check mise health."
+                    "enum": [
+                        "install", "uninstall", "upgrade", "list", "use", "search",
+                        "exec", "run", "tasks", "env", "outdated", "prune",
+                        "doctor", "self-update", "trust", "watch"
+                    ],
+                    "description": "Tool management: install, uninstall, upgrade, list, use, search, outdated, prune. \
+                                    Execution: exec (run with tool env), run (run a task), watch (rerun task on file change). \
+                                    Environment: env (show/set env vars). Tasks: tasks (list/manage tasks). \
+                                    Maintenance: doctor, self-update, trust, prune."
                 },
                 "tool": {
                     "type": "string",
                     "description": "Tool name with optional version. Examples: 'erdtree', 'node@22', 'python@3.12', \
-                                    'ast-grep', 'ripgrep', 'fd', 'sd', 'bat', 'delta', 'jq', 'yq'"
+                                    'ast-grep', 'ripgrep', 'fd', 'sd', 'bat', 'delta', 'jq', 'yq', 'go', 'bun', 'deno'"
+                },
+                "task": {
+                    "type": "string",
+                    "description": "Task name for run/watch/tasks actions (defined in mise.toml or .mise/tasks/)"
                 },
                 "args": {
                     "type": "string",
-                    "description": "Arguments for exec action (space-separated)"
+                    "description": "Additional arguments (space-separated). For exec: command to run. For run: task args."
                 },
                 "global": {
                     "type": "boolean",
-                    "description": "Install/use globally (--global flag). Default: false (project-local)."
+                    "description": "Apply globally (--global flag) instead of project-local. Default: false."
                 }
             },
             "required": ["action"]
@@ -606,38 +615,46 @@ impl Tool for MiseTool {
         let cmd_args: Vec<String> = match action {
             "install" => {
                 let tool = args["tool"].as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("tool name required for install".into()))?;
+                    .ok_or_else(|| crate::PawanError::Tool("tool required for install".into()))?;
                 vec!["install".into(), tool.into(), "-y".into()]
             }
             "uninstall" => {
                 let tool = args["tool"].as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("tool name required for uninstall".into()))?;
+                    .ok_or_else(|| crate::PawanError::Tool("tool required for uninstall".into()))?;
                 vec!["uninstall".into(), tool.into()]
             }
             "upgrade" => {
                 let mut v = vec!["upgrade".into()];
-                if let Some(tool) = args["tool"].as_str() {
-                    v.push(tool.into());
-                }
+                if let Some(tool) = args["tool"].as_str() { v.push(tool.into()); }
                 v
             }
-            "list" => vec!["list".into()],
+            "list" => vec!["ls".into()],
             "search" => {
                 let tool = args["tool"].as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("tool name required for search".into()))?;
+                    .ok_or_else(|| crate::PawanError::Tool("tool required for search".into()))?;
                 vec!["registry".into(), tool.into()]
             }
             "use" => {
                 let tool = args["tool"].as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("tool name required for use".into()))?;
+                    .ok_or_else(|| crate::PawanError::Tool("tool required for use".into()))?;
                 let mut v = vec!["use".into()];
                 if global { v.push("--global".into()); }
                 v.push(tool.into());
                 v
             }
+            "outdated" => {
+                let mut v = vec!["outdated".into()];
+                if let Some(tool) = args["tool"].as_str() { v.push(tool.into()); }
+                v
+            }
+            "prune" => {
+                let mut v = vec!["prune".into(), "-y".into()];
+                if let Some(tool) = args["tool"].as_str() { v.push(tool.into()); }
+                v
+            }
             "exec" => {
                 let tool = args["tool"].as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("tool name required for exec".into()))?;
+                    .ok_or_else(|| crate::PawanError::Tool("tool required for exec".into()))?;
                 let extra = args["args"].as_str().unwrap_or("");
                 let mut v = vec!["exec".into(), tool.into(), "--".into()];
                 if !extra.is_empty() {
@@ -645,9 +662,37 @@ impl Tool for MiseTool {
                 }
                 v
             }
+            "run" => {
+                let task = args["task"].as_str()
+                    .ok_or_else(|| crate::PawanError::Tool("task required for run".into()))?;
+                let mut v = vec!["run".into(), task.into()];
+                if let Some(extra) = args["args"].as_str() {
+                    v.push("--".into());
+                    v.extend(extra.split_whitespace().map(|s| s.to_string()));
+                }
+                v
+            }
+            "watch" => {
+                let task = args["task"].as_str()
+                    .ok_or_else(|| crate::PawanError::Tool("task required for watch".into()))?;
+                let mut v = vec!["watch".into(), task.into()];
+                if let Some(extra) = args["args"].as_str() {
+                    v.push("--".into());
+                    v.extend(extra.split_whitespace().map(|s| s.to_string()));
+                }
+                v
+            }
+            "tasks" => vec!["tasks".into(), "ls".into()],
+            "env" => vec!["env".into()],
             "doctor" => vec!["doctor".into()],
+            "self-update" => vec!["self-update".into(), "-y".into()],
+            "trust" => {
+                let mut v = vec!["trust".into()];
+                if let Some(extra) = args["args"].as_str() { v.push(extra.into()); }
+                v
+            }
             _ => return Err(crate::PawanError::Tool(
-                format!("Unknown action: {}. Use install/uninstall/upgrade/list/use/search/exec/doctor", action)
+                format!("Unknown action: {action}. See tool description for available actions.")
             )),
         };
 
