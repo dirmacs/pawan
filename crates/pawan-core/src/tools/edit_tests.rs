@@ -936,7 +936,7 @@ mod milestone_tests {
     fn test_minimum_tool_count() {
         let tmp = tempfile::TempDir::new().unwrap();
         let registry = crate::tools::ToolRegistry::with_defaults(tmp.path().into());
-        let defs = registry.get_definitions();
+        let defs = registry.get_all_definitions();
         assert!(defs.len() >= 27, "Expected at least 27 tools, got {}", defs.len());
     }
 
@@ -944,7 +944,7 @@ mod milestone_tests {
     fn test_all_tool_categories_present() {
         let tmp = tempfile::TempDir::new().unwrap();
         let registry = crate::tools::ToolRegistry::with_defaults(tmp.path().into());
-        let names: Vec<String> = registry.get_definitions().iter().map(|d| d.name.clone()).collect();
+        let names: Vec<String> = registry.get_all_definitions().iter().map(|d| d.name.clone()).collect();
         // File tools
         assert!(names.contains(&"read_file".into()));
         assert!(names.contains(&"write_file".into()));

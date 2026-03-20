@@ -255,7 +255,9 @@ impl PawanAgent {
                     top_p: config.top_p,
                     max_tokens: config.max_tokens,
                     system_prompt: system_prompt.to_string(),
-                    use_thinking: config.use_thinking_mode(),
+                    // Enforce thinking budget: if set, disable thinking entirely
+                    // and give all tokens to action output
+                    use_thinking: config.thinking_budget == 0 && config.use_thinking_mode(),
                     max_retries: config.max_retries,
                     fallback_models: config.fallback_models.clone(),
                     cloud,
@@ -642,6 +644,9 @@ impl PawanAgent {
             });
 
             for tool_call in &response.tool_calls {
+                // Auto-activate extended tools on first use (makes them visible in next iteration)
+                self.tools.activate(&tool_call.name);
+
                 // Check permission
                 if let Some(crate::config::ToolPermission::Deny) =
                     self.config.permissions.get(&tool_call.name)

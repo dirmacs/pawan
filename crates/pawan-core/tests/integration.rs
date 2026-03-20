@@ -52,10 +52,19 @@ fn test_tool_registry_definitions() {
     let temp_dir = TempDir::new().unwrap();
     let registry = ToolRegistry::with_defaults(temp_dir.path().to_path_buf());
 
-    let definitions = registry.get_definitions();
+    let definitions = registry.get_all_definitions();
 
-    // Should have 21 tools (11 base + 5 git + 2 sub-agent + edit_file_lines + insert_after + append_file)
+    // 28 total tools (7 core + 15 standard + 6 extended)
     assert_eq!(definitions.len(), 28);
+
+    // get_definitions should only return core + standard (22 tools, not extended)
+    let visible = registry.get_definitions();
+    assert_eq!(visible.len(), 22);
+
+    // After activating an extended tool, it becomes visible
+    registry.activate("mise");
+    let visible_after = registry.get_definitions();
+    assert_eq!(visible_after.len(), 23);
 
     // Each definition should have name, description, and parameters
     for def in &definitions {
@@ -374,8 +383,8 @@ async fn test_agent_tool_definitions() {
     let agent = PawanAgent::new(config, temp_dir.path().to_path_buf());
     let definitions = agent.get_tool_definitions();
 
-    // Should have all tools (21 total: 11 base + 5 git + 2 sub-agent + edit_file_lines + insert_after + append_file)
-    assert_eq!(definitions.len(), 28);
+    // get_tool_definitions returns visible tools (core + standard = 22)
+    assert_eq!(definitions.len(), 22);
 
     // Verify tool names
     let names: Vec<&str> = definitions.iter().map(|d| d.name.as_str()).collect();

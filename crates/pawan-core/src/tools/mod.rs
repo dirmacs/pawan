@@ -60,14 +60,28 @@ pub trait Tool: Send + Sync {
     }
 }
 
-/// Registry for managing tools
-/// Registry for managing tools
+/// Tool tier — controls which tools are sent to the LLM in the prompt.
+/// All tools remain executable regardless of tier; tier only affects
+/// which tool definitions appear in the LLM system prompt.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ToolTier {
+    /// Always sent to LLM — core file ops, bash, ast-grep
+    Core,
+    /// Sent to LLM by default — git, search, agent
+    Standard,
+    /// Only sent when explicitly requested or after first use — mise, tree, zoxide, sd, ripgrep, fd
+    Extended,
+}
+
+/// Registry for managing tools with tiered visibility.
 ///
-/// This struct maintains a collection of tools that the Pawan agent can use.
-/// It provides methods for registering tools, retrieving them by name,
-/// and getting tool definitions for the LLM.
+/// All tools are always executable. Tier controls which definitions
+/// are sent to the LLM to save prompt tokens on simple tasks.
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
+    tiers: HashMap<String, ToolTier>,
+    /// Extended tools that have been activated (promoted to visible)
+    activated: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 impl ToolRegistry {
@@ -75,65 +89,67 @@ impl ToolRegistry {
     pub fn new() -> Self {
         Self {
             tools: HashMap::new(),
+            tiers: HashMap::new(),
+            activated: std::sync::Mutex::new(std::collections::HashSet::new()),
         }
     }
 
-    /// Create a registry with all default tools
+    /// Create a registry with all default tools, assigned to tiers.
+    ///
+    /// Core (always in LLM prompt): bash, read/write/edit, ast_grep, glob/grep
+    /// Standard (in prompt by default): git, agents
+    /// Extended (in prompt after first use): ripgrep, fd, sd, erd, mise, zoxide
     pub fn with_defaults(workspace_root: std::path::PathBuf) -> Self {
         let mut registry = Self::new();
+        use ToolTier::*;
 
-        // File tools
-        registry.register(Arc::new(file::ReadFileTool::new(workspace_root.clone())));
-        registry.register(Arc::new(file::WriteFileTool::new(workspace_root.clone())));
-        registry.register(Arc::new(file::ListDirectoryTool::new(
-            workspace_root.clone(),
-        )));
+        // ── Core tier: always visible to LLM ──
+        registry.register_with_tier(Arc::new(bash::BashTool::new(workspace_root.clone())), Core);
+        registry.register_with_tier(Arc::new(file::ReadFileTool::new(workspace_root.clone())), Core);
+        registry.register_with_tier(Arc::new(file::WriteFileTool::new(workspace_root.clone())), Core);
+        registry.register_with_tier(Arc::new(edit::EditFileTool::new(workspace_root.clone())), Core);
+        registry.register_with_tier(Arc::new(native::AstGrepTool::new(workspace_root.clone())), Core);
+        registry.register_with_tier(Arc::new(native::GlobSearchTool::new(workspace_root.clone())), Core);
+        registry.register_with_tier(Arc::new(native::GrepSearchTool::new(workspace_root.clone())), Core);
 
-        // Edit tools (anchor mode is most reliable, then insert_after, then line numbers)
-        registry.register(Arc::new(edit::EditFileLinesTool::new(workspace_root.clone())));
-        registry.register(Arc::new(edit::EditFileTool::new(workspace_root.clone())));
-        registry.register(Arc::new(edit::InsertAfterTool::new(workspace_root.clone())));
-        registry.register(Arc::new(edit::AppendFileTool::new(workspace_root.clone())));
+        // ── Standard tier: visible by default ──
+        registry.register_with_tier(Arc::new(file::ListDirectoryTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(edit::EditFileLinesTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(edit::InsertAfterTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(edit::AppendFileTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(git::GitStatusTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(git::GitDiffTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(git::GitAddTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(git::GitCommitTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(git::GitLogTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(git::GitBlameTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(git::GitBranchTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(git::GitCheckoutTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(git::GitStashTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(agent::SpawnAgentsTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(Arc::new(agent::SpawnAgentTool::new(workspace_root.clone())), Standard);
 
-        // Search tools (native rg/fd wrappers override old search module)
-        registry.register(Arc::new(native::GlobSearchTool::new(workspace_root.clone())));
-        registry.register(Arc::new(native::GrepSearchTool::new(workspace_root.clone())));
-
-        // Bash tool
-        registry.register(Arc::new(bash::BashTool::new(workspace_root.clone())));
-
-        // Git tools
-        registry.register(Arc::new(git::GitStatusTool::new(workspace_root.clone())));
-        registry.register(Arc::new(git::GitDiffTool::new(workspace_root.clone())));
-        registry.register(Arc::new(git::GitAddTool::new(workspace_root.clone())));
-        registry.register(Arc::new(git::GitCommitTool::new(workspace_root.clone())));
-        registry.register(Arc::new(git::GitLogTool::new(workspace_root.clone())));
-        registry.register(Arc::new(git::GitBlameTool::new(workspace_root.clone())));
-        registry.register(Arc::new(git::GitBranchTool::new(workspace_root.clone())));
-        registry.register(Arc::new(git::GitCheckoutTool::new(workspace_root.clone())));
-        registry.register(Arc::new(git::GitStashTool::new(workspace_root.clone())));
-
-        // Sub-agent tools
-        registry.register(Arc::new(agent::SpawnAgentsTool::new(workspace_root.clone())));
-        registry.register(Arc::new(agent::SpawnAgentTool::new(workspace_root.clone())));
-
-        // Native CLI tools (rg, fd, sd, erd, mise)
-        registry.register(Arc::new(native::RipgrepTool::new(workspace_root.clone())));
-        registry.register(Arc::new(native::FdTool::new(workspace_root.clone())));
-        registry.register(Arc::new(native::SdTool::new(workspace_root.clone())));
-        registry.register(Arc::new(native::ErdTool::new(workspace_root.clone())));
-        registry.register(Arc::new(native::MiseTool::new(workspace_root.clone())));
-        registry.register(Arc::new(native::ZoxideTool::new(workspace_root.clone())));
-
-        // AST-level code manipulation
-        registry.register(Arc::new(native::AstGrepTool::new(workspace_root)));
+        // ── Extended tier: hidden until first use ──
+        registry.register_with_tier(Arc::new(native::RipgrepTool::new(workspace_root.clone())), Extended);
+        registry.register_with_tier(Arc::new(native::FdTool::new(workspace_root.clone())), Extended);
+        registry.register_with_tier(Arc::new(native::SdTool::new(workspace_root.clone())), Extended);
+        registry.register_with_tier(Arc::new(native::ErdTool::new(workspace_root.clone())), Extended);
+        registry.register_with_tier(Arc::new(native::MiseTool::new(workspace_root.clone())), Extended);
+        registry.register_with_tier(Arc::new(native::ZoxideTool::new(workspace_root)), Extended);
 
         registry
     }
 
-    /// Register a tool
+    /// Register a tool at Standard tier (default)
     pub fn register(&mut self, tool: Arc<dyn Tool>) {
-        self.tools.insert(tool.name().to_string(), tool);
+        self.register_with_tier(tool, ToolTier::Standard);
+    }
+
+    /// Register a tool at a specific tier
+    pub fn register_with_tier(&mut self, tool: Arc<dyn Tool>, tier: ToolTier) {
+        let name = tool.name().to_string();
+        self.tiers.insert(name.clone(), tier);
+        self.tools.insert(name, tool);
     }
 
     /// Get a tool by name
@@ -157,9 +173,31 @@ impl ToolRegistry {
         }
     }
 
-    /// Get all tool definitions
+    /// Get tool definitions visible to the LLM (Core + Standard + activated Extended).
+    /// Extended tools become visible after first use or explicit activation.
     pub fn get_definitions(&self) -> Vec<ToolDefinition> {
+        let activated = self.activated.lock().unwrap();
+        self.tools.iter()
+            .filter(|(name, _)| {
+                match self.tiers.get(name.as_str()).copied().unwrap_or(ToolTier::Standard) {
+                    ToolTier::Core | ToolTier::Standard => true,
+                    ToolTier::Extended => activated.contains(name.as_str()),
+                }
+            })
+            .map(|(_, tool)| tool.to_definition())
+            .collect()
+    }
+
+    /// Get ALL tool definitions regardless of tier (for tests and introspection)
+    pub fn get_all_definitions(&self) -> Vec<ToolDefinition> {
         self.tools.values().map(|t| t.to_definition()).collect()
+    }
+
+    /// Activate an extended tool (makes it visible to the LLM)
+    pub fn activate(&self, name: &str) {
+        if self.tools.contains_key(name) {
+            self.activated.lock().unwrap().insert(name.to_string());
+        }
     }
 
     /// Get tool names
