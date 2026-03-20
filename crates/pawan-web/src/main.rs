@@ -33,18 +33,21 @@ mod sessions;
 // ---------------------------------------------------------------------------
 
 #[derive(Clone)]
+/// Application state shared across web handlers
+///
+/// Contains shared resources like agent instances, configuration,
+/// and workspace information needed by HTTP handlers.
 pub struct AppState {
     agents: Arc<RwLock<HashMap<String, PawanAgent>>>,
     config: Arc<PawanConfig>,
     workspace: PathBuf,
     agent_id: String,
 }
-
-// ---------------------------------------------------------------------------
 // Request / Response types
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Deserialize)]
+/// Request body for chat endpoint
+///
+/// Contains the user's message and optional session information.
 pub struct ChatRequest {
     pub session_id: Option<String>,
     pub message: String,
@@ -52,6 +55,9 @@ pub struct ChatRequest {
 }
 
 #[derive(Debug, Serialize)]
+/// Response body for chat endpoint
+///
+/// Contains the agent's response and execution statistics.
 pub struct ChatResponse {
     pub session_id: String,
     pub content: String,
@@ -60,6 +66,10 @@ pub struct ChatResponse {
 }
 
 #[derive(Debug, Serialize)]
+/// Health check response
+///
+/// Contains information about the server's health status, version, uptime,
+/// and the agent ID of the current instance.
 pub struct HealthResponse {
     pub status: &'static str,
     pub version: &'static str,
@@ -68,6 +78,10 @@ pub struct HealthResponse {
 }
 
 #[derive(Debug, Serialize)]
+/// Information about an available model
+///
+/// Represents a language model that can be used by the Pawan agent,
+/// including its name, provider, and whether it's the default model.
 pub struct ModelInfo {
     pub name: String,
     pub provider: String,
@@ -75,6 +89,10 @@ pub struct ModelInfo {
 }
 
 #[derive(Debug, Serialize)]
+/// Response containing available models
+///
+/// Contains a list of all available language models that can be used
+/// by the Pawan agent for various operations.
 pub struct ModelsResponse {
     pub models: Vec<ModelInfo>,
 }

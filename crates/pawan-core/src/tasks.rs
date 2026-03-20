@@ -136,6 +136,19 @@ pub struct Bead {
 }
 
 /// SQLite-backed bead store
+///
+/// BeadStore provides persistent storage for beads (tasks/issues) using SQLite.
+/// It handles creation, retrieval, updating, and deletion of beads, as well as
+/// managing their dependencies and status transitions.
+///
+/// The store is located at `~/.pawan/beads.db` by default.
+///
+/// # Features
+/// - Create, read, update, and delete beads
+/// - Query beads by status, priority, or search term
+/// - Manage bead dependencies
+/// - Track bead history and transitions
+/// - Efficient indexing for large numbers of beads
 pub struct BeadStore {
     conn: Connection,
 }

@@ -48,14 +48,11 @@ pub enum DiagnosticKind {
 #[derive(Debug)]
 /// Result from a healing operation
 ///
-/// This struct represents the outcome of a self-healing operation performed by
-/// the Pawan agent. It includes statistics about issues found and fixed, as well
-/// as any remaining unfixed issues and a summary of what was done.
+/// Result from a healing operation
+///
+/// Contains statistics about issues found and fixed, remaining unfixed issues,
+/// and a summary of the healing operation.
 pub struct HealingResult {
-    /// Number of issues found
-    pub issues_found: usize,
-    /// Number of issues fixed
-    pub issues_fixed: usize,
     /// Remaining unfixed issues
     pub remaining: Vec<Diagnostic>,
     /// Description of what was done
@@ -311,6 +308,44 @@ impl CompilerFixer {
 }
 
 /// Clippy warning fixer
+///
+/// This struct handles parsing and fixing clippy warnings from cargo clippy output.
+/// It extends CompilerFixer to parse clippy-specific diagnostics and filter them
+/// to only include warnings that need attention.
+///
+/// # Features
+/// - Run `cargo clippy` with JSON output format
+/// - Parse clippy diagnostics into structured Diagnostic objects
+/// - Filter to show only warnings (excluding notes and helps)
+/// - Support for all clippy lint groups
+///
+/// # Example
+/// ```rust
+/// let fixer = ClippyFixer::new(workspace_root);
+/// let warnings = fixer.check().await?;
+/// for warning in warnings {
+///     println!("Warning: {}", warning.message);
+/// }
+/// ```
+///
+/// This struct handles parsing and fixing clippy warnings from cargo clippy output.
+/// It extends CompilerFixer to parse clippy-specific diagnostics and filter them
+/// to only include warnings that need attention.
+///
+/// # Features
+/// - Run `cargo clippy` with JSON output format
+/// - Parse clippy diagnostics into structured Diagnostic objects
+/// - Filter to show only warnings (excluding notes and helps)
+/// - Support for all clippy lint groups
+///
+/// # Example
+/// ```rust
+/// let fixer = ClippyFixer::new(workspace_root);
+/// let warnings = fixer.check().await?;
+/// for warning in warnings {
+///     println!("Warning: {}", warning.message);
+/// }
+/// ```
 /// Clippy warning fixer
 ///
 /// This struct handles parsing and fixing clippy warnings from cargo clippy output.
