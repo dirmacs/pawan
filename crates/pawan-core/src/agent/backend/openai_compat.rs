@@ -304,6 +304,7 @@ impl OpenAiCompatBackend {
         // Streaming responses don't include usage in individual chunks
         Ok(LLMResponse {
             content,
+            reasoning: None, // streaming doesn't separate reasoning
             tool_calls,
             finish_reason,
             usage: None,
@@ -414,11 +415,30 @@ impl OpenAiCompatBackend {
             tool_calls = Self::parse_mistral_tool_calls(&content);
         }
 
-        // Parse usage from response
-        let usage = Self::parse_usage(json);
+        // Parse reasoning/thinking content (mlx_lm.server, vllm-mlx, DeepSeek)
+        let reasoning = message
+            .get("reasoning_content")
+            .or_else(|| message.get("reasoning"))
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string());
+
+        // Parse usage from response, enriched with reasoning token estimate
+        let usage = Self::parse_usage(json).map(|mut u| {
+            // Estimate reasoning tokens from the reasoning string length (1 tok ≈ 4 chars)
+            if let Some(ref r) = reasoning {
+                u.reasoning_tokens = (r.len() as u64) / 4;
+                u.action_tokens = u.completion_tokens.saturating_sub(u.reasoning_tokens);
+            } else {
+                u.reasoning_tokens = 0;
+                u.action_tokens = u.completion_tokens;
+            }
+            u
+        });
 
         Ok(LLMResponse {
             content,
+            reasoning,
             tool_calls,
             finish_reason,
             usage,
@@ -559,13 +579,13 @@ impl OpenAiCompatBackend {
 
     fn parse_usage(json: &Value) -> Option<TokenUsage> {
         let u = json.get("usage")?;
+        let completion = u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
         Some(TokenUsage {
             prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
-            completion_tokens: u
-                .get("completion_tokens")
-                .and_then(|v| v.as_u64())
-                .unwrap_or(0),
+            completion_tokens: completion,
             total_tokens: u.get("total_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+            reasoning_tokens: 0, // filled in by parse_response after reasoning extraction
+            action_tokens: completion,
         })
     }
 }
