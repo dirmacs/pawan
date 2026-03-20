@@ -182,6 +182,8 @@ impl OpenAiCompatBackend {
         let mut content = String::new();
         let mut tool_calls: Vec<ToolCallRequest> = Vec::new();
         let mut finish_reason = "stop".to_string();
+        let mut stream_usage: Option<TokenUsage> = None;
+        let mut stream_reasoning = String::new();
 
         let mut stream = response.bytes_stream();
         use futures::StreamExt;
@@ -203,6 +205,11 @@ impl OpenAiCompatBackend {
 
                 if let Some(data) = line.strip_prefix("data: ") {
                     if let Ok(json) = serde_json::from_str::<Value>(data) {
+                        // Capture usage from final chunk (OpenAI stream_options, vllm-mlx, etc.)
+                        if let Some(_) = json.get("usage").and_then(|u| u.get("total_tokens")) {
+                            stream_usage = Self::parse_usage(&json);
+                        }
+
                         if let Some(choices) = json.get("choices").and_then(|v| v.as_array()) {
                             for choice in choices {
                                 if let Some(delta) = choice.get("delta") {
@@ -211,6 +218,14 @@ impl OpenAiCompatBackend {
                                             callback(c);
                                         }
                                         content.push_str(c);
+                                    }
+
+                                    // Capture reasoning/thinking content from streaming deltas
+                                    if let Some(r) = delta.get("reasoning_content")
+                                        .or_else(|| delta.get("reasoning"))
+                                        .and_then(|v| v.as_str())
+                                    {
+                                        stream_reasoning.push_str(r);
                                     }
 
                                     if let Some(tc_array) =
@@ -301,13 +316,24 @@ impl OpenAiCompatBackend {
         // Strip think blocks from content (StepFun/Qwen interleave reasoning)
         let content = Self::strip_think_from_str(&content);
 
-        // Streaming responses don't include usage in individual chunks
+        // Build reasoning from streamed chunks
+        let reasoning = if stream_reasoning.is_empty() { None } else { Some(stream_reasoning) };
+
+        // Enrich stream usage with reasoning token estimate
+        let usage = stream_usage.map(|mut u| {
+            if let Some(ref r) = reasoning {
+                u.reasoning_tokens = (r.len() as u64) / 4;
+                u.action_tokens = u.completion_tokens.saturating_sub(u.reasoning_tokens);
+            }
+            u
+        });
+
         Ok(LLMResponse {
             content,
-            reasoning: None, // streaming doesn't separate reasoning
+            reasoning,
             tool_calls,
             finish_reason,
-            usage: None,
+            usage,
         })
     }
 
