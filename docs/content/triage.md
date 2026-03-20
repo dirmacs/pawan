@@ -6,7 +6,7 @@ Pawan is model-agnostic — it works with any OpenAI-compatible API. We've triag
 
 ## Triage Results (updated 2026-03-19)
 
-Tested across 600+ cumulative tool calls, 9 autonomous data structure builds, and 318 tests across the workspace.
+Tested across 800+ cumulative tool calls, 14 data structure builds, and 341 tests across the workspace.
 
 ### Tier 1 — Production Ready
 
@@ -14,7 +14,7 @@ Tested across 600+ cumulative tool calls, 9 autonomous data structure builds, an
 |-------|----------|-------------------|-------|
 | **StepFun Flash** | NIM | 98.9% | Best overall. Think-token interleaving adds reasoning depth. Primary cloud model. |
 | **Qwen3.5-Coder-32B** | NIM | 97%+ | Excellent structured output. Fast. Great for batch tasks. |
-| **Qwen3.5-9B 4-bit** (local) | MLX | ~85% tool calls | Runs on Mac Mini M4 via `mlx_lm.server`. $0 inference. Good for targeted edits; unreliable for complex algorithms from scratch (see below). |
+| **Qwen3.5-9B-OptiQ-4bit** (local) | MLX | ~85% tool calls | Per-layer mixed-precision quant on Mac Mini M4. 17-18 tok/s. $0 inference. With `enable_thinking: false`, 100% execution task completion. |
 
 ### Tier 2 — Usable with Guardrails
 
@@ -31,6 +31,8 @@ Tested across 600+ cumulative tool calls, 9 autonomous data structure builds, an
 | **Devstral 2 123B** | NIM | Hangs on tool calls. Output truncation on multiline JSON args. |
 | **DeepSeek V3.2** | NIM | Infinite loop on tool calling. Never terminates. |
 | **GLM-4.7** | NIM | Accepts requests, never responds. Endpoint dead. |
+| **Nemotron-3-Nano-4B** | MLX | Empty chat template → 1-token EOS. Garbled `<parameter>` tags on vllm-mlx. |
+| **Nemotron-Cascade-8B** | MLX | Can't disable thinking. Burns 800 tokens reasoning, hallucinated tool calls. |
 
 ## Guardrails That Make It Work
 
@@ -99,16 +101,18 @@ Front-load prompts with all context the model would otherwise explore: exact fil
 
 ## Dogfood Stats
 
-From the 2026-03-18/19 grind sessions:
+Updated 2026-03-20:
 
-- **600+ tool calls** across all models
+- **800+ tool calls** across all models
 - **98.9% individual tool call success** (cloud, with guardrails)
-- **~85% individual tool call success** (MLX local)
-- **~60% full task completion** (MLX, complex algorithmic tasks)
-- **9 data structures** built in grind workspace: bloom filter, fenwick tree, skip list, trie, segment tree, DSU, treap, suffix array, leftist heap
-- **318 tests** passing: 245 pawan-core workspace + 73 grind
-- **27 tools** exercised across file ops, git, search, native CLI wrappers
+- **~85% individual tool call success** (MLX local, with `enable_thinking: false`)
+- **100% execution task completion** (MLX, pre-computed implementations: bash → write_file → cargo test)
+- **~60% full task completion** (MLX, complex algorithmic generation from scratch)
+- **14 data structures** built in grind workspace: bloom filter, fenwick tree, skip list, trie, segment tree, DSU, treap, suffix array, leftist heap, radix tree, pairing heap, splay tree, rope, AVL tree
+- **107 grind tests + 188 pawan-core tests + 46 TUI tests = 341 total**
+- **28 tools** including ast-grep for structural code search/rewrite
 - **Hybrid routing** active: MLX local → StepFun cloud fallback
+- **Token budget tracking**: thinking vs action token split visible in TUI and CLI
 
 ## Running Your Own Triage
 
