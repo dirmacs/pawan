@@ -50,7 +50,7 @@ pub struct DisplayMessage {
 }
 
 /// Which panel is focused
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Panel {
     Input,
     Messages,
@@ -807,6 +807,531 @@ fn parse_inline_markdown(text: &str) -> Vec<Span<'static>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ratatui::backend::TestBackend;
+    use ratatui::buffer::Buffer;
+
+    /// Create a test App with dummy channels (for state/render tests, not event loops)
+    fn test_app<'a>() -> App<'a> {
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+        let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        App::new(
+            TuiConfig::default(),
+            "test-model".to_string(),
+            cmd_tx,
+            event_rx,
+        )
+    }
+
+    // ===== Rendering tests using TestBackend =====
+
+    #[test]
+    fn test_render_empty_state() {
+        let app = test_app();
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let buf = terminal.backend().buffer().clone();
+        // Should contain model name in status bar
+        let content = buffer_to_string(&buf);
+        assert!(content.contains("test-model"), "Status bar should show model name");
+        assert!(content.contains("Ready"), "Status bar should show Ready");
+        assert!(content.contains("Messages"), "Messages panel title should render");
+        assert!(content.contains("Input"), "Input panel title should render");
+    }
+
+    #[test]
+    fn test_render_with_messages() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage {
+            role: Role::User,
+            content: "Hello pawan".to_string(),
+            tool_calls: vec![],
+        });
+        app.messages.push(DisplayMessage {
+            role: Role::Assistant,
+            content: "Hi there!".to_string(),
+            tool_calls: vec![],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("You:"), "Should render user prefix");
+        assert!(content.contains("Pawan:"), "Should render assistant prefix");
+        assert!(content.contains("Hello pawan"), "Should render user message");
+        assert!(content.contains("Hi there!"), "Should render assistant message");
+    }
+
+    #[test]
+    fn test_render_processing_thinking() {
+        let mut app = test_app();
+        app.processing = true;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("thinking"), "Should show thinking indicator");
+    }
+
+    #[test]
+    fn test_render_streaming_content() {
+        let mut app = test_app();
+        app.processing = true;
+        app.streaming_content = "partial response so far".to_string();
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("partial response"), "Should render streaming content");
+        assert!(content.contains("▌"), "Should show blinking cursor");
+    }
+
+    #[test]
+    fn test_render_active_tool() {
+        let mut app = test_app();
+        app.processing = true;
+        app.active_tool = Some("bash".to_string());
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("bash"), "Should show active tool name");
+    }
+
+    #[test]
+    fn test_render_token_stats() {
+        let mut app = test_app();
+        app.total_tokens = 1500;
+        app.total_prompt_tokens = 1000;
+        app.total_completion_tokens = 500;
+
+        let backend = TestBackend::new(120, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("1500tok"), "Should show total token count");
+    }
+
+    #[test]
+    fn test_render_tool_call_results() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage {
+            role: Role::Assistant,
+            content: "Done".to_string(),
+            tool_calls: vec![
+                ToolCallRecord {
+                    id: "1".into(),
+                    name: "write_file".into(),
+                    arguments: serde_json::json!({}),
+                    result: serde_json::json!({"success": true}),
+                    success: true,
+                    duration_ms: 42,
+                },
+                ToolCallRecord {
+                    id: "2".into(),
+                    name: "bash".into(),
+                    arguments: serde_json::json!({}),
+                    result: serde_json::json!({"error": "timeout"}),
+                    success: false,
+                    duration_ms: 30000,
+                },
+            ],
+        });
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("write_file"), "Should show successful tool name");
+        assert!(content.contains("bash"), "Should show failed tool name");
+        assert!(content.contains("42ms") || content.contains("✓"), "Should show success indicator");
+    }
+
+    #[test]
+    fn test_render_context_estimate() {
+        let mut app = test_app();
+        app.context_estimate = 85000; // 85k — should be red
+
+        let backend = TestBackend::new(120, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("85k ctx"), "Should show context estimate");
+    }
+
+    #[test]
+    fn test_render_search_mode() {
+        let mut app = test_app();
+        app.search_mode = true;
+        app.search_query = "hello".to_string();
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("Search: hello"), "Should show search query in panel title");
+    }
+
+    #[test]
+    fn test_render_focus_input() {
+        let app = test_app();
+        assert_eq!(app.focus, Panel::Input, "Default focus should be Input");
+    }
+
+    // ===== Event handling tests =====
+
+    #[test]
+    fn test_ctrl_c_quits() {
+        let mut app = test_app();
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+        )));
+        assert!(app.should_quit, "Ctrl+C should set should_quit");
+    }
+
+    #[test]
+    fn test_ctrl_l_clears() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage {
+            role: Role::User,
+            content: "test".into(),
+            tool_calls: vec![],
+        });
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('l'),
+            KeyModifiers::CONTROL,
+        )));
+        assert!(app.messages.is_empty(), "Ctrl+L should clear messages");
+        assert_eq!(app.status, "Cleared");
+    }
+
+    #[test]
+    fn test_tab_switches_focus() {
+        let mut app = test_app();
+        assert_eq!(app.focus, Panel::Input);
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Tab,
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.focus, Panel::Messages, "Tab from Input goes to Messages");
+
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Tab,
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.focus, Panel::Input, "Tab from Messages goes to Input");
+    }
+
+    #[test]
+    fn test_scroll_keys_in_messages_panel() {
+        let mut app = test_app();
+        app.focus = Panel::Messages;
+        app.scroll = 5;
+
+        // j scrolls down
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('j'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.scroll, 6);
+
+        // k scrolls up
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('k'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.scroll, 5);
+
+        // g goes to top
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('g'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.scroll, 0);
+    }
+
+    #[test]
+    fn test_scroll_saturates_at_zero() {
+        let mut app = test_app();
+        app.focus = Panel::Messages;
+        app.scroll = 0;
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('k'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.scroll, 0, "Scroll should not go below 0");
+    }
+
+    #[test]
+    fn test_search_mode_entry_and_exit() {
+        let mut app = test_app();
+        app.focus = Panel::Messages;
+
+        // Enter search mode with /
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('/'),
+            KeyModifiers::NONE,
+        )));
+        assert!(app.search_mode, "/ should enter search mode");
+
+        // Type search query
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('h'),
+            KeyModifiers::NONE,
+        )));
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('i'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.search_query, "hi");
+
+        // Backspace deletes
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Backspace,
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.search_query, "h");
+
+        // Enter exits search mode, keeps query
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+        assert!(!app.search_mode);
+        assert_eq!(app.search_query, "h");
+    }
+
+    #[test]
+    fn test_search_esc_clears_query() {
+        let mut app = test_app();
+        app.focus = Panel::Messages;
+        app.search_mode = true;
+        app.search_query = "findme".to_string();
+
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Esc,
+            KeyModifiers::NONE,
+        )));
+        assert!(!app.search_mode);
+        assert!(app.search_query.is_empty(), "Esc should clear search query");
+    }
+
+    #[test]
+    fn test_search_n_jumps_forward() {
+        let mut app = test_app();
+        app.focus = Panel::Messages;
+        app.search_query = "target".to_string();
+        app.messages.push(DisplayMessage { role: Role::User, content: "no match".into(), tool_calls: vec![] });
+        app.messages.push(DisplayMessage { role: Role::User, content: "has target word".into(), tool_calls: vec![] });
+        app.messages.push(DisplayMessage { role: Role::User, content: "another target".into(), tool_calls: vec![] });
+        app.scroll = 0;
+
+        // n should jump to first match after current scroll
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('n'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.scroll, 1, "n should jump to first match at index 1");
+
+        // n again should jump to next match
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('n'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.scroll, 2, "n should jump to next match at index 2");
+    }
+
+    #[test]
+    fn test_search_n_reverse() {
+        let mut app = test_app();
+        app.focus = Panel::Messages;
+        app.search_query = "target".to_string();
+        app.messages.push(DisplayMessage { role: Role::User, content: "first target".into(), tool_calls: vec![] });
+        app.messages.push(DisplayMessage { role: Role::User, content: "no match".into(), tool_calls: vec![] });
+        app.messages.push(DisplayMessage { role: Role::User, content: "second target".into(), tool_calls: vec![] });
+        app.scroll = 2;
+
+        // N should jump to previous match
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('N'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.scroll, 0, "N should jump to previous match at index 0");
+    }
+
+    #[test]
+    fn test_mouse_scroll() {
+        let mut app = test_app();
+        app.scroll = 5;
+        app.config.mouse_support = true;
+        app.config.scroll_speed = 3;
+
+        app.handle_event(Event::Mouse(crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::ScrollUp,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert_eq!(app.scroll, 2, "Mouse scroll up should decrease by scroll_speed");
+
+        app.handle_event(Event::Mouse(crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::ScrollDown,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert_eq!(app.scroll, 5, "Mouse scroll down should increase by scroll_speed");
+    }
+
+    #[test]
+    fn test_mouse_scroll_disabled() {
+        let mut app = test_app();
+        app.scroll = 5;
+        app.config.mouse_support = false;
+
+        app.handle_event(Event::Mouse(crossterm::event::MouseEvent {
+            kind: crossterm::event::MouseEventKind::ScrollUp,
+            column: 0,
+            row: 0,
+            modifiers: KeyModifiers::NONE,
+        }));
+        assert_eq!(app.scroll, 5, "Mouse scroll should be ignored when disabled");
+    }
+
+    // ===== State transition tests =====
+
+    #[test]
+    fn test_submit_input_creates_message() {
+        let mut app = test_app();
+        app.input = TextArea::from(vec!["hello pawan"]);
+
+        app.submit_input();
+
+        assert_eq!(app.messages.len(), 1);
+        assert_eq!(app.messages[0].content, "hello pawan");
+        assert_eq!(app.messages[0].role, Role::User);
+        assert!(app.processing, "Should be processing after submit");
+        assert_eq!(app.status, "Processing...");
+    }
+
+    #[test]
+    fn test_submit_empty_input_ignored() {
+        let mut app = test_app();
+        app.input = TextArea::from(vec!["   "]);
+
+        app.submit_input();
+
+        assert!(app.messages.is_empty(), "Empty input should not create message");
+        assert!(!app.processing, "Should not be processing for empty input");
+    }
+
+    #[test]
+    fn test_processing_input_title() {
+        let mut app = test_app();
+        app.processing = true;
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("processing"), "Input panel should show processing state");
+    }
+
+    #[test]
+    fn test_error_status_renders() {
+        let mut app = test_app();
+        app.status = "Error: connection refused".to_string();
+
+        let backend = TestBackend::new(120, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("Error: connection refused"), "Error status should render");
+    }
+
+    #[test]
+    fn test_page_up_down_scroll() {
+        let mut app = test_app();
+        app.focus = Panel::Messages;
+        app.scroll = 15;
+
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::PageUp,
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.scroll, 5, "PageUp should scroll up by 10");
+
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::PageDown,
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.scroll, 15, "PageDown should scroll down by 10");
+    }
+
+    #[test]
+    fn test_ctrl_u_d_half_page() {
+        let mut app = test_app();
+        app.focus = Panel::Messages;
+        app.scroll = 25;
+
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('u'),
+            KeyModifiers::CONTROL,
+        )));
+        assert_eq!(app.scroll, 5, "Ctrl+U should scroll up by 20");
+
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('d'),
+            KeyModifiers::CONTROL,
+        )));
+        assert_eq!(app.scroll, 25, "Ctrl+D should scroll down by 20");
+    }
+
+    #[test]
+    fn test_i_returns_to_input() {
+        let mut app = test_app();
+        app.focus = Panel::Messages;
+
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('i'),
+            KeyModifiers::NONE,
+        )));
+        assert_eq!(app.focus, Panel::Input, "'i' in Messages panel should return to Input");
+    }
+
+    // ===== Helper =====
+
+    /// Convert a ratatui Buffer to a plain string for assertion matching
+    fn buffer_to_string(buf: &Buffer) -> String {
+        let area = buf.area;
+        let mut result = String::new();
+        for y in area.y..area.y + area.height {
+            for x in area.x..area.x + area.width {
+                let cell = &buf[(x, y)];
+                result.push_str(cell.symbol());
+            }
+            result.push('\n');
+        }
+        result
+    }
+
+    // ===== Markdown rendering tests (existing) =====
 
     #[test]
     fn test_header_h1() {
