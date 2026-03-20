@@ -9,10 +9,79 @@ use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::process::Stdio;
 
-/// Check if a binary exists in PATH
 /// Check if a CLI binary is available in PATH.
 fn binary_exists(name: &str) -> bool {
     which::which(name).is_ok()
+}
+
+/// Map tool binary names to their mise package names for auto-install.
+fn mise_package_name(binary: &str) -> &str {
+    match binary {
+        "erd" => "erdtree",
+        "sg" | "ast-grep" => "ast-grep",
+        "rg" => "ripgrep",
+        "fd" => "fd",
+        "sd" => "sd",
+        "bat" => "bat",
+        "delta" => "delta",
+        "jq" => "jq",
+        "yq" => "yq",
+        other => other,
+    }
+}
+
+/// Try to auto-install a missing tool via mise. Returns true if install succeeded.
+async fn auto_install(binary: &str, cwd: &std::path::Path) -> bool {
+    let mise_bin = if binary_exists("mise") {
+        "mise".to_string()
+    } else {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
+        let local = format!("{}/.local/bin/mise", home);
+        if std::path::Path::new(&local).exists() { local } else { return false; }
+    };
+
+    let pkg = mise_package_name(binary);
+    tracing::info!(binary = binary, package = pkg, "Auto-installing missing tool via mise");
+
+    let result = tokio::process::Command::new(&mise_bin)
+        .args(["install", pkg, "-y"])
+        .current_dir(cwd)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await;
+
+    match result {
+        Ok(output) if output.status.success() => {
+            // Also run `mise use --global` to make it available
+            let _ = tokio::process::Command::new(&mise_bin)
+                .args(["use", "--global", pkg])
+                .current_dir(cwd)
+                .output()
+                .await;
+            tracing::info!(binary = binary, "Auto-install succeeded");
+            true
+        }
+        Ok(output) => {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::warn!(binary = binary, stderr = %stderr, "Auto-install failed");
+            false
+        }
+        Err(e) => {
+            tracing::warn!(binary = binary, error = %e, "Auto-install failed to run mise");
+            false
+        }
+    }
+}
+
+/// Ensure a binary is available, auto-installing via mise if needed.
+async fn ensure_binary(name: &str, cwd: &std::path::Path) -> Result<(), crate::PawanError> {
+    if binary_exists(name) { return Ok(()); }
+    if auto_install(name, cwd).await && binary_exists(name) { return Ok(()); }
+    Err(crate::PawanError::Tool(format!(
+        "{} not found and auto-install failed. Install manually: mise install {}",
+        name, mise_package_name(name)
+    )))
 }
 
 /// Run a command and capture stdout+stderr
@@ -81,9 +150,7 @@ impl Tool for RipgrepTool {
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
-        if !binary_exists("rg") {
-            return Err(crate::PawanError::Tool("rg not found. Install: cargo install ripgrep".into()));
-        }
+        ensure_binary("rg", &self.workspace_root).await?;
         let pattern = args["pattern"].as_str()
             .ok_or_else(|| crate::PawanError::Tool("pattern required".into()))?;
         let search_path = args["path"].as_str().unwrap_or(".");
@@ -187,9 +254,7 @@ impl Tool for FdTool {
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
-        if !binary_exists("fd") {
-            return Err(crate::PawanError::Tool("fd not found. Install: cargo install fd-find".into()));
-        }
+        ensure_binary("fd", &self.workspace_root).await?;
         let pattern = args["pattern"].as_str()
             .ok_or_else(|| crate::PawanError::Tool("pattern required".into()))?;
 
@@ -274,9 +339,7 @@ impl Tool for SdTool {
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
-        if !binary_exists("sd") {
-            return Err(crate::PawanError::Tool("sd not found. Install: cargo install sd".into()));
-        }
+        ensure_binary("sd", &self.workspace_root).await?;
         let find = args["find"].as_str()
             .ok_or_else(|| crate::PawanError::Tool("find required".into()))?;
         let replace = args["replace"].as_str()
@@ -357,14 +420,16 @@ impl Tool for ErdTool {
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
+        // Auto-install erd if missing; fall back to fd if mise unavailable
         if !binary_exists("erd") {
-            // Fallback: fd-based flat listing
-            let path = args["path"].as_str().unwrap_or(".");
-            let depth = args["depth"].as_u64().unwrap_or(3).to_string();
-            let cmd_args = vec![".", path, "--max-depth", &depth, "--color", "never"];
-            let (stdout, _, _) = run_cmd("fd", &cmd_args, &self.workspace_root).await
-                .unwrap_or(("(fd not available — install erd: cargo install erdtree)".into(), String::new(), false));
-            return Ok(json!({ "tree": stdout, "tool": "fd-fallback" }));
+            if !auto_install("erd", &self.workspace_root).await || !binary_exists("erd") {
+                let path = args["path"].as_str().unwrap_or(".");
+                let depth = args["depth"].as_u64().unwrap_or(3).to_string();
+                let cmd_args = vec![".", path, "--max-depth", &depth, "--color", "never"];
+                let (stdout, _, _) = run_cmd("fd", &cmd_args, &self.workspace_root).await
+                    .unwrap_or(("(erd and fd not available)".into(), String::new(), false));
+                return Ok(json!({ "tree": stdout, "tool": "fd-fallback" }));
+            }
         }
 
         let path = args["path"].as_str().unwrap_or(".");
@@ -830,11 +895,7 @@ impl Tool for AstGrepTool {
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
-        if !binary_exists("ast-grep") {
-            return Err(crate::PawanError::Tool(
-                "ast-grep not found. Install: cargo install ast-grep".into(),
-            ));
-        }
+        ensure_binary("ast-grep", &self.workspace_root).await?;
 
         let action = args["action"].as_str()
             .ok_or_else(|| crate::PawanError::Tool("action required (search or rewrite)".into()))?;
