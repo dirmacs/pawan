@@ -5,14 +5,14 @@
 <h1 align="center">पवन — pawan</h1>
 
 <p align="center">
-  Self-healing CLI coding agent. Rust. 28 tools. AST powers. Runs on your hardware.<br>
+  Self-healing CLI coding agent. Rust. 29 tools. AST + LSP powers. Runs on your hardware.<br>
   No subscription. No telemetry. No vendor lock-in.
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/rust-stable-orange.svg" alt="Rust">
-  <img src="https://img.shields.io/badge/tools-28-green.svg" alt="28 tools">
+  <img src="https://img.shields.io/badge/tools-29-green.svg" alt="29 tools">
   <img src="https://img.shields.io/badge/tests-341-brightgreen.svg" alt="341 tests">
 </p>
 

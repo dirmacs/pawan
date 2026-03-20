@@ -110,7 +110,7 @@ Updated 2026-03-20:
 - **~60% full task completion** (MLX, complex algorithmic generation from scratch)
 - **14 data structures** built in grind workspace: bloom filter, fenwick tree, skip list, trie, segment tree, DSU, treap, suffix array, leftist heap, radix tree, pairing heap, splay tree, rope, AVL tree
 - **107 grind tests + 188 pawan-core tests + 46 TUI tests = 341 total**
-- **28 tools** including ast-grep for structural code search/rewrite
+- **29 tools** including ast-grep (multi-language AST) and lsp (rust-analyzer type-aware intelligence)
 - **Hybrid routing** active: MLX local → StepFun cloud fallback
 - **Token budget tracking**: thinking vs action token split visible in TUI and CLI
 
