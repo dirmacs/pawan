@@ -231,6 +231,10 @@ impl Default for HealingConfig {
 
 /// Configuration for a target project
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Configuration for a target project
+///
+/// This struct represents configuration for a specific target project that Pawan
+/// can work with. It includes the project path and description.
 pub struct TargetConfig {
     /// Path to the project root
     pub path: PathBuf,
@@ -277,6 +281,11 @@ impl Default for TuiConfig {
 
 /// Configuration for an MCP server in pawan.toml
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// Configuration for an MCP server in pawan.toml
+///
+/// This struct represents configuration for an MCP (Multi-Cursor Protocol) server
+/// that can be managed by Pawan. It includes the command to run, arguments,
+/// environment variables, and whether the server is enabled.
 pub struct McpServerEntry {
     /// Command to run
     pub command: String,

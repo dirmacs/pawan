@@ -61,6 +61,11 @@ pub trait Tool: Send + Sync {
 }
 
 /// Registry for managing tools
+/// Registry for managing tools
+///
+/// This struct maintains a collection of tools that the Pawan agent can use.
+/// It provides methods for registering tools, retrieving them by name,
+/// and getting tool definitions for the LLM.
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
 }
