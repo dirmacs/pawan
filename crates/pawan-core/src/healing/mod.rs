@@ -46,6 +46,11 @@ pub enum DiagnosticKind {
 
 /// Result from a healing operation
 #[derive(Debug)]
+/// Result from a healing operation
+///
+/// This struct represents the outcome of a self-healing operation performed by
+/// the Pawan agent. It includes statistics about issues found and fixed, as well
+/// as any remaining unfixed issues and a summary of what was done.
 pub struct HealingResult {
     /// Number of issues found
     pub issues_found: usize,
@@ -58,6 +63,11 @@ pub struct HealingResult {
 }
 
 /// Compiler error fixer
+/// Compiler error fixer
+///
+/// This struct handles parsing and fixing compilation errors from cargo check output.
+/// It can parse both JSON and text output formats and convert them into structured
+/// Diagnostic objects that can be used by the healing system.
 pub struct CompilerFixer {
     workspace_root: PathBuf,
 }
@@ -301,6 +311,11 @@ impl CompilerFixer {
 }
 
 /// Clippy warning fixer
+/// Clippy warning fixer
+///
+/// This struct handles parsing and fixing clippy warnings from cargo clippy output.
+/// It extends CompilerFixer to parse clippy-specific diagnostics and filter them
+/// to only include warnings that need attention.
 pub struct ClippyFixer {
     workspace_root: PathBuf,
 }
@@ -352,12 +367,22 @@ impl ClippyFixer {
 }
 
 /// Test failure fixer
+/// Test failure fixer
+///
+/// This struct handles parsing and fixing failing tests from cargo test output.
+/// It can identify failed tests, extract their output, and provide structured
+/// information about test failures for the healing system to address.
 pub struct TestFixer {
     workspace_root: PathBuf,
 }
 
 /// A failed test
 #[derive(Debug, Clone, Serialize, Deserialize)]
+/// A failed test
+///
+/// This struct represents information about a test that failed during execution.
+/// It includes the test name, module path, failure message, file location,
+/// and line number where the test failed.
 pub struct FailedTest {
     /// Test name (full path)
     pub name: String,
@@ -500,6 +525,15 @@ impl TestFixer {
 }
 
 /// Healer that coordinates all fixing activities
+/// Healer that coordinates all fixing activities
+///
+/// This struct orchestrates the self-healing process by coordinating multiple fixers:
+/// - CompilerFixer for compilation errors
+/// - ClippyFixer for clippy warnings
+/// - TestFixer for failing tests
+///
+/// It provides a unified interface for getting diagnostics, failed tests, and
+/// counting issues in the workspace.
 pub struct Healer {
     #[allow(dead_code)]
     workspace_root: PathBuf,

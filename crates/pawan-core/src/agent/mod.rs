@@ -128,6 +128,15 @@ pub type ToolCallback = Box<dyn Fn(&ToolCallRecord) + Send + Sync>;
 pub type ToolStartCallback = Box<dyn Fn(&str) + Send + Sync>;
 
 /// The main Pawan agent
+/// The main Pawan agent
+///
+/// This struct represents the core Pawan agent that handles:
+/// - Conversation history management
+/// - Tool calling with the LLM via pluggable backends
+/// - Streaming responses
+/// - Multiple LLM backends (NVIDIA API, Ollama, OpenAI)
+/// - Context management and token counting
+/// - Integration with Eruka for 3-tier memory injection
 pub struct PawanAgent {
     /// Configuration
     config: PawanConfig,
