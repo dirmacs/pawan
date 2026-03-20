@@ -41,21 +41,28 @@ enum AgentCommand {
     Quit,
 }
 
-/// A message for display in the TUI
 #[derive(Clone)]
+/// A message for display in the TUI
+///
+/// Represents a message to be displayed in the terminal UI,
+/// including its role (user/agent), content, and any associated tool calls.
 pub struct DisplayMessage {
+    /// Role of the message sender (User or Agent)
     pub role: Role,
+    /// Content of the message
     pub content: String,
+    /// Tool calls associated with this message
     pub tool_calls: Vec<ToolCallRecord>,
 }
 
-/// Which panel is focused
 #[derive(Clone, Copy, Debug, PartialEq)]
+/// Which panel is focused in the TUI
+///
+/// Represents the currently active input focus in the terminal UI.
 pub enum Panel {
     Input,
     Messages,
 }
-
 /// Application state
 struct App<'a> {
     config: TuiConfig,

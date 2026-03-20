@@ -11,6 +11,13 @@ use std::path::PathBuf;
 /// like "/opt/pawan/grind/opt/pawan/grind/foo.rs" — it joined the workspace
 /// root with an absolute path instead of a relative one. We detect the
 /// workspace root appearing twice and collapse to the second occurrence.
+///
+/// # Parameters
+/// - `workspace_root`: The root directory of the workspace
+/// - `path`: The path to normalize (can be relative or absolute)
+///
+/// # Returns
+/// The normalized path as a PathBuf
 pub fn normalize_path(workspace_root: &PathBuf, path: &str) -> PathBuf {
     let p = PathBuf::from(path);
     if p.is_absolute() {

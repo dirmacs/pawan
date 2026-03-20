@@ -36,6 +36,12 @@ async fn run_git(workspace: &PathBuf, args: &[&str]) -> crate::Result<(bool, Str
 }
 
 /// Tool for checking git status
+///
+/// This tool provides information about the current git repository status,
+/// including modified files, untracked files, and branch information.
+///
+/// # Fields
+/// - `workspace_root`: The root directory of the workspace
 pub struct GitStatusTool {
     workspace_root: PathBuf,
 }
@@ -105,6 +111,12 @@ impl Tool for GitStatusTool {
 }
 
 /// Tool for getting git diff
+///
+/// This tool shows the differences between files in the working directory
+/// and the git index, or between commits.
+///
+/// # Fields
+/// - `workspace_root`: The root directory of the workspace
 pub struct GitDiffTool {
     workspace_root: PathBuf,
 }
@@ -207,6 +219,11 @@ impl Tool for GitDiffTool {
 }
 
 /// Tool for staging files
+///
+/// This tool adds files to the git staging area in preparation for commit.
+///
+/// # Fields
+/// - `workspace_root`: The root directory of the workspace
 pub struct GitAddTool {
     workspace_root: PathBuf,
 }
@@ -295,6 +312,11 @@ impl Tool for GitAddTool {
 }
 
 /// Tool for creating commits
+///
+/// This tool creates a new git commit with the staged changes.
+///
+/// # Fields
+/// - `workspace_root`: The root directory of the workspace
 pub struct GitCommitTool {
     workspace_root: PathBuf,
 }
@@ -379,6 +401,12 @@ impl Tool for GitCommitTool {
 }
 
 /// Tool for viewing git log
+///
+/// This tool provides access to the git commit history, allowing inspection
+/// of previous commits, authors, dates, and commit messages.
+///
+/// # Fields
+/// - `workspace_root`: The root directory of the workspace
 pub struct GitLogTool {
     workspace_root: PathBuf,
 }
@@ -459,6 +487,12 @@ impl Tool for GitLogTool {
 }
 
 /// Tool for git blame
+///
+/// This tool shows line-by-line authorship information for files, indicating
+/// who last modified each line and when.
+///
+/// # Fields
+/// - `workspace_root`: The root directory of the workspace
 pub struct GitBlameTool {
     workspace_root: PathBuf,
 }

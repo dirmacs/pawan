@@ -34,6 +34,13 @@ async fn run_cmd(cmd: &str, args: &[&str], cwd: &std::path::Path) -> Result<(Str
 
 // ─── ripgrep (rg) ───────────────────────────────────────────────────────────
 
+/// Tool for fast text search using ripgrep
+///
+/// This tool provides fast recursive search through files using the rg (ripgrep)
+/// command line tool. It returns structured JSON results for easy parsing.
+///
+/// # Fields
+/// - `workspace_root`: The root directory of the workspace
 pub struct RipgrepTool {
     workspace_root: PathBuf,
 }
@@ -137,6 +144,13 @@ impl Tool for RipgrepTool {
 
 // ─── fd (fast find) ─────────────────────────────────────────────────────────
 
+/// Tool for fast file search using fd
+///
+/// This tool provides fast file and directory search using the fd command line
+/// tool. It's an alternative to find that's faster and more user-friendly.
+///
+/// # Fields
+/// - `workspace_root`: The root directory of the workspace
 pub struct FdTool {
     workspace_root: PathBuf,
 }
@@ -219,6 +233,13 @@ impl Tool for FdTool {
 
 // ─── sd (fast sed) ──────────────────────────────────────────────────────────
 
+/// Tool for fast text replacement using sd
+///
+/// This tool provides fast text replacement using the sd command line tool.
+/// It's an alternative to sed that's more intuitive and faster.
+///
+/// # Fields
+/// - `workspace_root`: The root directory of the workspace
 pub struct SdTool {
     workspace_root: PathBuf,
 }
