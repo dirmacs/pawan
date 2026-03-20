@@ -12,11 +12,22 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// 8-char hash prefix, displayed as bd-{hash}
+///
+/// BeadId is a content-addressable identifier for beads (tasks/issues).
+/// It's generated from the title and creation timestamp using a hash function.
+/// The ID is represented as an 8-character hexadecimal string and displayed with the "bd-" prefix.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BeadId(pub String);
 
 impl BeadId {
-    /// Generate from title + timestamp
+    /// Generate a new BeadId from a title and timestamp
+    ///
+    /// # Arguments
+    /// * `title` - The title of the task/bead
+    /// * `created_at` - The creation timestamp in RFC3339 format
+    ///
+    /// # Returns
+    /// A new BeadId with an 8-character hash prefix
     pub fn generate(title: &str, created_at: &str) -> Self {
         use std::collections::hash_map::DefaultHasher;
         use std::hash::{Hash, Hasher};
@@ -27,12 +38,23 @@ impl BeadId {
         Self(format!("{:08x}", hash & 0xFFFFFFFF))
     }
 
-    /// Display as bd-XXXXXXXX
+    /// Display the BeadId in the standard format "bd-XXXXXXXX"
+    ///
+    /// # Returns
+    /// A formatted string representation of the BeadId
     pub fn display(&self) -> String {
         format!("bd-{}", self.0)
     }
 
-    /// Parse from "bd-XXXXXXXX" or just "XXXXXXXX"
+    /// Parse a BeadId from a string representation
+    ///
+    /// Accepts both "bd-XXXXXXXX" and "XXXXXXXX" formats
+    ///
+    /// # Arguments
+    /// * `s` - The string to parse
+    ///
+    /// # Returns
+    /// A BeadId parsed from the string
     pub fn parse(s: &str) -> Self {
         Self(s.strip_prefix("bd-").unwrap_or(s).to_string())
     }
@@ -45,6 +67,11 @@ impl std::fmt::Display for BeadId {
 }
 
 /// Task status
+///
+/// Represents the current state of a bead (task/issue):
+/// - `Open`: Task is created but not yet started
+/// - `InProgress`: Task is actively being worked on
+/// - `Closed`: Task is completed or abandoned
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BeadStatus {
@@ -54,7 +81,11 @@ pub enum BeadStatus {
 }
 
 impl BeadStatus {
-    pub fn as_str(&self) -> &str {
+    /// Convert the BeadStatus to a string representation
+    ///
+    /// # Returns
+    /// A string slice representing the status ("open", "in_progress", or "closed")
+    pub fn to_str(&self) -> &'static str {
         match self {
             Self::Open => "open",
             Self::InProgress => "in_progress",
@@ -62,6 +93,13 @@ impl BeadStatus {
         }
     }
 
+    /// Create a BeadStatus from a string representation
+    ///
+    /// # Arguments
+    /// * `s` - The string to parse ("in_progress", "closed", or any other value for "open")
+    ///
+    /// # Returns
+    /// The corresponding BeadStatus enum variant
     pub fn from_str(s: &str) -> Self {
         match s {
             "in_progress" => Self::InProgress,
@@ -72,6 +110,17 @@ impl BeadStatus {
 }
 
 /// A single bead (task/issue)
+///
+/// Represents a task or issue in the beads system with the following properties:
+/// - `id`: Unique identifier for the bead
+/// - `title`: Short description of the task
+/// - `description`: Optional detailed description
+/// - `status`: Current status (Open, InProgress, Closed)
+/// - `priority`: Priority level (0 = critical, 4 = backlog)
+/// - `created_at`: RFC3339 timestamp when the bead was created
+/// - `updated_at`: RFC3339 timestamp when the bead was last updated
+/// - `closed_at`: Optional RFC3339 timestamp when the bead was closed
+/// - `closed_reason`: Optional reason for closing the bead
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bead {
     pub id: BeadId,
@@ -222,7 +271,7 @@ impl BeadStore {
             self.conn
                 .execute(
                     "UPDATE beads SET status = ?1, updated_at = ?2 WHERE id = ?3",
-                    params![s.as_str(), now, id.0],
+                    params![s.to_str(), now, id.0],
                 )
                 .map_err(|e| PawanError::Config(format!("Update status: {}", e)))?;
         }

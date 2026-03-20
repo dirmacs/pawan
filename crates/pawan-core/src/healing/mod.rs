@@ -69,6 +69,15 @@ impl CompilerFixer {
     }
 
     /// Parse cargo check output into diagnostics
+    ///
+    /// This method supports both JSON output (from `cargo check --message-format=json`)
+    /// and text output formats.
+    ///
+    /// # Arguments
+    /// * `output` - The output from cargo check
+    ///
+    /// # Returns
+    /// A vector of Diagnostic objects representing compilation errors and warnings
     pub fn parse_diagnostics(&self, output: &str) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
 
@@ -512,7 +521,13 @@ impl Healer {
         }
     }
 
-    /// Get all diagnostics (errors and warnings)
+    /// Get all diagnostics (errors and warnings) from the workspace
+    ///
+    /// This method runs cargo check and clippy (if configured) to collect
+    /// compilation errors and warnings.
+    ///
+    /// # Returns
+    /// A vector of Diagnostic objects, or an error if the checks fail to run
     pub async fn get_diagnostics(&self) -> Result<Vec<Diagnostic>> {
         let mut all = Vec::new();
 
@@ -527,7 +542,12 @@ impl Healer {
         Ok(all)
     }
 
-    /// Get all failed tests
+    /// Get all failed tests from the workspace
+    ///
+    /// This method runs cargo test and collects information about failed tests.
+    ///
+    /// # Returns
+    /// A vector of FailedTest objects, or an error if the tests fail to run
     pub async fn get_failed_tests(&self) -> Result<Vec<FailedTest>> {
         if self.config.fix_tests {
             self.test_fixer.check().await
@@ -536,7 +556,12 @@ impl Healer {
         }
     }
 
-    /// Count total issues
+    /// Count total issues in the workspace
+    ///
+    /// This method counts errors, warnings, and failed tests.
+    ///
+    /// # Returns
+    /// A tuple of (errors_count, warnings_count, failed_tests_count)
     pub async fn count_issues(&self) -> Result<(usize, usize, usize)> {
         let diagnostics = self.get_diagnostics().await?;
         let tests = self.get_failed_tests().await?;
@@ -555,6 +580,15 @@ impl Healer {
     }
 
     /// Format diagnostics for LLM prompt
+    ///
+    /// This method formats compilation diagnostics into a structured format
+    /// suitable for inclusion in an LLM prompt.
+    ///
+    /// # Arguments
+    /// * `diagnostics` - A slice of Diagnostic objects to format
+    ///
+    /// # Returns
+    /// A formatted string ready for use in an LLM prompt
     pub fn format_diagnostics_for_prompt(&self, diagnostics: &[Diagnostic]) -> String {
         let mut output = String::new();
 
