@@ -1,8 +1,8 @@
 # Pawan — MLX-first config
-# Primary: Qwen3.5-9B via mlx_lm.server on Mac Mini M4 (Apple Silicon native, ~2x faster than llama.cpp)
+# Primary: Qwen3.5-9B-OptiQ via mlx_lm.server on Mac Mini M4 (per-layer mixed-precision, 17-18 tok/s)
 # Fallback: NVIDIA NIM StepFun Flash (best tool-call success rate)
 provider = "mlx"
-model = "mlx-community/Qwen3.5-9B-4bit"
+model = "mlx-community/Qwen3.5-9B-OptiQ-4bit"
 base_url = "http://localhost:8080/v1"   # Mac Mini M4 MLX server via SSH tunnel (llama-tunnel.service)
 temperature = 0.6
 max_tokens = 4096
