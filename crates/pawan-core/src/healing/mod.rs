@@ -318,39 +318,6 @@ impl CompilerFixer {
 /// - Parse clippy diagnostics into structured Diagnostic objects
 /// - Filter to show only warnings (excluding notes and helps)
 /// - Support for all clippy lint groups
-///
-/// # Example
-/// ```rust
-/// let fixer = ClippyFixer::new(workspace_root);
-/// let warnings = fixer.check().await?;
-/// for warning in warnings {
-///     println!("Warning: {}", warning.message);
-/// }
-/// ```
-///
-/// This struct handles parsing and fixing clippy warnings from cargo clippy output.
-/// It extends CompilerFixer to parse clippy-specific diagnostics and filter them
-/// to only include warnings that need attention.
-///
-/// # Features
-/// - Run `cargo clippy` with JSON output format
-/// - Parse clippy diagnostics into structured Diagnostic objects
-/// - Filter to show only warnings (excluding notes and helps)
-/// - Support for all clippy lint groups
-///
-/// # Example
-/// ```rust
-/// let fixer = ClippyFixer::new(workspace_root);
-/// let warnings = fixer.check().await?;
-/// for warning in warnings {
-///     println!("Warning: {}", warning.message);
-/// }
-/// ```
-/// Clippy warning fixer
-///
-/// This struct handles parsing and fixing clippy warnings from cargo clippy output.
-/// It extends CompilerFixer to parse clippy-specific diagnostics and filter them
-/// to only include warnings that need attention.
 pub struct ClippyFixer {
     workspace_root: PathBuf,
 }
