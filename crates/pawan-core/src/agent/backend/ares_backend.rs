@@ -107,10 +107,13 @@ impl AresBackend {
             prompt_tokens: u.prompt_tokens as u64,
             completion_tokens: u.completion_tokens as u64,
             total_tokens: u.total_tokens as u64,
+            reasoning_tokens: 0,
+            action_tokens: u.completion_tokens as u64,
         });
 
         LLMResponse {
             content: resp.content,
+            reasoning: None,
             tool_calls,
             finish_reason: resp.finish_reason,
             usage,

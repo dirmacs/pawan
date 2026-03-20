@@ -78,6 +78,9 @@ struct App<'a> {
     total_tokens: u64,
     total_prompt_tokens: u64,
     total_completion_tokens: u64,
+    /// Cumulative thinking vs action token split
+    total_reasoning_tokens: u64,
+    total_action_tokens: u64,
     /// Streaming content buffer (accumulates tokens during generation)
     streaming_content: String,
     /// Active tool calls being displayed during processing
@@ -119,6 +122,8 @@ impl<'a> App<'a> {
             total_tokens: 0,
             total_prompt_tokens: 0,
             total_completion_tokens: 0,
+            total_reasoning_tokens: 0,
+            total_action_tokens: 0,
             streaming_content: String::new(),
             active_tool: None,
             iteration_count: 0,
@@ -186,6 +191,8 @@ impl<'a> App<'a> {
                                 self.total_tokens += resp.usage.total_tokens;
                                 self.total_prompt_tokens += resp.usage.prompt_tokens;
                                 self.total_completion_tokens += resp.usage.completion_tokens;
+                                self.total_reasoning_tokens += resp.usage.reasoning_tokens;
+                                self.total_action_tokens += resp.usage.action_tokens;
                                 self.context_estimate = (self.total_prompt_tokens + self.total_completion_tokens) as usize;
                                 self.status = format!("Done ({} iterations)", resp.iterations);
                                 self.scroll = self.messages.len().saturating_sub(1);
@@ -537,10 +544,18 @@ impl<'a> App<'a> {
                 format!("{}tok", self.total_tokens),
                 Style::default().fg(Color::Yellow),
             ));
-            spans.push(Span::styled(
-                format!(" ({}↑ {}↓)", self.total_prompt_tokens, self.total_completion_tokens),
-                Style::default().fg(Color::DarkGray),
-            ));
+            // Show thinking/action split if reasoning tokens were tracked
+            if self.total_reasoning_tokens > 0 {
+                spans.push(Span::styled(
+                    format!(" (think:{} act:{})", self.total_reasoning_tokens, self.total_action_tokens),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            } else {
+                spans.push(Span::styled(
+                    format!(" ({}↑ {}↓)", self.total_prompt_tokens, self.total_completion_tokens),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
         }
 
         if self.iteration_count > 0 {

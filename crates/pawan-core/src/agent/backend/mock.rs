@@ -93,12 +93,14 @@ impl LlmBackend for MockBackend {
         Ok(match response {
             MockResponse::Text(content) => LLMResponse {
                 content,
+                reasoning: None,
                 tool_calls: vec![],
                 finish_reason: "stop".to_string(),
                 usage: None,
             },
             MockResponse::ToolCall { id, name, args } => LLMResponse {
                 content: String::new(),
+                reasoning: None,
                 tool_calls: vec![ToolCallRequest {
                     id,
                     name,

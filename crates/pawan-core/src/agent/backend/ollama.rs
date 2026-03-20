@@ -204,6 +204,7 @@ impl OllamaBackend {
 
         Ok(LLMResponse {
             content,
+            reasoning: None,
             tool_calls,
             finish_reason,
             usage: None,
@@ -250,6 +251,7 @@ impl OllamaBackend {
 
         Ok(LLMResponse {
             content,
+            reasoning: None,
             tool_calls,
             finish_reason,
             usage: None,

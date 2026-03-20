@@ -90,6 +90,10 @@ pub struct TokenUsage {
     pub prompt_tokens: u64,
     pub completion_tokens: u64,
     pub total_tokens: u64,
+    /// Tokens spent on reasoning/thinking (subset of completion_tokens)
+    pub reasoning_tokens: u64,
+    /// Tokens spent on actual content/tool output (completion - reasoning)
+    pub action_tokens: u64,
 }
 
 /// LLM response from a generation request
@@ -97,6 +101,8 @@ pub struct TokenUsage {
 pub struct LLMResponse {
     /// Text content of the response
     pub content: String,
+    /// Reasoning/thinking content (separate from visible content)
+    pub reasoning: Option<String>,
     /// Tool calls requested by the model
     pub tool_calls: Vec<ToolCallRequest>,
     /// Reason the response finished
@@ -496,6 +502,7 @@ impl PawanAgent {
                                         attempt,
                                         last_err.as_ref().map(|e| e.to_string()).unwrap_or_default()
                                     ),
+                                    reasoning: None,
                                     tool_calls: vec![],
                                     finish_reason: "error".to_string(),
                                     usage: None,
@@ -506,11 +513,36 @@ impl PawanAgent {
                 }
             };
 
-            // Accumulate token usage
+            // Accumulate token usage with thinking/action split
             if let Some(ref usage) = response.usage {
                 total_usage.prompt_tokens += usage.prompt_tokens;
                 total_usage.completion_tokens += usage.completion_tokens;
                 total_usage.total_tokens += usage.total_tokens;
+                total_usage.reasoning_tokens += usage.reasoning_tokens;
+                total_usage.action_tokens += usage.action_tokens;
+
+                // Log token budget split per iteration
+                if usage.reasoning_tokens > 0 {
+                    tracing::info!(
+                        iteration = iterations,
+                        think = usage.reasoning_tokens,
+                        act = usage.action_tokens,
+                        total = usage.completion_tokens,
+                        "Token budget: think:{} act:{} (total:{})",
+                        usage.reasoning_tokens, usage.action_tokens, usage.completion_tokens
+                    );
+                }
+
+                // Thinking budget enforcement
+                let thinking_budget = self.config.thinking_budget;
+                if thinking_budget > 0 && usage.reasoning_tokens > thinking_budget as u64 {
+                    tracing::warn!(
+                        budget = thinking_budget,
+                        actual = usage.reasoning_tokens,
+                        "Thinking budget exceeded ({}/{} tokens)",
+                        usage.reasoning_tokens, thinking_budget
+                    );
+                }
             }
 
             // --- Guardrail: strip thinking blocks from content ---
