@@ -55,7 +55,7 @@ fn test_tool_registry_definitions() {
     let definitions = registry.get_definitions();
 
     // Should have 21 tools (11 base + 5 git + 2 sub-agent + edit_file_lines + insert_after + append_file)
-    assert_eq!(definitions.len(), 27);
+    assert_eq!(definitions.len(), 28);
 
     // Each definition should have name, description, and parameters
     for def in &definitions {
@@ -375,7 +375,7 @@ async fn test_agent_tool_definitions() {
     let definitions = agent.get_tool_definitions();
 
     // Should have all tools (21 total: 11 base + 5 git + 2 sub-agent + edit_file_lines + insert_after + append_file)
-    assert_eq!(definitions.len(), 27);
+    assert_eq!(definitions.len(), 28);
 
     // Verify tool names
     let names: Vec<&str> = definitions.iter().map(|d| d.name.as_str()).collect();
