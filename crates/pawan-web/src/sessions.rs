@@ -3,6 +3,10 @@ use std::fs;
 use std::path::PathBuf;
 
 #[derive(Debug, Serialize)]
+/// Summary information about a chat session
+///
+/// This struct represents basic metadata about a saved chat session,
+/// used for listing sessions in the UI.
 pub struct SessionSummary {
     pub id: String,
     pub created_at: String,
@@ -11,6 +15,10 @@ pub struct SessionSummary {
 }
 
 #[derive(Debug, Serialize)]
+/// Detailed information about a chat session
+///
+/// This struct contains the full content of a saved chat session,
+/// including all messages and their metadata.
 pub struct SessionDetail {
     pub id: String,
     pub messages: serde_json::Value,
@@ -21,6 +29,13 @@ fn sessions_dir() -> PathBuf {
     PathBuf::from(home).join(".pawan").join("sessions")
 }
 
+/// List all saved chat sessions
+///
+/// Returns a list of all saved chat sessions with their metadata.
+///
+/// # Returns
+/// * `Ok(Vec<SessionSummary>)` - List of session summaries sorted by creation date (newest first)
+/// * `Err(String)` - Error message if session directory cannot be read
 pub fn list_sessions() -> Result<Vec<SessionSummary>, String> {
     let dir = sessions_dir();
     if !dir.exists() {
@@ -73,6 +88,16 @@ pub fn list_sessions() -> Result<Vec<SessionSummary>, String> {
     Ok(sessions)
 }
 
+/// Get a specific chat session by ID
+///
+/// Retrieves the full content of a saved chat session.
+///
+/// # Arguments
+/// * `id` - The session ID to retrieve
+///
+/// # Returns
+/// * `Ok(SessionDetail)` - The session content
+/// * `Err(String)` - Error message if session is not found or cannot be read
 pub fn get_session(id: &str) -> Result<SessionDetail, String> {
     let path = sessions_dir().join(format!("{}.json", id));
     if !path.exists() {
@@ -89,6 +114,16 @@ pub fn get_session(id: &str) -> Result<SessionDetail, String> {
     })
 }
 
+/// Delete a chat session by ID
+///
+/// Permanently deletes a saved chat session.
+///
+/// # Arguments
+/// * `id` - The session ID to delete
+///
+/// # Returns
+/// * `Ok(())` - Session successfully deleted
+/// * `Err(String)` - Error message if session is not found or cannot be deleted
 pub fn delete_session(id: &str) -> Result<(), String> {
     let path = sessions_dir().join(format!("{}.json", id));
     if !path.exists() {
