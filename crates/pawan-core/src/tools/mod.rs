@@ -123,7 +123,10 @@ impl ToolRegistry {
         registry.register(Arc::new(native::SdTool::new(workspace_root.clone())));
         registry.register(Arc::new(native::ErdTool::new(workspace_root.clone())));
         registry.register(Arc::new(native::MiseTool::new(workspace_root.clone())));
-        registry.register(Arc::new(native::ZoxideTool::new(workspace_root)));
+        registry.register(Arc::new(native::ZoxideTool::new(workspace_root.clone())));
+
+        // AST-level code manipulation
+        registry.register(Arc::new(native::AstGrepTool::new(workspace_root)));
 
         registry
     }
