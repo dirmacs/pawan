@@ -621,3 +621,124 @@ impl Tool for ZoxideTool {
         }))
     }
 }
+
+// ─── ast-grep ────────────────────────────────────────────────────────────────
+
+pub struct AstGrepTool {
+    workspace_root: PathBuf,
+}
+
+impl AstGrepTool {
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
+    }
+}
+
+#[async_trait]
+impl Tool for AstGrepTool {
+    fn name(&self) -> &str { "ast_grep" }
+
+    fn description(&self) -> &str {
+        "ast-grep — structural code search and rewrite using AST patterns. \
+         Unlike regex, this matches code by syntax tree structure. Use $NAME for \
+         single-node wildcards, $$$ARGS for variadic (multiple nodes). \
+         Actions: 'search' finds matches, 'rewrite' transforms them in-place. \
+         Examples: pattern='fn $NAME($$$ARGS)' finds all functions. \
+         pattern='$EXPR.unwrap()' rewrite='$EXPR?' replaces unwrap with ?. \
+         Supports: rust, python, javascript, typescript, go, c, cpp, java."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["search", "rewrite"],
+                    "description": "search: find matching code. rewrite: transform matching code in-place."
+                },
+                "pattern": {
+                    "type": "string",
+                    "description": "AST pattern to match. Use $VAR for wildcards, $$$VAR for variadic. e.g. 'fn $NAME($$$ARGS) -> $RET { $$$ }'"
+                },
+                "rewrite": {
+                    "type": "string",
+                    "description": "Replacement pattern (only for action=rewrite). Use captured $VARs. e.g. '$EXPR?'"
+                },
+                "path": {
+                    "type": "string",
+                    "description": "File or directory to search/rewrite"
+                },
+                "lang": {
+                    "type": "string",
+                    "description": "Language: rust, python, javascript, typescript, go, c, cpp, java (default: auto-detect)"
+                }
+            },
+            "required": ["action", "pattern", "path"]
+        })
+    }
+
+    async fn execute(&self, args: Value) -> crate::Result<Value> {
+        if !binary_exists("ast-grep") {
+            return Err(crate::PawanError::Tool(
+                "ast-grep not found. Install: cargo install ast-grep".into(),
+            ));
+        }
+
+        let action = args["action"].as_str()
+            .ok_or_else(|| crate::PawanError::Tool("action required (search or rewrite)".into()))?;
+        let pattern = args["pattern"].as_str()
+            .ok_or_else(|| crate::PawanError::Tool("pattern required".into()))?;
+        let path = args["path"].as_str()
+            .ok_or_else(|| crate::PawanError::Tool("path required".into()))?;
+
+        let mut cmd_args: Vec<String> = vec!["run".into()];
+
+        // Language
+        if let Some(lang) = args["lang"].as_str() {
+            cmd_args.push("--lang".into());
+            cmd_args.push(lang.into());
+        }
+
+        // Pattern
+        cmd_args.push("--pattern".into());
+        cmd_args.push(pattern.into());
+
+        match action {
+            "search" => {
+                // Search mode: just find and report matches
+                cmd_args.push(path.into());
+            }
+            "rewrite" => {
+                let rewrite = args["rewrite"].as_str()
+                    .ok_or_else(|| crate::PawanError::Tool("rewrite pattern required for action=rewrite".into()))?;
+                cmd_args.push("--rewrite".into());
+                cmd_args.push(rewrite.into());
+                cmd_args.push("--update-all".into());
+                cmd_args.push(path.into());
+            }
+            _ => {
+                return Err(crate::PawanError::Tool(
+                    format!("Unknown action: {}. Use 'search' or 'rewrite'", action),
+                ));
+            }
+        }
+
+        let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
+        let (stdout, stderr, success) = run_cmd("ast-grep", &cmd_refs, &self.workspace_root).await
+            .map_err(|e| crate::PawanError::Tool(e))?;
+
+        // Count matches from output
+        let match_count = stdout.lines()
+            .filter(|l| l.starts_with('/') || l.contains("│"))
+            .count();
+
+        Ok(json!({
+            "success": success,
+            "action": action,
+            "matches": match_count,
+            "output": stdout,
+            "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
+        }))
+    }
+}
