@@ -135,7 +135,8 @@ impl ToolRegistry {
         registry.register_with_tier(Arc::new(native::SdTool::new(workspace_root.clone())), Extended);
         registry.register_with_tier(Arc::new(native::ErdTool::new(workspace_root.clone())), Extended);
         registry.register_with_tier(Arc::new(native::MiseTool::new(workspace_root.clone())), Extended);
-        registry.register_with_tier(Arc::new(native::ZoxideTool::new(workspace_root)), Extended);
+        registry.register_with_tier(Arc::new(native::ZoxideTool::new(workspace_root.clone())), Extended);
+        registry.register_with_tier(Arc::new(native::LspTool::new(workspace_root)), Extended);
 
         registry
     }

@@ -937,7 +937,7 @@ mod milestone_tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let registry = crate::tools::ToolRegistry::with_defaults(tmp.path().into());
         let defs = registry.get_all_definitions();
-        assert!(defs.len() >= 27, "Expected at least 27 tools, got {}", defs.len());
+        assert!(defs.len() >= 28, "Expected at least 28 tools, got {}", defs.len());
     }
 
     #[test]
