@@ -99,9 +99,11 @@ impl Tool for McpToolBridge {
         if texts.len() == 1 {
             // Try to parse as JSON
             if let Ok(parsed) = serde_json::from_str::<Value>(&texts[0]) {
-                // Flatten search responses for LLM readability
+                // Format search responses as TOON for LLM readability
                 if let Some(data) = parsed.get("data").and_then(|d| d.as_array()) {
-                    let summary: Vec<String> = data.iter().enumerate().map(|(i, r)| {
+                    // Format as plain text that any LLM can parse unambiguously
+                    let mut output = format!("Found {} search results:\n\n", data.len());
+                    for (i, r) in data.iter().enumerate() {
                         let title = r.get("title").and_then(|v| v.as_str()).unwrap_or("?");
                         let url = r.get("url").and_then(|v| v.as_str()).unwrap_or("?");
                         let desc = r.get("description").and_then(|v| v.as_str()).unwrap_or("");
@@ -109,21 +111,30 @@ impl Tool for McpToolBridge {
                             .and_then(|m| m.get("source"))
                             .and_then(|v| v.as_str())
                             .unwrap_or("unknown");
-                        format!("{}. {} [{}]\n   {}\n   {}", i + 1, title, source, url, desc)
-                    }).collect();
-                    Ok(serde_json::json!({
-                        "result_count": data.len(),
-                        "results": summary.join("\n\n"),
-                    }))
+                        output.push_str(&format!("{}. {}\n", i + 1, title));
+                        output.push_str(&format!("   URL: {}\n", url));
+                        output.push_str(&format!("   Source: {}\n", source));
+                        if !desc.is_empty() && desc.len() < 200 {
+                            output.push_str(&format!("   {}\n", desc));
+                        }
+                        output.push('\n');
+                    }
+                    Ok(Value::String(output))
                 } else {
-                    Ok(parsed)
+                    // Non-search JSON — try TOON encoding for token savings
+                    match toon_format::encode_default(&parsed) {
+                        Ok(toon_str) => Ok(serde_json::json!({
+                            "format": "toon",
+                            "content": toon_str,
+                        })),
+                        Err(_) => Ok(parsed),
+                    }
                 }
             } else {
                 Ok(Value::String(texts[0].clone()))
             }
         } else {
-            Ok(serde_json::json!({ "results": texts })
-            )
+            Ok(serde_json::json!({ "results": texts }))
         }
     }
 }

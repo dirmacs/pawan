@@ -20,3 +20,4 @@ thiserror = { workspace = true }
 # MCP client + server
 rmcp = { version = "0.12", features = ["client", "server", "transport-io", "transport-child-process"] }
 schemars = "1.0"
+toon-format = { version = "0.4.4", default-features = false }
