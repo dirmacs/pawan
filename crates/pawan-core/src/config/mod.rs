@@ -109,9 +109,70 @@ pub struct PawanConfig {
     /// Enables hybrid local+cloud routing.
     pub cloud: Option<CloudConfig>,
 
+    /// Task-type model routing: use different models for different task categories.
+    /// If not set, all tasks use the primary model.
+    #[serde(default)]
+    pub models: ModelRouting,
+
     /// Eruka context engine integration (3-tier memory injection)
     #[serde(default)]
     pub eruka: crate::eruka_bridge::ErukaConfig,
+}
+
+/// Task-type model routing — use different models for different task categories.
+///
+/// # Example (pawan.toml)
+/// ```toml
+/// [models]
+/// code = "mistralai/mistral-small-4-119b-2603"     # best for code generation
+/// orchestrate = "stepfun-ai/step-3.5-flash"         # best for tool calling
+/// execute = "mlx-community/Qwen3.5-9B-OptiQ-4bit"  # fast local execution
+/// ```
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ModelRouting {
+    /// Model for code generation tasks (implement, refactor, write tests)
+    pub code: Option<String>,
+    /// Model for orchestration tasks (multi-step tool chains, analysis)
+    pub orchestrate: Option<String>,
+    /// Model for simple execution tasks (bash, write_file, cargo test)
+    pub execute: Option<String>,
+}
+
+impl ModelRouting {
+    /// Select the best model for a given task based on keyword analysis.
+    /// Returns None if no routing matches (use default model).
+    pub fn route(&self, query: &str) -> Option<&str> {
+        let q = query.to_lowercase();
+
+        // Code generation patterns
+        if self.code.is_some() {
+            let code_signals = ["implement", "write", "create", "refactor", "fix", "add test",
+                "add function", "struct", "enum", "trait", "algorithm", "data structure"];
+            if code_signals.iter().any(|s| q.contains(s)) {
+                return self.code.as_deref();
+            }
+        }
+
+        // Orchestration patterns
+        if self.orchestrate.is_some() {
+            let orch_signals = ["search", "find", "analyze", "review", "explain", "compare",
+                "list", "check", "verify", "diagnose", "audit"];
+            if orch_signals.iter().any(|s| q.contains(s)) {
+                return self.orchestrate.as_deref();
+            }
+        }
+
+        // Execution patterns
+        if self.execute.is_some() {
+            let exec_signals = ["run", "execute", "bash", "cargo", "test", "build",
+                "deploy", "install", "commit"];
+            if exec_signals.iter().any(|s| q.contains(s)) {
+                return self.execute.as_deref();
+            }
+        }
+
+        None
+    }
 }
 
 /// Cloud fallback configuration for hybrid local+cloud model routing.
@@ -194,6 +255,7 @@ impl Default for PawanConfig {
             mcp: HashMap::new(),
             permissions: HashMap::new(),
             cloud: None,
+            models: ModelRouting::default(),
             eruka: crate::eruka_bridge::ErukaConfig::default(),
         }
     }
@@ -481,6 +543,8 @@ CRITICAL — Efficiency rules (you have limited tool iterations):
 - If a tool is missing, it will be auto-installed. Don't worry about dependencies.
 
 Tool priorities (use the best tool for the job):
+- Web search: use mcp_daedra_web_search for ANY web/internet query. It searches Wikipedia,
+  StackOverflow, GitHub, and more. NEVER use bash+curl for web search — use this tool.
 - Code edits: prefer ast_grep rewrite for structural changes (rename, refactor, pattern replace).
   Only use edit_file/edit_file_lines for non-code files or when ast_grep can't express the change.
 - Code search: prefer ast_grep search for structural queries (find all functions, find unwrap() calls).

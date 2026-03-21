@@ -454,6 +454,10 @@ impl PawanAgent {
                 .map(|m| m.content.as_str())
                 .unwrap_or("");
             let tool_defs = self.tools.select_for_query(latest_query, 12);
+            if iterations == 1 {
+                let tool_names: Vec<&str> = tool_defs.iter().map(|t| t.name.as_str()).collect();
+                tracing::info!(tools = ?tool_names, count = tool_defs.len(), "Selected tools for query");
+            }
 
             // --- Resilient LLM call: retry on transient failures instead of crashing ---
             let response = {
