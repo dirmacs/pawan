@@ -45,6 +45,7 @@ tui-textarea = { version = "0.7", optional = true }
 # Terminal output
 syntect = "5.2"
 termimad = "0.30"
+atty = "0.2.14"
 
 [dev-dependencies]
 tempfile = "3.23"
