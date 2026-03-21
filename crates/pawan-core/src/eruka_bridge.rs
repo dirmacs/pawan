@@ -95,8 +95,11 @@ impl ErukaClient {
 
         let url = format!("{}/api/v1/context", self.config.url);
         let mut req = self.http.get(&url);
+        // Service-to-service auth via X-Service-Key + X-Workspace-Id
         if let Some(key) = &self.config.api_key {
-            req = req.header("Authorization", format!("Bearer {}", key));
+            req = req
+                .header("X-Service-Key", key.as_str())
+                .header("X-Workspace-Id", "pawan");
         }
 
         let resp = req.send().await.map_err(|e| {
@@ -192,7 +195,9 @@ impl ErukaClient {
             .post(&url)
             .json(&serde_json::json!({"query": query, "limit": 5}));
         if let Some(key) = &self.config.api_key {
-            req = req.header("Authorization", format!("Bearer {}", key));
+            req = req
+                .header("X-Service-Key", key.as_str())
+                .header("X-Workspace-Id", "pawan");
         }
 
         let resp = req.send().await.map_err(|e| {
@@ -256,13 +261,14 @@ impl ErukaClient {
         let mut req = self.http
             .post(&url)
             .json(&serde_json::json!({
-                "field_name": format!("pawan_session_{}", session.id),
+                "path": format!("operations/sessions/{}", session.id),
                 "value": summary,
-                "category": "operations",
-                "source": "pawan",
+                "source": "agent",
             }));
         if let Some(key) = &self.config.api_key {
-            req = req.header("Authorization", format!("Bearer {}", key));
+            req = req
+                .header("X-Service-Key", key.as_str())
+                .header("X-Workspace-Id", "pawan");
         }
 
         match req.send().await {

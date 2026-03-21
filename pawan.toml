@@ -1,5 +1,4 @@
 # Pawan — NIM cloud primary (Mac local paused — swap-bound, needs reboot)
-# Switch back to MLX after Mac reboot by changing provider to "mlx"
 provider = "nvidia"
 model = "mistralai/mistral-small-4-119b-2603"
 temperature = 0.6
@@ -7,21 +6,16 @@ max_tokens = 4096
 max_tool_iterations = 20
 thinking_budget = 0
 
-# Mac local inference (paused — uncomment to re-enable after reboot)
-# provider = "mlx"
-# model = "mlx-community/Qwen3.5-4B-MLX-8bit"
-# base_url = "http://localhost:8080/v1"
-
 [cloud]
 provider = "nvidia"
 model = "stepfun-ai/step-3.5-flash"
 
+[eruka]
+enabled = true
+url = "http://localhost:8081"
+api_key = "dirmacs-service-key-2026-secure"
+core_max_tokens = 500
+
 [mcp.daedra]
 command = "daedra"
 args = ["serve", "--transport", "stdio", "--quiet"]
-
-# eruka MCP: enable when eruka-mcp binary is built
-# [mcp.eruka]
-# command = "/opt/eruka/target/release/eruka-mcp"
-# args = ["--transport", "stdio", "--user-id", "63cca910-aff3-48b8-bb32-e0cdcd5f9a2e"]
-# env = { DATABASE_URL = "postgres://dirmacs:2ab91004d735521aa189e446b0344aca@localhost/eruka" }
