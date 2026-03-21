@@ -189,6 +189,80 @@ impl ToolRegistry {
             .collect()
     }
 
+    /// Dynamic tool selection — pick the most relevant tools for a given query.
+    ///
+    /// Returns Core tools (always) + top-K scored Standard/Extended tools based
+    /// on keyword matching between the query and tool names/descriptions.
+    /// This reduces 22+ tools to ~8-10, making MCP and extended tools visible.
+    pub fn select_for_query(&self, query: &str, max_tools: usize) -> Vec<ToolDefinition> {
+        let query_lower = query.to_lowercase();
+        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+
+        let mut scored: Vec<(i32, String)> = Vec::new();
+
+        for (name, tool) in &self.tools {
+            let tier = self.tiers.get(name.as_str()).copied().unwrap_or(ToolTier::Standard);
+
+            // Core tools always included — skip scoring
+            if tier == ToolTier::Core { continue; }
+
+            // Score based on keyword overlap between query and tool name + description
+            let tool_text = format!("{} {}", name, tool.description()).to_lowercase();
+            let mut score: i32 = 0;
+
+            for word in &query_words {
+                if word.len() < 3 { continue; } // skip short words
+                if tool_text.contains(word) { score += 2; }
+            }
+
+            // Bonus for keyword categories
+            let search_words = ["search", "find", "web", "query", "look", "google", "bing", "wikipedia"];
+            let git_words = ["git", "commit", "branch", "diff", "status", "log", "stash", "checkout", "blame"];
+            let file_words = ["file", "read", "write", "edit", "append", "insert", "directory", "list"];
+            let code_words = ["refactor", "rename", "replace", "ast", "lsp", "symbol", "function", "struct"];
+            let tool_words = ["install", "mise", "tool", "runtime", "build", "test", "cargo"];
+
+            for word in &query_words {
+                if search_words.contains(word) && tool_text.contains("search") { score += 3; }
+                if git_words.contains(word) && tool_text.contains("git") { score += 3; }
+                if file_words.contains(word) && (tool_text.contains("file") || tool_text.contains("edit")) { score += 3; }
+                if code_words.contains(word) && (tool_text.contains("ast") || tool_text.contains("lsp")) { score += 3; }
+                if tool_words.contains(word) && tool_text.contains("mise") { score += 3; }
+            }
+
+            // MCP tools get a small boost to ensure they're visible when relevant
+            if name.starts_with("mcp_") { score += 1; }
+
+            // Activated extended tools get a boost (user has used them before)
+            let activated = self.activated.lock().unwrap();
+            if tier == ToolTier::Extended && activated.contains(name.as_str()) { score += 2; }
+
+            if score > 0 || tier == ToolTier::Standard {
+                scored.push((score, name.clone()));
+            }
+        }
+
+        // Sort by score descending
+        scored.sort_by(|a, b| b.0.cmp(&a.0));
+
+        // Collect: all Core tools + top-K scored tools
+        let mut result: Vec<ToolDefinition> = self.tools.iter()
+            .filter(|(name, _)| {
+                self.tiers.get(name.as_str()).copied().unwrap_or(ToolTier::Standard) == ToolTier::Core
+            })
+            .map(|(_, tool)| tool.to_definition())
+            .collect();
+
+        let remaining_slots = max_tools.saturating_sub(result.len());
+        for (_, name) in scored.into_iter().take(remaining_slots) {
+            if let Some(tool) = self.tools.get(&name) {
+                result.push(tool.to_definition());
+            }
+        }
+
+        result
+    }
+
     /// Get ALL tool definitions regardless of tier (for tests and introspection)
     pub fn get_all_definitions(&self) -> Vec<ToolDefinition> {
         self.tools.values().map(|t| t.to_definition()).collect()
