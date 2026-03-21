@@ -1,7 +1,7 @@
 # Pawan — NIM cloud primary (Mac local paused — swap-bound, needs reboot)
 # Switch back to MLX after Mac reboot by changing provider to "mlx"
 provider = "nvidia"
-model = "stepfun-ai/step-3.5-flash"
+model = "mistralai/mistral-small-4-119b-2603"
 temperature = 0.6
 max_tokens = 4096
 max_tool_iterations = 20
