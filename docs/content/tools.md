@@ -163,7 +163,7 @@ command = "daedra"
 args = ["serve", "--transport", "stdio", "--quiet"]
 ```
 
-MCP tools are namespaced as `mcp_<server>_<tool>` (e.g., `mcp_daedra_search_duckduckgo`).
+MCP tools are namespaced as `mcp_<server>_<tool>` (e.g., `mcp_daedra_web_search`).
 
 List discovered tools: `pawan mcp list`
 
