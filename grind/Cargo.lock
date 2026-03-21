@@ -7,6 +7,10 @@ name = "avl_tree"
 version = "0.1.0"
 
 [[package]]
+name = "b_tree"
+version = "0.1.0"
+
+[[package]]
 name = "bloom_filter"
 version = "0.1.0"
 
