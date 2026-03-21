@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/rust-stable-orange.svg" alt="Rust">
   <img src="https://img.shields.io/badge/tools-29-green.svg" alt="29 tools">
-  <img src="https://img.shields.io/badge/tests-341-brightgreen.svg" alt="341 tests">
+  <img src="https://img.shields.io/badge/tests-372-brightgreen.svg" alt="372 tests">
 </p>
 
 ---
@@ -95,7 +95,7 @@ pawan/
     pawan-web/     # HTTP API — Axum SSE server (port 3300)
     pawan-mcp/     # MCP client (rmcp 0.12, stdio transport)
     pawan-aegis/   # aegis config resolution
-  grind/           # autonomous data structure workspace (14 structures, 107 tests)
+  grind/           # autonomous data structure workspace (16 structures, 119 tests)
 ```
 
 ### Safety & intelligence features
@@ -108,23 +108,23 @@ pawan/
 
 ### Recent additions (2026-03-20)
 
-**ast-grep tool** — AST-level code search and rewrite as a first-class tool. Structural refactors in one call.
+**Mistral Small 4 119B** — new primary model. First to achieve 100% autonomous data structure score (interval tree 6/6). Self-refactored 9 callsites in its own native.rs. 11 NIM models benchmarked.
+
+**ast-grep + LSP tools** — AST-level code search/rewrite (multi-language) and rust-analyzer powered type-aware intelligence. Structural refactors in one tool call.
 
 **Token budget system** — `reasoning_tokens` and `action_tokens` tracked per LLM call. `thinking_budget` config caps thinking overhead. TUI shows `think:N act:N` split.
 
-**Qwen3.5-9B-OptiQ** — per-layer mixed-precision quantization model running on Mac Mini M4 via MLX. 17-18 tok/s, $0/token. `enable_thinking: false` eliminates thinking overhead for execution tasks.
+**Auto-install + tiered registry** — missing CLI tools auto-install via mise on first use. 29 tools in 3 tiers (Core/Standard/Extended) — ~40% prompt token savings.
 
-**28 TUI e2e tests** — full rendering + event handling tests using ratatui TestBackend.
-
-**14 grind structures** — bloom filter, fenwick, skip list, trie, segment tree, DSU, treap, suffix array, leftist heap, radix tree, pairing heap, splay tree, rope, AVL tree.
+**16 grind structures** — bloom filter, fenwick, skip list, trie, segment tree, DSU, treap, suffix array, leftist heap, radix tree, pairing heap, splay tree, rope, AVL tree, LRU cache, interval tree.
 
 ## Configuration
 
 Priority: CLI flags > env vars > `pawan.toml` > `~/.config/pawan/pawan.toml` > defaults
 
 ```bash
-PAWAN_PROVIDER=mlx              # nvidia | ollama | openai | mlx
-PAWAN_MODEL=mlx-community/Qwen3.5-9B-OptiQ-4bit
+PAWAN_PROVIDER=nvidia           # nvidia | ollama | openai | mlx
+PAWAN_MODEL=mistralai/mistral-small-4-119b-2603
 PAWAN_TEMPERATURE=0.6
 PAWAN_MAX_TOKENS=4096
 NVIDIA_API_KEY=nvapi-...
@@ -132,17 +132,16 @@ NVIDIA_API_KEY=nvapi-...
 
 ```toml
 # pawan.toml
-provider = "mlx"
-model = "mlx-community/Qwen3.5-9B-OptiQ-4bit"
-base_url = "http://localhost:8080/v1"
+provider = "nvidia"
+model = "mistralai/mistral-small-4-119b-2603"
 temperature = 0.6
 max_tokens = 4096
 max_tool_iterations = 20
-thinking_budget = 0  # 0 = unlimited, or set max thinking tokens
+thinking_budget = 0
 
 [cloud]
 provider = "nvidia"
-model = "step-ai/step-2-flash"
+model = "stepfun-ai/step-3.5-flash"
 
 [mcp.daedra]
 command = "daedra"
@@ -158,14 +157,14 @@ Pawan supports local-first inference with cloud fallback:
 
 Zero-cost local inference with cloud reliability as a safety net.
 
-## Model triage
+## Model triage (11 models tested)
 
-| Model | Provider | Status | Notes |
-|-------|----------|--------|-------|
-| StepFun Flash | NIM | Best cloud | 98.9% tool call success |
-| Qwen3.5-9B-OptiQ-4bit | MLX | Best local | 17-18 tok/s, 85% tool calls, 100% execution tasks |
-| Nemotron-3-Nano-4B | MLX | Dead | Broken chat template, garbled output |
-| Nemotron-Cascade-8B | MLX | Dead | Can't disable thinking, burns all tokens |
+| Model | Provider | Coding | Tool Calling | Notes |
+|-------|----------|--------|-------------|-------|
+| **Mistral Small 4 119B** | NIM | **Best** (6/6 interval tree) | Good | First 100% autonomous score. Self-corrects via semantic reasoning. |
+| **StepFun Flash** | NIM | Good | **Best** (98.9%) | Best for orchestration and multi-step tool chains. |
+| MiniMax M2.5 | NIM | Good (4/5 B-Tree) | Good | Tied with Mistral on B-Tree, fewer tool calls. |
+| Qwen3.5-9B-OptiQ | MLX | Execution only | 85% | Best local. 17-18 tok/s, $0. Can't generate complex algos. |
 
 Full triage: [dirmacs.github.io/pawan/triage/](https://dirmacs.github.io/pawan/triage/)
 
