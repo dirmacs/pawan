@@ -178,7 +178,7 @@ Full triage: [dirmacs.github.io/pawan/triage/](https://dirmacs.github.io/pawan/t
 | [doltares](https://github.com/dirmacs/doltares) | Orchestration daemon (DAG workflows, council/consultant nodes) |
 | [doltclaw](https://github.com/dirmacs/doltclaw) | Minimal Rust agent runtime |
 | [nimakai](https://github.com/dirmacs/nimakai) | NIM model latency benchmarker (Nim) |
-| [daedra](https://github.com/dirmacs/daedra) | Web search MCP server |
+| [daedra](https://dirmacs.github.io/daedra) | Self-contained web search MCP server (7 backends, automatic fallback) |
 
 ## License
 
