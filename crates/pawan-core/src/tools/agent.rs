@@ -253,3 +253,31 @@ impl Tool for SpawnAgentsTool {
         }))
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_spawn_agent_tool_name() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        assert_eq!(tool.name(), "spawn_agent");
+    }
+
+    #[test]
+    fn test_spawn_agents_tool_name() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
+        assert_eq!(tool.name(), "spawn_agents");
+    }
+
+    #[test]
+    fn test_spawn_agent_schema_has_prompt() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let schema = tool.parameters_schema();
+        assert!(schema["properties"]["prompt"].is_object());
+        assert!(schema["required"].as_array().unwrap().iter().any(|v| v == "prompt"));
+    }
+}
