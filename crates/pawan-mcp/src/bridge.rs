@@ -97,16 +97,33 @@ impl Tool for McpToolBridge {
         }
 
         if texts.len() == 1 {
-            // Try to parse as JSON, fallback to string
+            // Try to parse as JSON
             if let Ok(parsed) = serde_json::from_str::<Value>(&texts[0]) {
-                Ok(parsed)
+                // Flatten search responses for LLM readability
+                if let Some(data) = parsed.get("data").and_then(|d| d.as_array()) {
+                    let summary: Vec<String> = data.iter().enumerate().map(|(i, r)| {
+                        let title = r.get("title").and_then(|v| v.as_str()).unwrap_or("?");
+                        let url = r.get("url").and_then(|v| v.as_str()).unwrap_or("?");
+                        let desc = r.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                        let source = r.get("metadata")
+                            .and_then(|m| m.get("source"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        format!("{}. {} [{}]\n   {}\n   {}", i + 1, title, source, url, desc)
+                    }).collect();
+                    Ok(serde_json::json!({
+                        "result_count": data.len(),
+                        "results": summary.join("\n\n"),
+                    }))
+                } else {
+                    Ok(parsed)
+                }
             } else {
                 Ok(Value::String(texts[0].clone()))
             }
         } else {
-            Ok(serde_json::json!({
-                "results": texts,
-            }))
+            Ok(serde_json::json!({ "results": texts })
+            )
         }
     }
 }

@@ -230,8 +230,16 @@ impl ToolRegistry {
                 if tool_words.contains(word) && tool_text.contains("mise") { score += 3; }
             }
 
-            // MCP tools get a small boost to ensure they're visible when relevant
-            if name.starts_with("mcp_") { score += 1; }
+            // MCP tools get a boost — especially web search when query mentions web/internet/online
+            if name.starts_with("mcp_") {
+                score += 1;
+                if name.contains("search") || name.contains("web") {
+                    let web_words = ["web", "search", "internet", "online", "find", "look up", "google"];
+                    if web_words.iter().any(|w| query_lower.contains(w)) {
+                        score += 10; // Strong boost — this is what the user wants
+                    }
+                }
+            }
 
             // Activated extended tools get a boost (user has used them before)
             let activated = self.activated.lock().unwrap();
