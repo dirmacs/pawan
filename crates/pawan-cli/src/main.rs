@@ -2145,11 +2145,50 @@ async fn run_headless(
             std::io::stdout().flush().ok();
         }))
     } else if !is_json {
+        // Stateful token filter: suppresses [TOOL_CALLS], <think>, and model narration
+        let suppressing = std::sync::Arc::new(std::sync::Mutex::new(false));
+        let buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         Some(Box::new(move |token: &str| {
             use std::io::Write;
-            // Strip thinking tags from streamed tokens
-            let clean = token.replace("<think>", "").replace("</think>", "");
+            let mut sup = suppressing.lock().unwrap();
+            let mut buf = buffer.lock().unwrap();
+
+            // Accumulate into buffer for pattern detection
+            buf.push_str(token);
+
+            // Suppress [TOOL_CALLS] blocks — model emits these as text before actual tool call
+            if buf.contains("[TOOL_CALLS]") || buf.contains("[TOOL_CALL]") {
+                *sup = true;
+                buf.clear();
+                return;
+            }
+
+            // If suppressing, eat tokens until newline (tool call JSON ends at newline)
+            if *sup {
+                if token.contains('\n') {
+                    *sup = false;
+                    buf.clear();
+                }
+                return;
+            }
+
+            // Strip thinking tags
+            let clean = buf
+                .replace("<think>", "").replace("</think>", "")
+                .replace("<|im_start|>", "").replace("<|im_end|>", "");
+
+            // Suppress empty planning narration ("I'll", "Let me", "I will")
+            // Only on the very first output tokens
+            if clean.len() < 50 {
+                let lower = clean.trim().to_lowercase();
+                if lower.starts_with("i'll ") || lower.starts_with("let me ") || lower.starts_with("i will ") {
+                    // Don't print yet — buffer it in case it's just narration before a tool call
+                    return;
+                }
+            }
+
             if !clean.is_empty() {
+                buf.clear();
                 if use_color_token {
                     print!("\x1b[37m{}\x1b[0m", clean);
                 } else {
