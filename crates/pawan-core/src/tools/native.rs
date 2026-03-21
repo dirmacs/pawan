@@ -196,7 +196,7 @@ impl Tool for RipgrepTool {
         };
 
         let (stdout, stderr, success) = run_cmd("rg", &cmd_args, &cwd).await
-            .map_err(|e| crate::PawanError::Tool(e))?;
+            .map_err(crate::PawanError::Tool)?;
 
         let match_count = stdout.lines().filter(|l| !l.is_empty()).count();
 
@@ -278,7 +278,7 @@ impl Tool for FdTool {
 
         let cmd_args_ref: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
         let (stdout, stderr, _) = run_cmd("fd", &cmd_args_ref, &self.workspace_root).await
-            .map_err(|e| crate::PawanError::Tool(e))?;
+            .map_err(crate::PawanError::Tool)?;
 
         let max_results = args["max_results"].as_u64().unwrap_or(50) as usize;
         let all_files: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
@@ -354,7 +354,7 @@ impl Tool for SdTool {
         cmd_args.extend_from_slice(&[find, replace, path]);
 
         let (stdout, stderr, success) = run_cmd("sd", &cmd_args, &self.workspace_root).await
-            .map_err(|e| crate::PawanError::Tool(e))?;
+            .map_err(crate::PawanError::Tool)?;
 
         Ok(json!({
             "success": success,
@@ -473,7 +473,7 @@ impl Tool for ErdTool {
 
         let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
         let (stdout, stderr, success) = run_cmd("erd", &cmd_refs, &self.workspace_root).await
-            .map_err(|e| crate::PawanError::Tool(e))?;
+            .map_err(crate::PawanError::Tool)?;
 
         Ok(json!({
             "success": success,
@@ -538,7 +538,7 @@ impl Tool for GrepSearchTool {
         };
 
         let (stdout, _, _) = run_cmd("rg", &cmd_args, &cwd).await
-            .map_err(|e| crate::PawanError::Tool(e))?;
+            .map_err(crate::PawanError::Tool)?;
 
         let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).take(50).collect();
 
@@ -588,7 +588,7 @@ impl Tool for GlobSearchTool {
 
         let cmd_args = vec!["--glob", pattern, "--color", "never", path];
         let (stdout, _, _) = run_cmd("fd", &cmd_args, &self.workspace_root).await
-            .map_err(|e| crate::PawanError::Tool(e))?;
+            .map_err(crate::PawanError::Tool)?;
 
         let files: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
 
@@ -763,7 +763,7 @@ impl Tool for MiseTool {
 
         let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
         let (stdout, stderr, success) = run_cmd(&mise_bin, &cmd_refs, &self.workspace_root).await
-            .map_err(|e| crate::PawanError::Tool(e))?;
+            .map_err(crate::PawanError::Tool)?;
 
         Ok(json!({
             "success": success,
@@ -828,7 +828,7 @@ impl Tool for ZoxideTool {
 
         let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
         let (stdout, stderr, success) = run_cmd("zoxide", &cmd_refs, &self.workspace_root).await
-            .map_err(|e| crate::PawanError::Tool(e))?;
+            .map_err(crate::PawanError::Tool)?;
 
         Ok(json!({
             "success": success,
@@ -938,7 +938,7 @@ impl Tool for AstGrepTool {
 
         let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
         let (stdout, stderr, success) = run_cmd("ast-grep", &cmd_refs, &self.workspace_root).await
-            .map_err(|e| crate::PawanError::Tool(e))?;
+            .map_err(crate::PawanError::Tool)?;
 
         // Count matches from output
         let match_count = stdout.lines()
