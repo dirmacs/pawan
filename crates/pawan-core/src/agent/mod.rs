@@ -447,7 +447,13 @@ impl PawanAgent {
                 self.prune_history();
             }
 
-            let tool_defs = self.tools.get_definitions();
+            // Dynamic tool selection: pick the most relevant tools for this query
+            // Extract latest user message for keyword matching
+            let latest_query = self.history.iter().rev()
+                .find(|m| m.role == Role::User)
+                .map(|m| m.content.as_str())
+                .unwrap_or("");
+            let tool_defs = self.tools.select_for_query(latest_query, 12);
 
             // --- Resilient LLM call: retry on transient failures instead of crashing ---
             let response = {
