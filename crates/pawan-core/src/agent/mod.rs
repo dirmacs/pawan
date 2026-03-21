@@ -929,7 +929,7 @@ mod tests {
             tool_result: None,
         };
 
-        let json = serde_json::to_string(&msg).unwrap();
+        let json = serde_json::to_string(&msg).expect("Serialization failed");
         assert!(json.contains("user"));
         assert!(json.contains("Hello"));
     }
@@ -942,7 +942,7 @@ mod tests {
             arguments: json!({"path": "test.txt"}),
         };
 
-        let json = serde_json::to_string(&tc).unwrap();
+        let json = serde_json::to_string(&tc).expect("Serialization failed");
         assert!(json.contains("read_file"));
         assert!(json.contains("test.txt"));
     }
