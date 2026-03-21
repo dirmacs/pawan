@@ -278,4 +278,38 @@ mod tests {
             _ => panic!("Expected timeout error"),
         }
     }
+
+    #[tokio::test]
+    async fn test_bash_tool_name() {
+        let tmp = TempDir::new().unwrap();
+        let tool = BashTool::new(tmp.path().to_path_buf());
+        assert_eq!(tool.name(), "bash");
+    }
+
+    #[tokio::test]
+    async fn test_bash_exit_code() {
+        let tmp = TempDir::new().unwrap();
+        let tool = BashTool::new(tmp.path().to_path_buf());
+        let r = tool.execute(serde_json::json!({"command": "false"})).await.unwrap();
+        assert!(!r["success"].as_bool().unwrap());
+        assert_eq!(r["exit_code"].as_i64().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_bash_cwd() {
+        let tmp = TempDir::new().unwrap();
+        let tool = BashTool::new(tmp.path().to_path_buf());
+        let r = tool.execute(serde_json::json!({"command": "pwd"})).await.unwrap();
+        let stdout = r["stdout"].as_str().unwrap();
+        assert!(stdout.contains(tmp.path().to_str().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn test_bash_missing_command() {
+        let tmp = TempDir::new().unwrap();
+        let tool = BashTool::new(tmp.path().to_path_buf());
+        let r = tool.execute(serde_json::json!({})).await;
+        assert!(r.is_err());
+    }
 }
+

@@ -547,7 +547,7 @@ mod anchor_edge_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "fn a() {}\nfn a() {}\nfn b() {}\n").unwrap();
         let tool = EditFileLinesTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","anchor_text":"fn a()","anchor_count":1,"new_content":"fn replaced() {}"})).await.unwrap();
+        let _r = tool.execute(json!({"path":"f.rs","anchor_text":"fn a()","anchor_count":1,"new_content":"fn replaced() {}"})).await.unwrap();
         let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
         assert!(c.starts_with("fn replaced()"));
         assert!(c.contains("fn a() {}"));
@@ -710,7 +710,7 @@ mod git_tool_tests {
         std::fs::write(tmp.path().join("test.txt"), "hello").unwrap();
         let tool = GitStatusTool::new(tmp.path().into());
         let r = tool.execute(json!({})).await.unwrap();
-        let output = r["output"].as_str().unwrap_or("");
+        let _output = r["output"].as_str().unwrap_or("");
         // Git status should run without panicking in a valid repo
         assert!(r.is_object());
     }
