@@ -1134,3 +1134,68 @@ impl Tool for LspTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_binary_exists_cargo() {
+        assert!(binary_exists("cargo"));
+    }
+
+    #[test]
+    fn test_binary_exists_nonexistent() {
+        assert!(!binary_exists("nonexistent_binary_xyz_123"));
+    }
+
+    #[test]
+    fn test_mise_package_name_mapping() {
+        assert_eq!(mise_package_name("rg"), "ripgrep");
+        assert_eq!(mise_package_name("fd"), "fd");
+        assert_eq!(mise_package_name("sg"), "ast-grep");
+        assert_eq!(mise_package_name("erd"), "erdtree");
+        assert_eq!(mise_package_name("unknown"), "unknown");
+    }
+
+    #[tokio::test]
+    async fn test_ast_grep_tool_schema() {
+        let tmp = TempDir::new().unwrap();
+        let tool = AstGrepTool::new(tmp.path().to_path_buf());
+        assert_eq!(tool.name(), "ast_grep");
+        let schema = tool.parameters_schema();
+        assert!(schema["properties"]["action"].is_object());
+        assert!(schema["properties"]["pattern"].is_object());
+    }
+
+    #[tokio::test]
+    async fn test_lsp_tool_schema() {
+        let tmp = TempDir::new().unwrap();
+        let tool = LspTool::new(tmp.path().to_path_buf());
+        assert_eq!(tool.name(), "lsp");
+        let schema = tool.parameters_schema();
+        assert!(schema["properties"]["action"].is_object());
+    }
+
+    #[tokio::test]
+    async fn test_erd_tool_schema() {
+        let tmp = TempDir::new().unwrap();
+        let tool = ErdTool::new(tmp.path().to_path_buf());
+        assert_eq!(tool.name(), "tree");
+        let schema = tool.parameters_schema();
+        assert!(schema["properties"]["disk_usage"].is_object());
+        assert!(schema["properties"]["layout"].is_object());
+    }
+
+    #[tokio::test]
+    async fn test_mise_tool_schema() {
+        let tmp = TempDir::new().unwrap();
+        let tool = MiseTool::new(tmp.path().to_path_buf());
+        assert_eq!(tool.name(), "mise");
+        let schema = tool.parameters_schema();
+        assert!(schema["properties"]["action"].is_object());
+        assert!(schema["properties"]["task"].is_object());
+    }
+}
+

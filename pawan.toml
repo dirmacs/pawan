@@ -1,16 +1,20 @@
-# Pawan — MLX-first config
-# Primary: Qwen3.5-9B-OptiQ via mlx_lm.server on Mac Mini M4 (per-layer mixed-precision, 17-18 tok/s)
-# Fallback: NVIDIA NIM StepFun Flash (best tool-call success rate)
-provider = "mlx"
-model = "mlx-community/Qwen3.5-9B-OptiQ-4bit"
-base_url = "http://localhost:8080/v1"   # Mac Mini M4 MLX server via SSH tunnel (llama-tunnel.service)
+# Pawan — NIM cloud primary (Mac local paused — swap-bound, needs reboot)
+# Switch back to MLX after Mac reboot by changing provider to "mlx"
+provider = "nvidia"
+model = "stepfun-ai/step-3.5-flash"
 temperature = 0.6
 max_tokens = 4096
 max_tool_iterations = 20
+thinking_budget = 0
+
+# Mac local inference (paused — uncomment to re-enable after reboot)
+# provider = "mlx"
+# model = "mlx-community/Qwen3.5-4B-MLX-8bit"
+# base_url = "http://localhost:8080/v1"
 
 [cloud]
 provider = "nvidia"
-model = "step-ai/step-2-flash"
+model = "stepfun-ai/step-3.5-flash"
 
 [mcp.daedra]
 command = "daedra"

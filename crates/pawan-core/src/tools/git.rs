@@ -909,4 +909,31 @@ mod tests {
         assert!(result["success"].as_bool().unwrap());
         assert!(!result["has_changes"].as_bool().unwrap());
     }
+    #[tokio::test]
+    async fn test_git_status_tool_exists() {
+        let temp_dir = setup_git_repo().await;
+        let tool = GitStatusTool::new(temp_dir.path().to_path_buf());
+        assert_eq!(tool.name(), "git_status");
+    }
+
+    #[tokio::test]
+    async fn test_git_log_tool_exists() {
+        let temp_dir = setup_git_repo().await;
+        let tool = GitLogTool::new(temp_dir.path().to_path_buf());
+        assert_eq!(tool.name(), "git_log");
+    }
+
+    #[tokio::test]
+    async fn test_git_diff_schema() {
+        let temp_dir = setup_git_repo().await;
+        let tool = GitDiffTool::new(temp_dir.path().to_path_buf());
+        let schema = tool.parameters_schema();
+        // Check that schema has the expected parameters
+        let obj = schema.as_object().unwrap();
+        let props = obj.get("properties").unwrap().as_object().unwrap();
+        assert!(props.contains_key("staged"));
+        assert!(props.contains_key("file"));
+        assert!(props.contains_key("base"));
+        assert!(props.contains_key("stat"));
+    }
 }
