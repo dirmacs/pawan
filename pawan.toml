@@ -1,7 +1,7 @@
 # Pawan — NIM cloud primary (Mac local paused — swap-bound, needs reboot)
 # Switch back to MLX after Mac reboot by changing provider to "mlx"
 provider = "nvidia"
-model = "stepfun-ai/step-3.5-flash"
+model = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 temperature = 0.6
 max_tokens = 4096
 max_tool_iterations = 20
@@ -14,7 +14,7 @@ thinking_budget = 0
 
 [cloud]
 provider = "nvidia"
-model = "stepfun-ai/step-3.5-flash"
+model = "nvidia/llama-3.3-nemotron-super-49b-v1.5"
 
 [mcp.daedra]
 command = "daedra"
