@@ -2115,59 +2115,104 @@ async fn run_headless(
         std::process::exit(1);
     }
 
-    if verbose && output_format != "json" {
-        eprintln!("Model: {}", agent.config().model);
-        let display_prompt: String = prompt_text.chars().take(100).collect();
-        eprintln!("Prompt: {}", display_prompt);
+    let is_json = output_format == "json";
+    let use_color = !is_json && atty::is(atty::Stream::Stderr);
+
+    // Header
+    if !is_json {
+        if use_color {
+            eprintln!("\x1b[1;36m┌─ pawan run\x1b[0m");
+            eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mModel:\x1b[0m  {}", agent.config().model);
+            let display_prompt: String = prompt_text.chars().take(80).collect();
+            eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mPrompt:\x1b[0m {}", display_prompt);
+            eprintln!("\x1b[1;36m└─\x1b[0m");
+        } else {
+            eprintln!("── pawan run ──");
+            eprintln!("Model:  {}", agent.config().model);
+            let display_prompt: String = prompt_text.chars().take(80).collect();
+            eprintln!("Prompt: {}", display_prompt);
+            eprintln!("───────────────");
+        }
     }
-    let on_token: Option<pawan::agent::TokenCallback> = if stream && output_format == "json" {
+
+    // Token streaming callback — streams content to stdout, strips thinking
+    let use_color_token = use_color;
+    let on_token: Option<pawan::agent::TokenCallback> = if stream && is_json {
         Some(Box::new(|token: &str| {
             use std::io::Write;
             let event = serde_json::json!({"type": "token", "content": token});
             println!("{}", serde_json::to_string(&event).unwrap_or_default());
             std::io::stdout().flush().ok();
         }))
-    } else if output_format != "json" {
-        Some(Box::new(|token: &str| {
+    } else if !is_json {
+        Some(Box::new(move |token: &str| {
             use std::io::Write;
-            print!("{}", token);
-            std::io::stdout().flush().ok();
+            // Strip thinking tags from streamed tokens
+            let clean = token.replace("<think>", "").replace("</think>", "");
+            if !clean.is_empty() {
+                if use_color_token {
+                    print!("\x1b[37m{}\x1b[0m", clean);
+                } else {
+                    print!("{}", clean);
+                }
+                std::io::stdout().flush().ok();
+            }
         }))
     } else {
         None
     };
 
-    // Execute with timeout and optional streaming
+    // Tool callbacks — show real-time progress in pretty format
+    let use_color_tool = use_color;
+    let on_tool_start: Option<pawan::agent::ToolStartCallback> = if is_json && stream {
+        Some(Box::new(|name: &str| {
+            let event = serde_json::json!({"type": "tool_start", "name": name});
+            println!("{}", serde_json::to_string(&event).unwrap_or_default());
+        }))
+    } else if !is_json {
+        Some(Box::new(move |name: &str| {
+            if use_color_tool {
+                eprint!("\x1b[1;35m  ⚙ {}\x1b[0m", name);
+            } else {
+                eprint!("  > {}", name);
+            }
+        }))
+    } else {
+        None
+    };
+
+    let use_color_done = use_color;
+    let on_tool_done: Option<pawan::agent::ToolCallback> = if is_json && stream {
+        Some(Box::new(|tc: &pawan::agent::ToolCallRecord| {
+            let event = serde_json::json!({
+                "type": "tool_complete",
+                "name": tc.name,
+                "success": tc.success,
+                "duration_ms": tc.duration_ms,
+            });
+            println!("{}", serde_json::to_string(&event).unwrap_or_default());
+        }))
+    } else if !is_json {
+        Some(Box::new(move |tc: &pawan::agent::ToolCallRecord| {
+            if use_color_done {
+                if tc.success {
+                    eprintln!(" \x1b[32m✓\x1b[0m \x1b[2m{}ms\x1b[0m", tc.duration_ms);
+                } else {
+                    eprintln!(" \x1b[31m✗\x1b[0m \x1b[2m{}ms\x1b[0m", tc.duration_ms);
+                }
+            } else {
+                let icon = if tc.success { "ok" } else { "FAIL" };
+                eprintln!(" [{}] {}ms", icon, tc.duration_ms);
+            }
+        }))
+    } else {
+        None
+    };
+
+    // Execute with timeout
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
-        agent.execute_with_callbacks(
-            &prompt_text,
-            on_token,
-            if stream && output_format == "json" {
-                Some(Box::new(|tc: &pawan::agent::ToolCallRecord| {
-                    let event = serde_json::json!({
-                        "type": "tool_complete",
-                        "name": tc.name,
-                        "success": tc.success,
-                        "duration_ms": tc.duration_ms,
-                    });
-                    println!("{}", serde_json::to_string(&event).unwrap_or_default());
-                }))
-            } else {
-                None
-            },
-            if stream && output_format == "json" {
-                Some(Box::new(|name: &str| {
-                    let event = serde_json::json!({
-                        "type": "tool_start",
-                        "name": name,
-                    });
-                    println!("{}", serde_json::to_string(&event).unwrap_or_default());
-                }))
-            } else {
-                None
-            },
-        ),
+        agent.execute_with_callbacks(&prompt_text, on_token, on_tool_done, on_tool_start),
     )
     .await;
 
@@ -2233,38 +2278,73 @@ async fn run_headless(
             println!("{}", serde_json::to_string_pretty(&output).unwrap());
         }
         _ => {
-            // Text was already streamed to stdout token-by-token.
-            // Just ensure a trailing newline.
             let content = strip_thinking_tags(&response.content);
-            // If streaming was active, content was printed live — add newline if needed
             if !content.ends_with('\n') {
                 println!();
             }
 
-            // Warn if no tools were used — likely model compatibility issue
-            if response.tool_calls.is_empty() {
-                eprintln!(
-                    "\nWarning: No tool calls were made. The model may not support tool-use or the prompt may need adjustment."
+            // Summary footer
+            let use_color = atty::is(atty::Stream::Stderr);
+            let tc_count = response.tool_calls.len();
+            let success_count = response.tool_calls.iter().filter(|t| t.success).count();
+            let fail_count = tc_count - success_count;
+            let total_ms: u64 = response.tool_calls.iter().map(|t| t.duration_ms).sum();
+
+            if use_color {
+                eprintln!();
+                eprintln!("\x1b[1;36m┌─ summary\x1b[0m");
+                eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mIterations:\x1b[0m {} \x1b[2m│\x1b[0m \x1b[33mTools:\x1b[0m \x1b[32m{} ok\x1b[0m{} \x1b[2m│\x1b[0m \x1b[33mTime:\x1b[0m {}ms",
+                    response.iterations,
+                    success_count,
+                    if fail_count > 0 { format!(" \x1b[31m{} fail\x1b[0m", fail_count) } else { String::new() },
+                    total_ms,
                 );
+                if response.usage.total_tokens > 0 {
+                    let budget = if response.usage.reasoning_tokens > 0 {
+                        format!(" \x1b[2m(think:{} act:{})\x1b[0m", response.usage.reasoning_tokens, response.usage.action_tokens)
+                    } else { String::new() };
+                    eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mTokens:\x1b[0m {}{}",
+                        response.usage.total_tokens, budget);
+                }
+                if !response.tool_calls.is_empty() && verbose {
+                    eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mTool log:\x1b[0m");
+                    for tc in &response.tool_calls {
+                        let icon = if tc.success { "\x1b[32m✓\x1b[0m" } else { "\x1b[31m✗\x1b[0m" };
+                        eprintln!("\x1b[1;36m│\x1b[0m   {} \x1b[1m{}\x1b[0m \x1b[2m{}ms\x1b[0m", icon, tc.name, tc.duration_ms);
+                    }
+                }
+                eprintln!("\x1b[1;36m└─\x1b[0m");
+            } else {
+                eprintln!();
+                eprintln!("── summary ──");
+                eprintln!("Iterations: {} | Tools: {} ok{} | Time: {}ms",
+                    response.iterations, success_count,
+                    if fail_count > 0 { format!(", {} fail", fail_count) } else { String::new() },
+                    total_ms);
+                if response.usage.total_tokens > 0 {
+                    let budget = if response.usage.reasoning_tokens > 0 {
+                        format!(" (think:{} act:{})", response.usage.reasoning_tokens, response.usage.action_tokens)
+                    } else { String::new() };
+                    eprintln!("Tokens: {}{}", response.usage.total_tokens, budget);
+                }
+                if !response.tool_calls.is_empty() && verbose {
+                    for tc in &response.tool_calls {
+                        let s = if tc.success { "ok" } else { "FAIL" };
+                        eprintln!("  [{}] {} {}ms", s, tc.name, tc.duration_ms);
+                    }
+                }
+                eprintln!("─────────────");
+            }
+
+            if response.tool_calls.is_empty() {
+                if use_color {
+                    eprintln!("\x1b[33m⚠ No tool calls were made.\x1b[0m");
+                } else {
+                    eprintln!("Warning: No tool calls were made.");
+                }
             }
 
             if verbose {
-                let budget_info = if response.usage.reasoning_tokens > 0 {
-                    format!(" (think:{} act:{})", response.usage.reasoning_tokens, response.usage.action_tokens)
-                } else {
-                    String::new()
-                };
-                eprintln!(
-                    "\n--- {} iterations, {} tool calls, {} tokens{} ---",
-                    response.iterations,
-                    response.tool_calls.len(),
-                    response.usage.total_tokens,
-                    budget_info
-                );
-                for tc in &response.tool_calls {
-                    let s = if tc.success { "ok" } else { "FAIL" };
-                    eprintln!("  [{}] {} ({}ms)", s, tc.name, tc.duration_ms);
-                }
             }
         }
     }
