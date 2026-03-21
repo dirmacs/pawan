@@ -6,33 +6,36 @@ Pawan is model-agnostic — it works with any OpenAI-compatible API. We've triag
 
 ## Triage Results (updated 2026-03-19)
 
-Tested across 800+ cumulative tool calls, 14 data structure builds, and 341 tests across the workspace.
+Tested across 1000+ cumulative tool calls, 16 data structure builds, and 372 tests across the workspace. 11 NIM models benchmarked on the B-Tree ringer test (2026-03-21).
 
 ### Tier 1 — Production Ready
 
-| Model | Provider | Tool Call Success | Notes |
-|-------|----------|-------------------|-------|
-| **StepFun Flash** | NIM | 98.9% | Best overall. Think-token interleaving adds reasoning depth. Primary cloud model. |
-| **Qwen3.5-Coder-32B** | NIM | 97%+ | Excellent structured output. Fast. Great for batch tasks. |
-| **Qwen3.5-9B-OptiQ-4bit** (local) | MLX | ~85% tool calls | Per-layer mixed-precision quant on Mac Mini M4. 17-18 tok/s. $0 inference. With `enable_thinking: false`, 100% execution task completion. |
+| Model | Provider | Tool Call | Coding | Notes |
+|-------|----------|----------|--------|-------|
+| **Mistral Small 4 119B** | NIM | Good | **Best** | First 100% autonomous score (interval tree 6/6). Self-corrects via semantic reasoning. Primary model. |
+| **StepFun Flash** | NIM | **Best** (98.9%) | Good | Best for multi-step orchestration. Cloud fallback. |
+| **MiniMax M2.5** | NIM | Good | Good (4/5 B-Tree) | Tied with Mistral on B-Tree. Fewer tool calls needed. |
+| **Qwen3.5-9B-OptiQ-4bit** (local) | MLX | ~85% | Execution only | 17-18 tok/s, $0. `enable_thinking: false` required. Can't generate complex algos. |
 
 ### Tier 2 — Usable with Guardrails
 
-| Model | Provider | Tool Call Success | Notes |
-|-------|----------|-------------------|-------|
-| **Kimi-K2** | NIM | ~90% | Good reasoning, occasional JSON formatting issues. |
-| **Qwen3.5-122B** | NIM | ~93% | Excellent quality but slower. Better for complex single-shot tasks. |
-| **Mistral Small 24B** | NIM | ~88% | Decent for simple tasks. Struggles with multi-step chains. |
+| Model | Provider | Notes |
+|-------|----------|-------|
+| **Qwen3.5-122B** | NIM | Strong code but can't fix borrow checker in time (6 errors on B-Tree). |
+| **GPT-OSS 120B** | NIM | Fixes things but breaks other things. Destructive fix loops. |
+| **Nemotron-Super-49B** | NIM | Too simple implementations (1/5 B-Tree). |
 
 ### Tier 3 — Avoid for Agents
 
 | Model | Provider | Issue |
 |-------|----------|-------|
-| **Devstral 2 123B** | NIM | Hangs on tool calls. Output truncation on multiline JSON args. |
 | **DeepSeek V3.2** | NIM | Infinite loop on tool calling. Never terminates. |
-| **GLM-4.7** | NIM | Accepts requests, never responds. Endpoint dead. |
-| **Nemotron-3-Nano-4B** | MLX | Empty chat template → 1-token EOS. Garbled `<parameter>` tags on vllm-mlx. |
-| **Nemotron-Cascade-8B** | MLX | Can't disable thinking. Burns 800 tokens reasoning, hallucinated tool calls. |
+| **Mistral-Nemotron** | NIM | Describes actions but never makes tool calls. |
+| **Nemotron-3-Nano-30B** | NIM | All thinking tokens, zero tool calls. |
+| **Nemotron-Ultra-253B** | NIM | Hit max iterations, never completed. |
+| **Nemotron-3-Super-120B** | NIM | Missing Default trait, compile errors. |
+| **Nemotron-3-Nano-4B** | MLX | Broken chat template, garbled output. |
+| **Nemotron-Cascade-8B** | MLX | Can't disable thinking. Burns all tokens. |
 
 ## Guardrails That Make It Work
 
@@ -101,17 +104,17 @@ Front-load prompts with all context the model would otherwise explore: exact fil
 
 ## Dogfood Stats
 
-Updated 2026-03-20:
+Updated 2026-03-21:
 
-- **800+ tool calls** across all models
-- **98.9% individual tool call success** (cloud, with guardrails)
-- **~85% individual tool call success** (MLX local, with `enable_thinking: false`)
-- **100% execution task completion** (MLX, pre-computed implementations: bash → write_file → cargo test)
-- **~60% full task completion** (MLX, complex algorithmic generation from scratch)
-- **14 data structures** built in grind workspace: bloom filter, fenwick tree, skip list, trie, segment tree, DSU, treap, suffix array, leftist heap, radix tree, pairing heap, splay tree, rope, AVL tree
-- **107 grind tests + 188 pawan-core tests + 46 TUI tests = 341 total**
-- **29 tools** including ast-grep (multi-language AST) and lsp (rust-analyzer type-aware intelligence)
-- **Hybrid routing** active: MLX local → StepFun cloud fallback
+- **1000+ tool calls** across 11 models
+- **11 NIM models** benchmarked on B-Tree ringer test
+- **First 100% autonomous score**: Mistral Small 4 wrote interval tree (6/6 tests)
+- **Best coding accuracy**: Mistral Small 4 (4/5 B-Tree, 6/6 interval tree, self-refactored 9 callsites)
+- **Best tool calling**: StepFun Flash (98.9% success rate)
+- **16 data structures** in grind workspace: bloom filter, fenwick, skip list, trie, segment tree, DSU, treap, suffix array, leftist heap, radix tree, pairing heap, splay tree, rope, AVL tree, LRU cache, interval tree
+- **119 grind tests + 207 pawan-core tests + 46 TUI tests = 372 total**
+- **29 tools** in 3 tiers (Core/Standard/Extended) with auto-install via mise
+- **Pawan dogfoods itself**: wrote 14 tests for its own git.rs, native.rs, bash.rs, agent.rs
 - **Token budget tracking**: thinking vs action token split visible in TUI and CLI
 
 ## Running Your Own Triage
