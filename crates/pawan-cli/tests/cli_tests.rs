@@ -51,7 +51,7 @@ fn test_version_output() {
         .assert()
         .success()
         .stdout(predicate::str::contains("pawan"))
-        .stdout(predicate::str::contains("0.1.0"));
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn test_short_version() {
         .arg("-V")
         .assert()
         .success()
-        .stdout(predicate::str::contains("0.1.0"));
+        .stdout(predicate::str::contains(env!("CARGO_PKG_VERSION")));
 }
 
 // ============================================================================

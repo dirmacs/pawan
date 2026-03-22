@@ -54,6 +54,14 @@ pub struct DisplayMessage {
     pub content: String,
     /// Tool calls associated with this message
     pub tool_calls: Vec<ToolCallRecord>,
+    /// Timestamp when message was created
+    pub timestamp: std::time::Instant,
+}
+
+impl DisplayMessage {
+    fn new(role: Role, content: impl Into<String>, tool_calls: Vec<ToolCallRecord>) -> Self {
+        Self { role, content: content.into(), tool_calls, timestamp: std::time::Instant::now() }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -97,9 +105,13 @@ struct App<'a> {
     palette_open: bool,
     palette_query: String,
     palette_selected: usize,
+    /// Keyboard shortcuts overlay (F1)
+    help_overlay: bool,
     /// Session stats
     session_tool_calls: u32,
     session_files_edited: u32,
+    /// Welcome screen shown on first launch
+    show_welcome: bool,
     /// Channel to send commands to the agent task
     cmd_tx: mpsc::UnboundedSender<AgentCommand>,
     /// Channel to receive events from the agent task
@@ -141,8 +153,10 @@ impl<'a> App<'a> {
             palette_open: false,
             palette_query: String::new(),
             palette_selected: 0,
+            help_overlay: false,
             session_tool_calls: 0,
             session_files_edited: 0,
+            show_welcome: true,
             cmd_tx,
             event_rx,
         }
@@ -200,11 +214,7 @@ impl<'a> App<'a> {
                         self.active_tool = None;
                         match result {
                             Ok(resp) => {
-                                self.messages.push(DisplayMessage {
-                                    role: Role::Assistant,
-                                    content: resp.content,
-                                    tool_calls: resp.tool_calls,
-                                });
+                                self.messages.push(DisplayMessage::new(Role::Assistant, resp.content, resp.tool_calls));
                                 self.total_tokens += resp.usage.total_tokens;
                                 self.total_prompt_tokens += resp.usage.prompt_tokens;
                                 self.total_completion_tokens += resp.usage.completion_tokens;
@@ -216,11 +226,8 @@ impl<'a> App<'a> {
                             }
                             Err(e) => {
                                 self.status = format!("Error: {}", e);
-                                self.messages.push(DisplayMessage {
-                                    role: Role::Assistant,
-                                    content: format!("Error: {}", e),
-                                    tool_calls: vec![],
-                                });
+                                self.messages.push(DisplayMessage::new(Role::Assistant, format!("Error: {}", e), vec![]));
+                                self.scroll = self.messages.len().saturating_sub(1);
                             }
                         }
                     }
@@ -261,7 +268,23 @@ impl<'a> App<'a> {
                         self.palette_selected = 0;
                         return;
                     }
+                    (_, KeyCode::F(1)) => {
+                        self.help_overlay = !self.help_overlay;
+                        return;
+                    }
                     _ => {}
+                }
+
+                // Dismiss welcome on any key
+                if self.show_welcome {
+                    self.show_welcome = false;
+                    return;
+                }
+
+                // Help overlay — dismiss with any key
+                if self.help_overlay {
+                    self.help_overlay = false;
+                    return;
                 }
 
                 // Command palette intercepts all keys when open
@@ -420,11 +443,7 @@ impl<'a> App<'a> {
         }
 
         // Normal message — send to agent
-        self.messages.push(DisplayMessage {
-            role: Role::User,
-            content: content.clone(),
-            tool_calls: vec![],
-        });
+        self.messages.push(DisplayMessage::new(Role::User, content.clone(), vec![]));
 
         self.processing = true;
         self.status = "Processing...".to_string();
@@ -445,61 +464,36 @@ impl<'a> App<'a> {
             }
             "/model" | "/m" => {
                 if arg.is_empty() {
-                    self.messages.push(DisplayMessage {
-                        role: Role::System,
-                        content: format!("Current model: {}", self.model_name),
-                        tool_calls: vec![],
-                    });
+                    self.messages.push(DisplayMessage::new(Role::System, format!("Current model: {}", self.model_name), vec![]));
                 } else {
                     self.model_name = arg.to_string();
                     self.status = format!("Model → {}", arg);
-                    self.messages.push(DisplayMessage {
-                        role: Role::System,
-                        content: format!("Switching model to: {}", arg),
-                        tool_calls: vec![],
-                    });
-                    // Send model switch to agent task — recreates backend
+                    self.messages.push(DisplayMessage::new(Role::System, format!("Switching model to: {}", arg), vec![]));
                     let _ = self.cmd_tx.send(AgentCommand::SwitchModel(arg.to_string()));
                 }
             }
             "/tools" | "/t" => {
-                self.messages.push(DisplayMessage {
-                    role: Role::System,
-                    content: "Core: bash, read_file, write_file, edit_file, ast_grep, glob_search, grep_search\n\
-                              Standard: git (status/diff/add/commit/log/blame/branch/checkout/stash), agents, edit modes\n\
-                              Extended: rg, fd, sd, tree, mise, zoxide, lsp\n\
-                              MCP: mcp_daedra_web_search, mcp_daedra_visit_page".to_string(),
-                    tool_calls: vec![],
-                });
+                self.messages.push(DisplayMessage::new(Role::System,
+                    "Core: bash, read_file, write_file, edit_file, ast_grep, glob_search, grep_search\n\
+                     Standard: git (status/diff/add/commit/log/blame/branch/checkout/stash), agents, edit modes\n\
+                     Extended: rg, fd, sd, tree, mise, zoxide, lsp\n\
+                     MCP: mcp_daedra_web_search, mcp_daedra_visit_page", vec![]));
             }
             "/search" | "/s" => {
                 if arg.is_empty() {
-                    self.messages.push(DisplayMessage {
-                        role: Role::System,
-                        content: "Usage: /search <query>".to_string(),
-                        tool_calls: vec![],
-                    });
+                    self.messages.push(DisplayMessage::new(Role::System, "Usage: /search <query>", vec![]));
                 } else {
-                    // Send as a web search task
                     let search_prompt = format!(
                         "Use mcp_daedra_web_search to search for '{}' and report the results", arg
                     );
-                    self.messages.push(DisplayMessage {
-                        role: Role::User,
-                        content: format!("/search {}", arg),
-                        tool_calls: vec![],
-                    });
+                    self.messages.push(DisplayMessage::new(Role::User, format!("/search {}", arg), vec![]));
                     self.processing = true;
                     self.status = format!("Searching: {}", arg);
                     let _ = self.cmd_tx.send(AgentCommand::Execute(search_prompt));
                 }
             }
             "/heal" | "/h" => {
-                self.messages.push(DisplayMessage {
-                    role: Role::User,
-                    content: "/heal".to_string(),
-                    tool_calls: vec![],
-                });
+                self.messages.push(DisplayMessage::new(Role::User, "/heal", vec![]));
                 self.processing = true;
                 self.status = "Healing...".to_string();
                 let _ = self.cmd_tx.send(AgentCommand::Execute(
@@ -509,27 +503,56 @@ impl<'a> App<'a> {
             "/quit" | "/q" => {
                 self.should_quit = true;
             }
+            "/export" | "/e" => {
+                let path = if arg.is_empty() { "pawan-session.md" } else { arg };
+                match self.export_conversation(path) {
+                    Ok(n) => self.messages.push(DisplayMessage::new(Role::System, format!("Exported {} messages to {}", n, path), vec![])),
+                    Err(e) => self.messages.push(DisplayMessage::new(Role::System, format!("Export failed: {}", e), vec![])),
+                }
+            }
             "/help" | "/?" => {
-                self.messages.push(DisplayMessage {
-                    role: Role::System,
-                    content: "/model [name]  — show or switch LLM model\n\
-                              /search <query> — web search via Daedra\n\
-                              /tools         — list available tools\n\
-                              /heal          — auto-fix build errors\n\
-                              /clear         — clear chat history\n\
-                              /quit          — exit pawan\n\
-                              /help          — show this help".to_string(),
-                    tool_calls: vec![],
-                });
+                self.messages.push(DisplayMessage::new(Role::System,
+                    "/model [name]  — show or switch LLM model\n\
+                     /search <query> — web search via Daedra\n\
+                     /tools         — list available tools\n\
+                     /heal          — auto-fix build errors\n\
+                     /export [path] — export conversation to markdown\n\
+                     /clear         — clear chat history\n\
+                     /quit          — exit pawan\n\
+                     /help          — show this help", vec![]));
             }
             _ => {
-                self.messages.push(DisplayMessage {
-                    role: Role::System,
-                    content: format!("Unknown command: {}. Type /help for available commands.", command),
-                    tool_calls: vec![],
-                });
+                self.messages.push(DisplayMessage::new(Role::System, format!("Unknown command: {}. Type /help for available commands.", command), vec![]));
             }
         }
+    }
+
+    /// Export conversation to a markdown file
+    fn export_conversation(&self, path: &str) -> std::result::Result<usize, String> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
+        writeln!(f, "# Pawan Session\n").map_err(|e| e.to_string())?;
+        writeln!(f, "**Model:** {}\n", self.model_name).map_err(|e| e.to_string())?;
+        for msg in &self.messages {
+            let role = match msg.role {
+                Role::User => "**You**",
+                Role::Assistant => "**Pawan**",
+                _ => "**System**",
+            };
+            writeln!(f, "### {}\n", role).map_err(|e| e.to_string())?;
+            writeln!(f, "{}\n", msg.content).map_err(|e| e.to_string())?;
+            if !msg.tool_calls.is_empty() {
+                writeln!(f, "<details><summary>Tool calls ({})</summary>\n", msg.tool_calls.len()).map_err(|e| e.to_string())?;
+                for tc in &msg.tool_calls {
+                    let status = if tc.success { "ok" } else { "err" };
+                    writeln!(f, "- `{}` ({}) — {}ms", tc.name, status, tc.duration_ms).map_err(|e| e.to_string())?;
+                }
+                writeln!(f, "\n</details>\n").map_err(|e| e.to_string())?;
+            }
+        }
+        writeln!(f, "---\n*Tokens: {} total ({} prompt, {} completion)*",
+            self.total_tokens, self.total_prompt_tokens, self.total_completion_tokens).map_err(|e| e.to_string())?;
+        Ok(self.messages.len())
     }
 
     fn ui(&self, f: &mut Frame) {
@@ -561,8 +584,12 @@ impl<'a> App<'a> {
         self.render_input(f, chunks[1]);
         self.render_status(f, chunks[2]);
 
-        // Command palette overlay (on top of everything)
-        if self.palette_open {
+        // Overlays (on top of everything)
+        if self.show_welcome {
+            self.render_welcome(f);
+        } else if self.help_overlay {
+            self.render_help_overlay(f);
+        } else if self.palette_open {
             self.render_palette(f);
         }
     }
@@ -579,6 +606,7 @@ impl<'a> App<'a> {
             ("/search", "Web search via Daedra"),
             ("/tools", "List available tools"),
             ("/heal", "Auto-fix build errors"),
+            ("/export", "Export conversation to markdown"),
             ("/clear", "Clear chat history"),
             ("/quit", "Exit pawan"),
         ];
@@ -592,6 +620,93 @@ impl<'a> App<'a> {
     }
 
     /// Render command palette overlay
+    fn render_welcome(&self, f: &mut Frame) {
+        let area = f.area();
+        let w = 52u16.min(area.width.saturating_sub(4));
+        let h = 12u16.min(area.height.saturating_sub(4));
+        let x = (area.width.saturating_sub(w)) / 2;
+        let y = (area.height.saturating_sub(h)) / 2;
+        let welcome_area = Rect::new(x, y, w, h);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title(" पवन — pawan ");
+
+        f.render_widget(ratatui::widgets::Clear, welcome_area);
+        f.render_widget(block.clone(), welcome_area);
+
+        let inner = block.inner(welcome_area);
+        let cwd = std::env::current_dir().map(|p| p.display().to_string()).unwrap_or_default();
+        let text = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Self-healing CLI coding agent", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("  v{}", env!("CARGO_PKG_VERSION")), Style::default().fg(Color::DarkGray)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Model: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(&self.model_name, Style::default().fg(Color::Cyan)),
+            ]),
+            Line::from(vec![
+                Span::styled("  Path:  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(cwd, Style::default().fg(Color::White)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled("  Type a task, or explore:", Style::default().fg(Color::DarkGray))),
+            Line::from(vec![
+                Span::styled("  Ctrl+P", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("  command palette", Style::default().fg(Color::DarkGray)),
+            ]),
+            Line::from(vec![
+                Span::styled("  F1    ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("  keyboard shortcuts", Style::default().fg(Color::DarkGray)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled("  Press any key to start...", Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC))),
+        ];
+        f.render_widget(Paragraph::new(text), inner);
+    }
+
+    fn render_help_overlay(&self, f: &mut Frame) {
+        let area = f.area();
+        let w = 48u16.min(area.width.saturating_sub(4));
+        let h = 16u16.min(area.height.saturating_sub(4));
+        let x = (area.width.saturating_sub(w)) / 2;
+        let y = (area.height.saturating_sub(h)) / 2;
+        let help_area = Rect::new(x, y, w, h);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow))
+            .title(" Keyboard Shortcuts (F1) ");
+
+        f.render_widget(ratatui::widgets::Clear, help_area);
+        f.render_widget(block.clone(), help_area);
+
+        let inner = block.inner(help_area);
+        let shortcuts = vec![
+            Line::from(""),
+            Line::from(Span::styled("  Navigation", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+            Line::from(vec![Span::styled("  Tab     ", Style::default().fg(Color::Yellow)), Span::raw("Switch focus (input/messages)")]),
+            Line::from(vec![Span::styled("  j/k     ", Style::default().fg(Color::Yellow)), Span::raw("Scroll up/down")]),
+            Line::from(vec![Span::styled("  g/G     ", Style::default().fg(Color::Yellow)), Span::raw("Jump to top/bottom")]),
+            Line::from(vec![Span::styled("  /       ", Style::default().fg(Color::Yellow)), Span::raw("Search in messages")]),
+            Line::from(""),
+            Line::from(Span::styled("  Commands", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+            Line::from(vec![Span::styled("  Ctrl+P  ", Style::default().fg(Color::Yellow)), Span::raw("Command palette")]),
+            Line::from(vec![Span::styled("  Ctrl+L  ", Style::default().fg(Color::Yellow)), Span::raw("Clear chat")]),
+            Line::from(vec![Span::styled("  Ctrl+C  ", Style::default().fg(Color::Yellow)), Span::raw("Quit")]),
+            Line::from(""),
+            Line::from(Span::styled("  Slash Commands", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
+            Line::from(vec![Span::styled("  /model  ", Style::default().fg(Color::Yellow)), Span::raw("Switch model at runtime")]),
+            Line::from(vec![Span::styled("  /search ", Style::default().fg(Color::Yellow)), Span::raw("Web search via Daedra")]),
+            Line::from(vec![Span::styled("  /tools  ", Style::default().fg(Color::Yellow)), Span::raw("List all tools")]),
+        ];
+        f.render_widget(Paragraph::new(shortcuts), inner);
+    }
+
     fn render_palette(&self, f: &mut Frame) {
         let area = f.area();
         // Center the palette: 50% width, up to 14 lines tall
@@ -674,26 +789,41 @@ impl<'a> App<'a> {
 
     fn render_messages(&self, f: &mut Frame, area: Rect) {
         let mut items: Vec<ListItem> = Vec::new();
+        let now = std::time::Instant::now();
 
         for msg in &self.messages {
             let (prefix, style) = match msg.role {
                 Role::User => (
-                    "You: ",
+                    "You",
                     Style::default()
                         .fg(Color::Cyan)
                         .add_modifier(Modifier::BOLD),
                 ),
                 Role::Assistant => (
-                    "Pawan: ",
+                    "Pawan",
                     Style::default()
                         .fg(Color::Green)
                         .add_modifier(Modifier::BOLD),
                 ),
-                Role::System => ("System: ", Style::default().fg(Color::Yellow)),
-                Role::Tool => ("Tool: ", Style::default().fg(Color::Magenta)),
+                Role::System => ("System", Style::default().fg(Color::Yellow)),
+                Role::Tool => ("Tool", Style::default().fg(Color::Magenta)),
             };
 
-            items.push(ListItem::new(Line::from(vec![Span::styled(prefix, style)])));
+            let elapsed = now.duration_since(msg.timestamp);
+            let time_str = if elapsed.as_secs() < 5 {
+                "now".to_string()
+            } else if elapsed.as_secs() < 60 {
+                format!("{}s", elapsed.as_secs())
+            } else if elapsed.as_secs() < 3600 {
+                format!("{}m", elapsed.as_secs() / 60)
+            } else {
+                format!("{}h", elapsed.as_secs() / 3600)
+            };
+
+            items.push(ListItem::new(Line::from(vec![
+                Span::styled(format!("{}: ", prefix), style),
+                Span::styled(format!("({})", time_str), Style::default().fg(Color::DarkGray)),
+            ])));
 
             if msg.role == Role::Assistant {
                 for line in markdown_to_lines(&msg.content) {
@@ -772,12 +902,19 @@ impl<'a> App<'a> {
             Style::default().fg(Color::DarkGray)
         };
 
+        let scroll_indicator = if self.messages.len() > 1 {
+            let pos = self.scroll.min(self.messages.len().saturating_sub(1));
+            format!(" [{}/{}]", pos + 1, self.messages.len())
+        } else {
+            String::new()
+        };
+
         let title = if self.search_mode {
             format!(" Search: {}▌ ", self.search_query)
         } else if !self.search_query.is_empty() {
-            format!(" Messages [/{}] (n/N next/prev, g/G top/bottom) ", self.search_query)
+            format!(" Messages{} [/{}] (n/N next/prev) ", scroll_indicator, self.search_query)
         } else {
-            " Messages (Tab to focus, j/k scroll, / search, g/G top/bottom) ".to_string()
+            format!(" Messages{} (Tab, j/k, /, g/G) ", scroll_indicator)
         };
 
         let messages_block = Block::default()
@@ -872,6 +1009,14 @@ impl<'a> App<'a> {
                     Style::default().fg(Color::Green),
                 ));
             }
+        }
+
+        if !self.messages.is_empty() {
+            spans.push(Span::raw(" | "));
+            spans.push(Span::styled(
+                format!("{}msg", self.messages.len()),
+                Style::default().fg(Color::DarkGray),
+            ));
         }
 
         spans.extend([
@@ -1149,12 +1294,15 @@ mod tests {
     fn test_app<'a>() -> App<'a> {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
-        App::new(
+        let mut app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
             event_rx,
-        )
+        );
+        // Disable welcome screen in tests so keypresses reach normal handlers
+        app.show_welcome = false;
+        app
     }
 
     // ===== Rendering tests using TestBackend =====
@@ -1178,16 +1326,8 @@ mod tests {
     #[test]
     fn test_render_with_messages() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage {
-            role: Role::User,
-            content: "Hello pawan".to_string(),
-            tool_calls: vec![],
-        });
-        app.messages.push(DisplayMessage {
-            role: Role::Assistant,
-            content: "Hi there!".to_string(),
-            tool_calls: vec![],
-        });
+        app.messages.push(DisplayMessage::new(Role::User, "Hello pawan", vec![]));
+        app.messages.push(DisplayMessage::new(Role::Assistant, "Hi there!", vec![]));
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1260,28 +1400,24 @@ mod tests {
     #[test]
     fn test_render_tool_call_results() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage {
-            role: Role::Assistant,
-            content: "Done".to_string(),
-            tool_calls: vec![
-                ToolCallRecord {
-                    id: "1".into(),
-                    name: "write_file".into(),
-                    arguments: serde_json::json!({}),
-                    result: serde_json::json!({"success": true}),
-                    success: true,
-                    duration_ms: 42,
-                },
-                ToolCallRecord {
-                    id: "2".into(),
-                    name: "bash".into(),
-                    arguments: serde_json::json!({}),
-                    result: serde_json::json!({"error": "timeout"}),
-                    success: false,
-                    duration_ms: 30000,
-                },
-            ],
-        });
+        app.messages.push(DisplayMessage::new(Role::Assistant, "Done", vec![
+            ToolCallRecord {
+                id: "1".into(),
+                name: "write_file".into(),
+                arguments: serde_json::json!({}),
+                result: serde_json::json!({"success": true}),
+                success: true,
+                duration_ms: 42,
+            },
+            ToolCallRecord {
+                id: "2".into(),
+                name: "bash".into(),
+                arguments: serde_json::json!({}),
+                result: serde_json::json!({"error": "timeout"}),
+                success: false,
+                duration_ms: 30000,
+            },
+        ]));
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1341,11 +1477,7 @@ mod tests {
     #[test]
     fn test_ctrl_l_clears() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage {
-            role: Role::User,
-            content: "test".into(),
-            tool_calls: vec![],
-        });
+        app.messages.push(DisplayMessage::new(Role::User, "test", vec![]));
         app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
             KeyCode::Char('l'),
             KeyModifiers::CONTROL,
@@ -1470,9 +1602,9 @@ mod tests {
         let mut app = test_app();
         app.focus = Panel::Messages;
         app.search_query = "target".to_string();
-        app.messages.push(DisplayMessage { role: Role::User, content: "no match".into(), tool_calls: vec![] });
-        app.messages.push(DisplayMessage { role: Role::User, content: "has target word".into(), tool_calls: vec![] });
-        app.messages.push(DisplayMessage { role: Role::User, content: "another target".into(), tool_calls: vec![] });
+        app.messages.push(DisplayMessage::new(Role::User, "no match", vec![]));
+        app.messages.push(DisplayMessage::new(Role::User, "has target word", vec![]));
+        app.messages.push(DisplayMessage::new(Role::User, "another target", vec![]));
         app.scroll = 0;
 
         // n should jump to first match after current scroll
@@ -1495,9 +1627,9 @@ mod tests {
         let mut app = test_app();
         app.focus = Panel::Messages;
         app.search_query = "target".to_string();
-        app.messages.push(DisplayMessage { role: Role::User, content: "first target".into(), tool_calls: vec![] });
-        app.messages.push(DisplayMessage { role: Role::User, content: "no match".into(), tool_calls: vec![] });
-        app.messages.push(DisplayMessage { role: Role::User, content: "second target".into(), tool_calls: vec![] });
+        app.messages.push(DisplayMessage::new(Role::User, "first target", vec![]));
+        app.messages.push(DisplayMessage::new(Role::User, "no match", vec![]));
+        app.messages.push(DisplayMessage::new(Role::User, "second target", vec![]));
         app.scroll = 2;
 
         // N should jump to previous match
@@ -1682,8 +1814,8 @@ mod tests {
     #[test]
     fn test_slash_clear() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage { role: Role::User, content: "test".into(), tool_calls: vec![] });
-        app.messages.push(DisplayMessage { role: Role::Assistant, content: "reply".into(), tool_calls: vec![] });
+        app.messages.push(DisplayMessage::new(Role::User, "test", vec![]));
+        app.messages.push(DisplayMessage::new(Role::Assistant, "reply", vec![]));
         app.handle_slash_command("/clear");
         assert!(app.messages.is_empty());
         assert_eq!(app.status, "Cleared");
@@ -1965,6 +2097,220 @@ mod tests {
         let lines = markdown_to_lines("");
         // Empty string produces no lines (str::lines() returns empty iterator)
         assert_eq!(lines.len(), 0);
+    }
+
+    // ===== Welcome screen tests =====
+
+    #[test]
+    fn test_welcome_shown_on_fresh_app() {
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+        let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let app = App::new(
+            TuiConfig::default(),
+            "test-model".to_string(),
+            cmd_tx,
+            event_rx,
+        );
+        assert!(app.show_welcome, "Fresh app should show welcome");
+    }
+
+    #[test]
+    fn test_welcome_dismissed_on_keypress() {
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+        let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let mut app = App::new(
+            TuiConfig::default(),
+            "test-model".to_string(),
+            cmd_tx,
+            event_rx,
+        );
+        assert!(app.show_welcome);
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('a'), KeyModifiers::NONE,
+        )));
+        assert!(!app.show_welcome, "Any keypress should dismiss welcome");
+    }
+
+    #[test]
+    fn test_welcome_swallows_keypress() {
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+        let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let mut app = App::new(
+            TuiConfig::default(),
+            "test-model".to_string(),
+            cmd_tx,
+            event_rx,
+        );
+        // Type 'a' while welcome is showing — should NOT reach input
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('a'), KeyModifiers::NONE,
+        )));
+        assert!(app.input.lines().iter().all(|l| l.is_empty()), "Welcome should swallow the keypress");
+    }
+
+    #[test]
+    fn test_welcome_renders() {
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+        let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let app = App::new(
+            TuiConfig::default(),
+            "test-model".to_string(),
+            cmd_tx,
+            event_rx,
+        );
+        let backend = TestBackend::new(80, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                text.push_str(buf[(x, y)].symbol());
+            }
+        }
+        assert!(text.contains("pawan"), "Welcome overlay should show 'pawan'");
+    }
+
+    // ===== F1 Help overlay tests =====
+
+    #[test]
+    fn test_f1_toggles_help_overlay() {
+        let mut app = test_app();
+        assert!(!app.help_overlay);
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::F(1), KeyModifiers::NONE,
+        )));
+        assert!(app.help_overlay, "F1 should open help overlay");
+    }
+
+    #[test]
+    fn test_help_overlay_dismissed_on_keypress() {
+        let mut app = test_app();
+        app.help_overlay = true;
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('q'), KeyModifiers::NONE,
+        )));
+        assert!(!app.help_overlay, "Any keypress should dismiss help overlay");
+    }
+
+    #[test]
+    fn test_help_overlay_swallows_keypress() {
+        let mut app = test_app();
+        app.help_overlay = true;
+        // Type 'a' while help is showing — should NOT reach input
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('a'), KeyModifiers::NONE,
+        )));
+        assert!(app.input.lines().iter().all(|l| l.is_empty()), "Help overlay should swallow the keypress");
+    }
+
+    #[test]
+    fn test_help_overlay_renders() {
+        let mut app = test_app();
+        app.help_overlay = true;
+        let backend = TestBackend::new(80, 30);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                text.push_str(buf[(x, y)].symbol());
+            }
+        }
+        assert!(text.contains("Keyboard"), "Help overlay should show keyboard shortcuts");
+    }
+
+    // ===== Export tests =====
+
+    #[test]
+    fn test_export_conversation() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new(Role::User, "Hello", vec![]));
+        app.messages.push(DisplayMessage::new(Role::Assistant, "Hi there!", vec![]));
+        let path = "/tmp/pawan_test_export.md";
+        let result = app.export_conversation(path);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 2);
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(content.contains("**You**"));
+        assert!(content.contains("**Pawan**"));
+        assert!(content.contains("Hello"));
+        assert!(content.contains("Hi there!"));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_slash_export() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new(Role::User, "test msg", vec![]));
+        app.handle_slash_command("/export /tmp/pawan_test_slash_export.md");
+        // Should have added a system message about export
+        assert!(app.messages.len() >= 2);
+        let last = app.messages.last().unwrap();
+        assert_eq!(last.role, Role::System);
+        assert!(last.content.contains("Exported"), "Should confirm export: {}", last.content);
+        std::fs::remove_file("/tmp/pawan_test_slash_export.md").ok();
+    }
+
+    // ===== Timestamp tests =====
+
+    #[test]
+    fn test_message_has_timestamp() {
+        let before = std::time::Instant::now();
+        let msg = DisplayMessage::new(Role::User, "test", vec![]);
+        let after = std::time::Instant::now();
+        assert!(msg.timestamp >= before);
+        assert!(msg.timestamp <= after);
+    }
+
+    // ===== Scroll indicator tests =====
+
+    #[test]
+    fn test_scroll_indicator_in_title() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new(Role::User, "msg1", vec![]));
+        app.messages.push(DisplayMessage::new(Role::Assistant, "msg2", vec![]));
+        app.messages.push(DisplayMessage::new(Role::User, "msg3", vec![]));
+        app.scroll = 1;
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                text.push_str(buf[(x, y)].symbol());
+            }
+        }
+        assert!(text.contains("[2/3]"), "Should show scroll position [2/3], got:\n{}", &text[..200.min(text.len())]);
+    }
+
+    // ===== Message count in status bar =====
+
+    #[test]
+    fn test_status_bar_shows_message_count() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new(Role::User, "hi", vec![]));
+        app.messages.push(DisplayMessage::new(Role::Assistant, "hello", vec![]));
+        let backend = TestBackend::new(120, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                text.push_str(buf[(x, y)].symbol());
+            }
+        }
+        assert!(text.contains("2msg"), "Status bar should show '2msg'");
+    }
+
+    #[test]
+    fn test_palette_includes_export() {
+        let app = test_app();
+        let items = app.palette_items();
+        assert!(items.iter().any(|(cmd, _)| *cmd == "/export"), "Palette should include /export");
     }
 }
 
