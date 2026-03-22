@@ -143,6 +143,10 @@ thinking_budget = 0
 provider = "nvidia"
 model = "stepfun-ai/step-3.5-flash"
 
+[eruka]
+enabled = true
+url = "http://localhost:8081"
+
 [mcp.daedra]
 command = "daedra"
 args = ["serve", "--transport", "stdio", "--quiet"]

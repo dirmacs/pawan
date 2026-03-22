@@ -33,16 +33,15 @@ Or create a `.env` file in your project:
 NVIDIA_API_KEY=nvapi-...
 ```
 
-### Local Inference (Free)
+### Local Inference (Free, Optional)
 
-The `mlx` provider runs a model locally on Mac via [mlx_lm.server](https://github.com/ml-explore/mlx-examples/tree/main/llms) and reaches your VPS through the aegis-net tunnel. No API key is needed and inference costs $0/token.
+The `mlx` provider runs a model locally on Mac via [mlx_lm.server](https://github.com/ml-explore/mlx-examples/tree/main/llms). No API key needed, $0/token. Optional — pawan defaults to Mistral Small 4 on NVIDIA NIM.
 
 ```toml
 provider = "mlx"
-model = "mlx-community/Qwen3.5-9B-4bit"
+model = "mlx-community/Qwen3.5-9B-OptiQ-4bit"
+base_url = "http://localhost:8080/v1"
 ```
-
-MLX is Apple Silicon native (Metal GPU). Start the server on your Mac with `mlx_lm.server` — it listens on localhost:8080. Pawan connects to it through the aegis-net tunnel automatically.
 
 Verify your setup:
 
@@ -89,16 +88,20 @@ Priority: CLI flags > environment variables > pawan.toml > defaults
 ### pawan.toml
 
 ```toml
-provider = "mlx"
-model = "mlx-community/Qwen3.5-9B-OptiQ-4bit"
+provider = "nvidia"
+model = "mistralai/mistral-small-4-119b-2603"
 temperature = 0.6
 max_tokens = 4096
 max_tool_iterations = 20
-thinking_budget = 0  # 0 = unlimited, or set max thinking tokens per call
+thinking_budget = 0
 
 [cloud]
 provider = "nvidia"
-model = "step-ai/step-2-flash"
+model = "stepfun-ai/step-3.5-flash"
+
+[eruka]
+enabled = true
+url = "http://localhost:8081"
 
 [mcp.daedra]
 command = "daedra"
