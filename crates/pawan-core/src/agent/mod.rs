@@ -379,6 +379,19 @@ impl PawanAgent {
         self.history.push(message);
     }
 
+    /// Switch the LLM model at runtime. Recreates the backend with the new model.
+    pub fn switch_model(&mut self, model: &str) {
+        self.config.model = model.to_string();
+        let system_prompt = self.config.get_system_prompt();
+        self.backend = Self::create_backend(&self.config, &system_prompt);
+        tracing::info!(model = model, "Model switched at runtime");
+    }
+
+    /// Get the current model name
+    pub fn model_name(&self) -> &str {
+        &self.config.model
+    }
+
     /// Get tool definitions for the LLM
     pub fn get_tool_definitions(&self) -> Vec<ToolDefinition> {
         self.tools.get_definitions()
