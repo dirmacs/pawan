@@ -100,9 +100,10 @@ pub type Result<T> = std::result::Result<T, PawanError>;
 /// Version information
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// Default model for coding tasks (StepFun Step 3.5 Flash via NVIDIA NIM)
-/// Note: deepseek-v3.2 hangs on tool-use — do not use as default.
-pub const DEFAULT_MODEL: &str = "stepfun-ai/step-3.5-flash";
+/// Default model for coding tasks (Mistral Small 4 119B MoE via NVIDIA NIM)
+/// First model to achieve 100% autonomous score (interval tree 6/6).
+/// Best for code generation, self-correction, and semantic reasoning.
+pub const DEFAULT_MODEL: &str = "mistralai/mistral-small-4-119b-2603";
 
 /// Default NVIDIA API URL
 pub const DEFAULT_NVIDIA_API_URL: &str = "https://integrate.api.nvidia.com/v1";
