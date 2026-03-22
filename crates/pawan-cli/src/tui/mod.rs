@@ -342,18 +342,28 @@ impl<'a> App<'a> {
         }
     }
 
-    /// Submit input — non-blocking: sends command to agent task
+    /// Submit input — handles slash commands or sends to agent
     fn submit_input(&mut self) {
         let content: String = self.input.lines().join("\n");
         if content.trim().is_empty() {
             return;
         }
 
+        // Reset input
         self.input = TextArea::default();
         self.input.set_cursor_line_style(Style::default());
         self.input
             .set_placeholder_text("Type your message... (Enter to send, Ctrl+C to quit)");
 
+        let trimmed = content.trim();
+
+        // Handle slash commands
+        if trimmed.starts_with('/') {
+            self.handle_slash_command(trimmed);
+            return;
+        }
+
+        // Normal message — send to agent
         self.messages.push(DisplayMessage {
             role: Role::User,
             content: content.clone(),
@@ -366,14 +376,120 @@ impl<'a> App<'a> {
         let _ = self.cmd_tx.send(AgentCommand::Execute(content));
     }
 
+    /// Handle slash commands locally without sending to the agent
+    fn handle_slash_command(&mut self, cmd: &str) {
+        let parts: Vec<&str> = cmd.splitn(2, ' ').collect();
+        let command = parts[0];
+        let arg = parts.get(1).map(|s| s.trim()).unwrap_or("");
+
+        match command {
+            "/clear" | "/c" => {
+                self.messages.clear();
+                self.status = "Cleared".to_string();
+            }
+            "/model" | "/m" => {
+                if arg.is_empty() {
+                    self.messages.push(DisplayMessage {
+                        role: Role::System,
+                        content: format!("Current model: {}", self.model_name),
+                        tool_calls: vec![],
+                    });
+                } else {
+                    self.model_name = arg.to_string();
+                    self.status = format!("Model → {}", arg);
+                    self.messages.push(DisplayMessage {
+                        role: Role::System,
+                        content: format!("Model switched to: {}", arg),
+                        tool_calls: vec![],
+                    });
+                    // Send model switch command to agent task
+                    let _ = self.cmd_tx.send(AgentCommand::Execute(
+                        format!("__PAWAN_MODEL_SWITCH__:{}", arg)
+                    ));
+                }
+            }
+            "/tools" | "/t" => {
+                self.messages.push(DisplayMessage {
+                    role: Role::System,
+                    content: "Core: bash, read_file, write_file, edit_file, ast_grep, glob_search, grep_search\n\
+                              Standard: git (status/diff/add/commit/log/blame/branch/checkout/stash), agents, edit modes\n\
+                              Extended: rg, fd, sd, tree, mise, zoxide, lsp\n\
+                              MCP: mcp_daedra_web_search, mcp_daedra_visit_page".to_string(),
+                    tool_calls: vec![],
+                });
+            }
+            "/search" | "/s" => {
+                if arg.is_empty() {
+                    self.messages.push(DisplayMessage {
+                        role: Role::System,
+                        content: "Usage: /search <query>".to_string(),
+                        tool_calls: vec![],
+                    });
+                } else {
+                    // Send as a web search task
+                    let search_prompt = format!(
+                        "Use mcp_daedra_web_search to search for '{}' and report the results", arg
+                    );
+                    self.messages.push(DisplayMessage {
+                        role: Role::User,
+                        content: format!("/search {}", arg),
+                        tool_calls: vec![],
+                    });
+                    self.processing = true;
+                    self.status = format!("Searching: {}", arg);
+                    let _ = self.cmd_tx.send(AgentCommand::Execute(search_prompt));
+                }
+            }
+            "/heal" | "/h" => {
+                self.messages.push(DisplayMessage {
+                    role: Role::User,
+                    content: "/heal".to_string(),
+                    tool_calls: vec![],
+                });
+                self.processing = true;
+                self.status = "Healing...".to_string();
+                let _ = self.cmd_tx.send(AgentCommand::Execute(
+                    "Run cargo check and cargo test. Fix any errors you find.".to_string()
+                ));
+            }
+            "/quit" | "/q" => {
+                self.should_quit = true;
+            }
+            "/help" | "/?" => {
+                self.messages.push(DisplayMessage {
+                    role: Role::System,
+                    content: "/model [name]  — show or switch LLM model\n\
+                              /search <query> — web search via Daedra\n\
+                              /tools         — list available tools\n\
+                              /heal          — auto-fix build errors\n\
+                              /clear         — clear chat history\n\
+                              /quit          — exit pawan\n\
+                              /help          — show this help".to_string(),
+                    tool_calls: vec![],
+                });
+            }
+            _ => {
+                self.messages.push(DisplayMessage {
+                    role: Role::System,
+                    content: format!("Unknown command: {}. Type /help for available commands.", command),
+                    tool_calls: vec![],
+                });
+            }
+        }
+    }
+
     fn ui(&self, f: &mut Frame) {
+        // Dynamic input height: 3 lines default, grows with content up to 10
+        let input_lines = self.input.lines().len();
+        let input_height = (input_lines + 2).clamp(3, 10) as u16; // +2 for border
+
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .margin(1)
             .constraints([
-                Constraint::Min(3),
-                Constraint::Length(6),
-                Constraint::Length(1),
+                Constraint::Min(3),         // messages: takes all remaining space
+                Constraint::Length(input_height), // input: auto-resizes
+                Constraint::Length(1),       // status bar
             ])
             .split(f.area());
 
@@ -509,7 +625,7 @@ impl<'a> App<'a> {
         let title = if self.processing {
             " Input (processing...) "
         } else {
-            " Input (Enter to send) "
+            " Input (Enter to send, /help for commands) "
         };
 
         let block = Block::default()
@@ -1351,6 +1467,87 @@ mod tests {
             result.push('\n');
         }
         result
+    }
+
+    // ===== Slash command tests =====
+
+    #[test]
+    fn test_slash_help() {
+        let mut app = test_app();
+        app.handle_slash_command("/help");
+        assert_eq!(app.messages.len(), 1);
+        assert_eq!(app.messages[0].role, Role::System);
+        assert!(app.messages[0].content.contains("/model"));
+        assert!(app.messages[0].content.contains("/search"));
+        assert!(app.messages[0].content.contains("/quit"));
+    }
+
+    #[test]
+    fn test_slash_clear() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage { role: Role::User, content: "test".into(), tool_calls: vec![] });
+        app.messages.push(DisplayMessage { role: Role::Assistant, content: "reply".into(), tool_calls: vec![] });
+        app.handle_slash_command("/clear");
+        assert!(app.messages.is_empty());
+        assert_eq!(app.status, "Cleared");
+    }
+
+    #[test]
+    fn test_slash_model_show() {
+        let mut app = test_app();
+        app.handle_slash_command("/model");
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.messages[0].content.contains("test-model"));
+    }
+
+    #[test]
+    fn test_slash_model_switch() {
+        let mut app = test_app();
+        app.handle_slash_command("/model mistral-small-4");
+        assert_eq!(app.model_name, "mistral-small-4");
+        assert!(app.messages[0].content.contains("mistral-small-4"));
+    }
+
+    #[test]
+    fn test_slash_tools() {
+        let mut app = test_app();
+        app.handle_slash_command("/tools");
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.messages[0].content.contains("bash"));
+        assert!(app.messages[0].content.contains("ast_grep"));
+        assert!(app.messages[0].content.contains("mcp_daedra"));
+    }
+
+    #[test]
+    fn test_slash_quit() {
+        let mut app = test_app();
+        app.handle_slash_command("/quit");
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn test_slash_unknown() {
+        let mut app = test_app();
+        app.handle_slash_command("/bogus");
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.messages[0].content.contains("Unknown command"));
+    }
+
+    #[test]
+    fn test_slash_shorthand() {
+        let mut app = test_app();
+        app.handle_slash_command("/c");
+        // /c is alias for /clear
+        assert!(app.messages.is_empty());
+    }
+
+    #[test]
+    fn test_dynamic_input_height() {
+        let app = test_app();
+        // Default: 1 line of input → height should be 3 (1 + 2 for border)
+        let input_lines = app.input.lines().len();
+        let height = (input_lines + 2).clamp(3, 10);
+        assert_eq!(height, 3);
     }
 
     // ===== Markdown rendering tests (existing) =====
