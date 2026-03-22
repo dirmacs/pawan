@@ -93,6 +93,13 @@ struct App<'a> {
     /// Search mode state
     search_mode: bool,
     search_query: String,
+    /// Command palette state (Ctrl+P)
+    palette_open: bool,
+    palette_query: String,
+    palette_selected: usize,
+    /// Session stats
+    session_tool_calls: u32,
+    session_files_edited: u32,
     /// Channel to send commands to the agent task
     cmd_tx: mpsc::UnboundedSender<AgentCommand>,
     /// Channel to receive events from the agent task
@@ -131,6 +138,11 @@ impl<'a> App<'a> {
             context_estimate: 0,
             search_mode: false,
             search_query: String::new(),
+            palette_open: false,
+            palette_query: String::new(),
+            palette_selected: 0,
+            session_tool_calls: 0,
+            session_files_edited: 0,
             cmd_tx,
             event_rx,
         }
@@ -175,6 +187,10 @@ impl<'a> App<'a> {
                     }
                     AgentEvent::ToolComplete(record) => {
                         self.active_tool = None;
+                        self.session_tool_calls += 1;
+                        if record.name.contains("write_file") || record.name.contains("edit_file") {
+                            self.session_files_edited += 1;
+                        }
                         let icon = if record.success { "✓" } else { "✗" };
                         self.status = format!("{} {} ({}ms)", icon, record.name, record.duration_ms);
                     }
@@ -239,7 +255,46 @@ impl<'a> App<'a> {
                         self.status = "Cleared".to_string();
                         return;
                     }
+                    (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
+                        self.palette_open = !self.palette_open;
+                        self.palette_query.clear();
+                        self.palette_selected = 0;
+                        return;
+                    }
                     _ => {}
+                }
+
+                // Command palette intercepts all keys when open
+                if self.palette_open {
+                    match key.code {
+                        KeyCode::Esc => {
+                            self.palette_open = false;
+                        }
+                        KeyCode::Backspace => {
+                            self.palette_query.pop();
+                            self.palette_selected = 0;
+                        }
+                        KeyCode::Char(c) => {
+                            self.palette_query.push(c);
+                            self.palette_selected = 0;
+                        }
+                        KeyCode::Up => {
+                            self.palette_selected = self.palette_selected.saturating_sub(1);
+                        }
+                        KeyCode::Down => {
+                            self.palette_selected += 1;
+                        }
+                        KeyCode::Enter => {
+                            let items = self.palette_items();
+                            if let Some(item) = items.get(self.palette_selected) {
+                                let cmd = item.0.to_string();
+                                self.palette_open = false;
+                                self.handle_slash_command(&cmd);
+                            }
+                        }
+                        _ => {}
+                    }
+                    return;
                 }
 
                 // Search mode intercepts all keys
@@ -505,6 +560,87 @@ impl<'a> App<'a> {
         }
         self.render_input(f, chunks[1]);
         self.render_status(f, chunks[2]);
+
+        // Command palette overlay (on top of everything)
+        if self.palette_open {
+            self.render_palette(f);
+        }
+    }
+
+    /// Get filtered palette items based on query
+    fn palette_items(&self) -> Vec<(&str, &str)> {
+        let all_items: Vec<(&str, &str)> = vec![
+            ("/help", "Show available commands"),
+            ("/model", "Show or switch LLM model"),
+            ("/model mistralai/mistral-small-4-119b-2603", "Switch to Mistral Small 4"),
+            ("/model stepfun-ai/step-3.5-flash", "Switch to StepFun Flash"),
+            ("/model qwen/qwen3.5-122b-a10b", "Switch to Qwen 122B"),
+            ("/model minimaxai/minimax-m2.5", "Switch to MiniMax M2.5"),
+            ("/search", "Web search via Daedra"),
+            ("/tools", "List available tools"),
+            ("/heal", "Auto-fix build errors"),
+            ("/clear", "Clear chat history"),
+            ("/quit", "Exit pawan"),
+        ];
+        if self.palette_query.is_empty() {
+            return all_items;
+        }
+        let q = self.palette_query.to_lowercase();
+        all_items.into_iter()
+            .filter(|(cmd, desc)| cmd.to_lowercase().contains(&q) || desc.to_lowercase().contains(&q))
+            .collect()
+    }
+
+    /// Render command palette overlay
+    fn render_palette(&self, f: &mut Frame) {
+        let area = f.area();
+        // Center the palette: 50% width, up to 14 lines tall
+        let w = (area.width * 50 / 100).max(30);
+        let items = self.palette_items();
+        let h = (items.len() as u16 + 4).min(14);
+        let x = (area.width.saturating_sub(w)) / 2;
+        let y = area.height / 4;
+        let palette_area = Rect::new(x, y, w, h);
+
+        // Background
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title(" Command Palette (Ctrl+P) ");
+
+        let inner = block.inner(palette_area);
+        f.render_widget(ratatui::widgets::Clear, palette_area);
+        f.render_widget(block, palette_area);
+
+        // Search input
+        let search_line = Line::from(vec![
+            Span::styled("> ", Style::default().fg(Color::Cyan)),
+            Span::styled(&self.palette_query, Style::default().fg(Color::White)),
+            Span::styled("▌", Style::default().fg(Color::Cyan).add_modifier(Modifier::SLOW_BLINK)),
+        ]);
+        if inner.height > 0 {
+            f.render_widget(Paragraph::new(search_line), Rect::new(inner.x, inner.y, inner.width, 1));
+        }
+
+        // Items
+        let list_area = Rect::new(inner.x, inner.y + 1, inner.width, inner.height.saturating_sub(1));
+        let selected = self.palette_selected.min(items.len().saturating_sub(1));
+        let list_items: Vec<ListItem> = items.iter().enumerate().map(|(i, (cmd, desc))| {
+            let style = if i == selected {
+                Style::default().fg(Color::Black).bg(Color::Cyan)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(format!(" {} ", cmd), style.add_modifier(Modifier::BOLD)),
+                Span::styled(format!("— {}", desc), if i == selected {
+                    Style::default().fg(Color::Black).bg(Color::Cyan)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                }),
+            ]))
+        }).collect();
+        f.render_widget(List::new(list_items), list_area);
     }
 
     fn render_activity(&self, f: &mut Frame, area: Rect) {
@@ -723,11 +859,25 @@ impl<'a> App<'a> {
             spans.push(Span::styled(format!("~{}k ctx", ctx_k), ctx_style));
         }
 
+        // Session stats
+        if self.session_tool_calls > 0 {
+            spans.push(Span::raw(" | "));
+            spans.push(Span::styled(
+                format!("{}⚡", self.session_tool_calls),
+                Style::default().fg(Color::Magenta),
+            ));
+            if self.session_files_edited > 0 {
+                spans.push(Span::styled(
+                    format!(" {}📝", self.session_files_edited),
+                    Style::default().fg(Color::Green),
+                ));
+            }
+        }
+
         spans.extend([
             Span::raw(" | "),
-            Span::styled("Ctrl+L: clear".to_string(), Style::default().fg(Color::DarkGray)),
-            Span::raw(" | "),
-            Span::styled("Ctrl+C: quit".to_string(), Style::default().fg(Color::DarkGray)),
+            Span::styled("Ctrl+P".to_string(), Style::default().fg(Color::Cyan)),
+            Span::styled(" palette".to_string(), Style::default().fg(Color::DarkGray)),
         ]);
 
         let status = Paragraph::new(Line::from(spans));
@@ -1595,6 +1745,49 @@ mod tests {
         let input_lines = app.input.lines().len();
         let height = (input_lines + 2).clamp(3, 10);
         assert_eq!(height, 3);
+    }
+
+    // ===== Command palette tests =====
+
+    #[test]
+    fn test_ctrl_p_toggles_palette() {
+        let mut app = test_app();
+        assert!(!app.palette_open);
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('p'), KeyModifiers::CONTROL,
+        )));
+        assert!(app.palette_open);
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('p'), KeyModifiers::CONTROL,
+        )));
+        assert!(!app.palette_open);
+    }
+
+    #[test]
+    fn test_palette_filter() {
+        let mut app = test_app();
+        app.palette_open = true;
+        app.palette_query = "model".to_string();
+        let items = app.palette_items();
+        assert!(items.iter().all(|(cmd, _)| cmd.contains("model") || cmd.contains("Model")));
+        assert!(!items.is_empty());
+    }
+
+    #[test]
+    fn test_palette_esc_closes() {
+        let mut app = test_app();
+        app.palette_open = true;
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Esc, KeyModifiers::NONE,
+        )));
+        assert!(!app.palette_open);
+    }
+
+    #[test]
+    fn test_session_stats_increment() {
+        let mut app = test_app();
+        assert_eq!(app.session_tool_calls, 0);
+        assert_eq!(app.session_files_edited, 0);
     }
 
     // ===== Markdown rendering tests (existing) =====
