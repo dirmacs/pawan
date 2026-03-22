@@ -1803,7 +1803,7 @@ checksum = "b867cad97c0791bbd3aaa6472142568c6c9e8f71937e98379f584cfb0cf35bec"
 
 [[package]]
 name = "pawan"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assert_cmd",
  "atty",
@@ -1830,7 +1830,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-aegis"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1841,7 +1841,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1870,7 +1870,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-mcp"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "async-trait",
  "pawan-core",
@@ -1886,7 +1886,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-web"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "axum",
  "axum-extra",
