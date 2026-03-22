@@ -492,9 +492,48 @@ impl<'a> App<'a> {
             ])
             .split(f.area());
 
-        self.render_messages(f, chunks[0]);
+        // Split layout: messages + activity panel when processing
+        if self.processing {
+            let horiz = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Percentage(72), Constraint::Percentage(28)])
+                .split(chunks[0]);
+            self.render_messages(f, horiz[0]);
+            self.render_activity(f, horiz[1]);
+        } else {
+            self.render_messages(f, chunks[0]);
+        }
         self.render_input(f, chunks[1]);
         self.render_status(f, chunks[2]);
+    }
+
+    fn render_activity(&self, f: &mut Frame, area: Rect) {
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Magenta))
+            .title(" Activity ");
+        let mut items: Vec<ListItem> = Vec::new();
+        for msg in self.messages.iter().rev().take(5) {
+            for tc in &msg.tool_calls {
+                let icon = if tc.success { "✓" } else { "✗" };
+                let color = if tc.success { Color::Green } else { Color::Red };
+                items.push(ListItem::new(Line::from(vec![
+                    Span::styled(format!(" {} ", icon), Style::default().fg(color)),
+                    Span::styled(tc.name.clone(), Style::default().fg(Color::White)),
+                    Span::styled(format!(" {}ms", tc.duration_ms), Style::default().fg(Color::DarkGray)),
+                ])));
+            }
+        }
+        if let Some(ref tool) = self.active_tool {
+            items.push(ListItem::new(Line::from(vec![
+                Span::styled(" ⚙ ", Style::default().fg(Color::Yellow)),
+                Span::styled(tool.clone(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            ])));
+        }
+        if items.is_empty() {
+            items.push(ListItem::new(Span::styled(" Waiting...", Style::default().fg(Color::DarkGray))));
+        }
+        f.render_widget(List::new(items).block(block), area);
     }
 
     fn render_messages(&self, f: &mut Frame, area: Rect) {
