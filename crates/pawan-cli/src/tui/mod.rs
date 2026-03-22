@@ -38,6 +38,7 @@ enum AgentEvent {
 /// Commands sent from the TUI to the agent task
 enum AgentCommand {
     Execute(String),
+    SwitchModel(String),
     Quit,
 }
 
@@ -399,13 +400,11 @@ impl<'a> App<'a> {
                     self.status = format!("Model → {}", arg);
                     self.messages.push(DisplayMessage {
                         role: Role::System,
-                        content: format!("Model switched to: {}", arg),
+                        content: format!("Switching model to: {}", arg),
                         tool_calls: vec![],
                     });
-                    // Send model switch command to agent task
-                    let _ = self.cmd_tx.send(AgentCommand::Execute(
-                        format!("__PAWAN_MODEL_SWITCH__:{}", arg)
-                    ));
+                    // Send model switch to agent task — recreates backend
+                    let _ = self.cmd_tx.send(AgentCommand::SwitchModel(arg.to_string()));
                 }
             }
             "/tools" | "/t" => {
@@ -737,6 +736,15 @@ async fn agent_task(
                     )
                     .await;
                 let _ = event_tx.send(AgentEvent::Complete(result));
+            }
+            AgentCommand::SwitchModel(model) => {
+                agent.switch_model(&model);
+                let _ = event_tx.send(AgentEvent::Complete(Ok(AgentResponse {
+                    content: format!("Model switched to: {}", model),
+                    tool_calls: vec![],
+                    iterations: 0,
+                    usage: pawan::agent::TokenUsage::default(),
+                })));
             }
             AgentCommand::Quit => break,
         }
