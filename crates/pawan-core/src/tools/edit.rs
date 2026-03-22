@@ -217,8 +217,16 @@ impl Tool for EditFileLinesTool {
         // Resolve start_line and end_line — either from explicit numbers or anchor
         let (start_line, end_line) = if let Some(anchor) = args["anchor_text"].as_str() {
             // Anchor mode: find line containing anchor_text
+            // Fuzzy matching: normalize whitespace for comparison
             let anchor_count = args["anchor_count"].as_u64().unwrap_or(1) as usize;
-            let found = lines.iter().position(|l| l.contains(anchor));
+            let anchor_normalized: String = anchor.split_whitespace().collect::<Vec<_>>().join(" ");
+            let found = lines.iter().position(|l| {
+                // Try exact match first
+                if l.contains(anchor) { return true; }
+                // Then try whitespace-normalized match
+                let line_normalized: String = l.split_whitespace().collect::<Vec<_>>().join(" ");
+                line_normalized.contains(&anchor_normalized)
+            });
             match found {
                 Some(idx) => {
                     let start = idx + 1; // convert to 1-based
@@ -226,10 +234,25 @@ impl Tool for EditFileLinesTool {
                     (start, end)
                 }
                 None => {
-                    return Err(crate::PawanError::Tool(format!(
-                        "anchor_text {:?} not found in file ({} lines). Try a different anchor string.",
-                        anchor, total_lines
-                    )));
+                    // Try case-insensitive as last resort
+                    let anchor_lower = anchor_normalized.to_lowercase();
+                    let found_ci = lines.iter().position(|l| {
+                        let norm: String = l.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+                        norm.contains(&anchor_lower)
+                    });
+                    match found_ci {
+                        Some(idx) => {
+                            let start = idx + 1;
+                            let end = (start + anchor_count - 1).min(total_lines);
+                            (start, end)
+                        }
+                        None => {
+                            return Err(crate::PawanError::Tool(format!(
+                                "anchor_text {:?} not found in file ({} lines). Try a shorter or different anchor string.",
+                                anchor, total_lines
+                            )));
+                        }
+                    }
                 }
             }
         } else {
@@ -406,7 +429,13 @@ impl Tool for InsertAfterTool {
         let had_trailing_newline = content.ends_with('\n');
         let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
 
-        let found = lines.iter().position(|l| l.contains(anchor));
+        // Fuzzy anchor matching: exact → whitespace-normalized → case-insensitive
+        let anchor_normalized: String = anchor.split_whitespace().collect::<Vec<_>>().join(" ");
+        let found = lines.iter().position(|l| {
+            if l.contains(anchor) { return true; }
+            let norm: String = l.split_whitespace().collect::<Vec<_>>().join(" ");
+            norm.contains(&anchor_normalized) || norm.to_lowercase().contains(&anchor_normalized.to_lowercase())
+        });
         match found {
             Some(idx) => {
                 let insert_lines: Vec<String> = insert_content.lines().map(|l| l.to_string()).collect();
