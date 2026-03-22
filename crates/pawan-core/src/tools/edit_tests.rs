@@ -1066,7 +1066,7 @@ mod config_tests {
     fn test_thinking_mode_only_deepseek() {
         let mut config = PawanConfig::default();
         config.reasoning_mode = true;
-        config.model = "stepfun-ai/step-3.5-flash".into();
+        config.model = "mistralai/mistral-small-4-119b-2603".into();
         assert!(!config.use_thinking_mode());
         config.model = "deepseek-ai/deepseek-v3".into();
         assert!(config.use_thinking_mode());

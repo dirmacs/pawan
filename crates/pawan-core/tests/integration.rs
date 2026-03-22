@@ -329,7 +329,7 @@ fn test_healing_config_defaults() {
 fn test_config_defaults() {
     let config = PawanConfig::default();
 
-    assert_eq!(config.model, "stepfun-ai/step-3.5-flash");
+    assert_eq!(config.model, "mistralai/mistral-small-4-119b-2603");
     assert!(!config.dry_run);
     assert!(config.auto_backup);
     assert!(config.reasoning_mode);
