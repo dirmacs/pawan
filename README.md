@@ -13,7 +13,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/rust-stable-orange.svg" alt="Rust">
   <img src="https://img.shields.io/badge/tools-29-green.svg" alt="29 tools">
-  <img src="https://img.shields.io/badge/tests-372-brightgreen.svg" alt="372 tests">
+  <img src="https://img.shields.io/badge/tests-325-brightgreen.svg" alt="325 tests">
 </p>
 
 ---
@@ -61,7 +61,7 @@ pawan tasks ready      # show actionable unblocked beads
 pawan doctor           # diagnose setup issues
 ```
 
-## Tools (28)
+## Tools (29)
 
 | Category | Tools |
 |----------|-------|
@@ -90,7 +90,7 @@ Matches by syntax tree structure, not text. `$VAR` for single-node wildcards, `$
 ```
 pawan/
   crates/
-    pawan-core/    # library — agent engine, 28 tools, config, healing
+    pawan-core/    # library — agent engine, 29 tools, config, healing
     pawan-cli/     # binary — CLI + ratatui TUI + AI workflows
     pawan-web/     # HTTP API — Axum SSE server (port 3300)
     pawan-mcp/     # MCP client (rmcp 0.12, stdio transport)
@@ -106,17 +106,30 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-### Recent additions (2026-03-20)
+### TUI (v0.3.0)
 
-**Mistral Small 4 119B** — new primary model. First to achieve 100% autonomous data structure score (interval tree 6/6). Self-refactored 9 callsites in its own native.rs. 11 NIM models benchmarked.
+- **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
+- **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets
+- **F1 help overlay** — keyboard shortcuts reference, organized by category
+- **Split layout** — activity panel slides in during processing (72/28 split)
+- **Slash commands** — `/model`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`
+- **Message timestamps** — relative time (now, 5s, 2m, 1h) on each message
+- **Scroll position** — `[2/5]` indicator in messages title bar
+- **Session stats** — tool calls, files edited, message count in status bar
+- **Conversation export** — `/export [path]` saves to markdown with tool call details
+- **Dynamic input** — auto-resizes 3-10 lines based on content
+- **Streaming markdown** — bold, code, italic, headers, lists rendered in real-time
+- **vim-like navigation** — `j/k`, `g/G`, `Ctrl+U/D`, `/search`, `n/N`
 
-**ast-grep + LSP tools** — AST-level code search/rewrite (multi-language) and rust-analyzer powered type-aware intelligence. Structural refactors in one tool call.
+### Intelligence (2026-03-20)
 
-**Token budget system** — `reasoning_tokens` and `action_tokens` tracked per LLM call. `thinking_budget` config caps thinking overhead. TUI shows `think:N act:N` split.
+**Mistral Small 4 119B** — primary model. First to achieve 100% autonomous score (interval tree 6/6). 11 NIM models benchmarked.
 
-**Auto-install + tiered registry** — missing CLI tools auto-install via mise on first use. 29 tools in 3 tiers (Core/Standard/Extended) — ~40% prompt token savings.
+**ast-grep + LSP** — AST-level code search/rewrite + rust-analyzer powered intelligence. Structural refactors in one tool call.
 
-**16 grind structures** — bloom filter, fenwick, skip list, trie, segment tree, DSU, treap, suffix array, leftist heap, radix tree, pairing heap, splay tree, rope, AVL tree, LRU cache, interval tree.
+**Token budget** — `reasoning_tokens` / `action_tokens` tracked per call. `thinking_budget` config caps thinking. TUI shows `think:N act:N` split.
+
+**Auto-install + tiered registry** — missing CLI tools auto-install via mise. 29 tools in 3 tiers (Core/Standard/Extended).
 
 ## Configuration
 

@@ -6,7 +6,38 @@ title = "Commands"
 
 ### `pawan`
 
-Default TUI mode. Streaming markdown rendering, vim keybindings, token tracking.
+Default TUI mode with ratatui-powered interface.
+
+Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split layout with activity panel, streaming markdown, vim-like navigation (`j/k`, `g/G`, `Ctrl+U/D`, `/search`, `n/N`), message timestamps, scroll position indicator, session stats, conversation export.
+
+### TUI Slash Commands
+
+| Command | Shorthand | Description |
+|---------|-----------|-------------|
+| `/model [name]` | `/m` | Show or switch LLM model |
+| `/search <query>` | `/s` | Web search via Daedra MCP |
+| `/tools` | `/t` | List available tools by tier |
+| `/heal` | `/h` | Auto-fix build errors |
+| `/export [path]` | `/e` | Export conversation to markdown |
+| `/clear` | | Clear chat history |
+| `/quit` | `/q` | Exit pawan |
+| `/help` | `/?` | Show help |
+
+### Keyboard Shortcuts
+
+| Key | Context | Action |
+|-----|---------|--------|
+| `Ctrl+P` | Any | Toggle command palette |
+| `F1` | Any | Toggle keyboard shortcuts overlay |
+| `Ctrl+L` | Any | Clear messages |
+| `Ctrl+C` | Any | Quit |
+| `Tab` | Any | Switch focus (Input/Messages) |
+| `j/k` | Messages | Scroll up/down |
+| `g/G` | Messages | Jump to top/bottom |
+| `Ctrl+U/D` | Messages | Half-page scroll |
+| `/` | Messages | Enter search mode |
+| `n/N` | Messages | Next/previous search match |
+| `i` | Messages | Return to input |
 
 ### `pawan chat --resume <ID>`
 
