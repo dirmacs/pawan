@@ -7,17 +7,64 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// Aegis integration for Pawan
+///
+/// This crate provides functionality to read `[pawan]` sections from aegis manifests
+/// and generate `pawan.toml` configuration files. It follows the same pattern as
+/// `aegis-opencode` for seamless integration with the Aegis ecosystem.
+///
+/// # Example
+///
+/// ```rust
+/// use pawan_aegis::PawanInput;
+/// use std::path::Path;
+///
+/// let input = PawanInput::load(Path::new("aegis.toml")).unwrap();
+/// if let Some(pawan_input) = input {
+///     pawan_input.write_to(Path::new("pawan.toml")).unwrap();
+/// }
+/// ```
+
 /// Error type for pawan-aegis operations
 #[derive(Debug, thiserror::Error)]
 pub enum AegisError {
+    /// I/O error variant
+    ///
+    /// Represents errors that occur during file operations like reading or writing
+    /// configuration files.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+    /// TOML parsing error variant
+    ///
+    /// Represents errors that occur when parsing TOML configuration files.
     #[error("TOML parse error: {0}")]
     Toml(#[from] toml::de::Error),
+    /// Configuration error variant
+    ///
+    /// Represents general configuration errors that don't fall into the
+    /// IO or TOML parsing categories.
     #[error("Config error: {0}")]
     Config(String),
 }
 
+/// Result type for pawan-aegis operations
+///
+/// A convenience type alias for operations that can return `AegisError`.
+///
+/// # Type Parameters
+///
+/// * `T` - The success type
+///
+/// # Examples
+///
+/// ```rust
+/// use pawan_aegis::Result;
+///
+/// fn example() -> Result<()> {
+///     // Operation that might fail
+///     Ok(())
+/// }
+/// ```
 pub type Result<T> = std::result::Result<T, AegisError>;
 
 /// Wrapper for deserializing `[pawan]` section from aegis manifest
@@ -59,6 +106,66 @@ fn default_provider() -> String {
 /// MCP server input from aegis manifest
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct McpInput {
+    /// Command to execute for the MCP server
+    ///
+    /// This is the executable or script that will be run to start the MCP server.
+    pub command: String,
+    /// Arguments to pass to the command
+    ///
+    /// Additional command-line arguments for the MCP server executable.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment variables for the MCP server
+    ///
+    /// Key-value pairs that will be set as environment variables when running the command.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    /// Whether this MCP server is enabled
+    ///
+    /// If false, the MCP server will not be started.
+    /// Defaults to true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Command to execute for the MCP server
+    ///
+    /// This is the executable or script that will be run to start the MCP server.
+    pub command: String,
+    /// Arguments to pass to the command
+    ///
+    /// Additional command-line arguments for the MCP server executable.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment variables for the MCP server
+    ///
+    /// Key-value pairs that will be set as environment variables when running the command.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    /// Whether this MCP server is enabled
+    ///
+    /// If false, the MCP server will not be started.
+    /// Defaults to true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Command to execute for the MCP server
+    ///
+    /// This is the executable or script that will be run to start the MCP server.
+    pub command: String,
+    /// Arguments to pass to the command
+    ///
+    /// Additional command-line arguments for the MCP server executable.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment variables for the MCP server
+    ///
+    /// Key-value pairs that will be set as environment variables when running the command.
+    #[serde(default)]
+    pub env: HashMap<String, String>,
+    /// Whether this MCP server is enabled
+    ///
+    /// If false, the MCP server will not be started.
+    /// Defaults to true.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     pub command: String,
     #[serde(default)]
     pub args: Vec<String>,
