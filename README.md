@@ -12,8 +12,6 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <img src="https://img.shields.io/badge/rust-stable-orange.svg" alt="Rust">
-  <img src="https://img.shields.io/badge/tools-29-green.svg" alt="29 tools">
-  <img src="https://img.shields.io/badge/tests-325-brightgreen.svg" alt="325 tests">
 </p>
 
 ---
@@ -95,7 +93,7 @@ pawan/
     pawan-web/     # HTTP API — Axum SSE server (port 3300)
     pawan-mcp/     # MCP client (rmcp 0.12, stdio transport)
     pawan-aegis/   # aegis config resolution
-  grind/           # autonomous data structure workspace (16 structures, 119 tests)
+  grind/           # autonomous data structure workspace
 ```
 
 ### Safety & intelligence features
