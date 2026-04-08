@@ -966,4 +966,126 @@ mod tests {
         assert!(json.contains("read_file"));
         assert!(json.contains("test.txt"));
     }
+
+    /// Helper to build an agent with N messages for prune testing.
+    /// History starts empty; we add a system prompt + (n-1) user/assistant messages = n total.
+    fn agent_with_messages(n: usize) -> PawanAgent {
+        let config = PawanConfig::default();
+        let mut agent = PawanAgent::new(config, PathBuf::from("."));
+        // Add system prompt as message 0
+        agent.add_message(Message {
+            role: Role::System,
+            content: "System prompt".to_string(),
+            tool_calls: vec![],
+            tool_result: None,
+        });
+        for i in 1..n {
+            agent.add_message(Message {
+                role: if i % 2 == 1 { Role::User } else { Role::Assistant },
+                content: format!("Message {}", i),
+                tool_calls: vec![],
+                tool_result: None,
+            });
+        }
+        assert_eq!(agent.history().len(), n);
+        agent
+    }
+
+    #[test]
+    fn test_prune_history_no_op_when_small() {
+        let mut agent = agent_with_messages(5);
+        agent.prune_history();
+        assert_eq!(agent.history().len(), 5, "Should not prune <= 5 messages");
+    }
+
+    #[test]
+    fn test_prune_history_reduces_messages() {
+        let mut agent = agent_with_messages(12);
+        assert_eq!(agent.history().len(), 12);
+        agent.prune_history();
+        // Should keep: system prompt (1) + summary (1) + last 4 = 6
+        assert_eq!(agent.history().len(), 6);
+    }
+
+    #[test]
+    fn test_prune_history_preserves_system_prompt() {
+        let mut agent = agent_with_messages(10);
+        let original_system = agent.history()[0].content.clone();
+        agent.prune_history();
+        assert_eq!(agent.history()[0].content, original_system, "System prompt must survive pruning");
+    }
+
+    #[test]
+    fn test_prune_history_preserves_last_messages() {
+        let mut agent = agent_with_messages(10);
+        // Last 4 messages are at indices 6..10 with content "Message 6".."Message 9"
+        let last4: Vec<String> = agent.history()[6..10].iter().map(|m| m.content.clone()).collect();
+        agent.prune_history();
+        // After pruning: [system, summary, msg6, msg7, msg8, msg9]
+        let after_last4: Vec<String> = agent.history()[2..6].iter().map(|m| m.content.clone()).collect();
+        assert_eq!(last4, after_last4, "Last 4 messages must be preserved after pruning");
+    }
+
+    #[test]
+    fn test_prune_history_inserts_summary() {
+        let mut agent = agent_with_messages(10);
+        agent.prune_history();
+        assert_eq!(agent.history()[1].role, Role::System);
+        assert!(agent.history()[1].content.contains("summary"), "Summary message should contain 'summary'");
+    }
+
+    #[test]
+    fn test_prune_history_utf8_safe() {
+        let config = PawanConfig::default();
+        let mut agent = PawanAgent::new(config, PathBuf::from("."));
+        // Add system prompt + 10 messages with multi-byte UTF-8 characters
+        agent.add_message(Message {
+            role: Role::System, content: "sys".into(), tool_calls: vec![], tool_result: None,
+        });
+        for _ in 0..10 {
+            agent.add_message(Message {
+                role: Role::User,
+                content: "こんにちは世界 🌍 ".repeat(50),
+                tool_calls: vec![],
+                tool_result: None,
+            });
+        }
+        // This should not panic on char boundary issues
+        agent.prune_history();
+        assert!(agent.history().len() < 11, "Should have pruned");
+        // Verify summary is valid UTF-8
+        let summary = &agent.history()[1].content;
+        assert!(summary.is_char_boundary(0));
+    }
+
+    #[test]
+    fn test_prune_history_exactly_6_messages() {
+        // 6 messages = 1 more than the no-op threshold of 5
+        let mut agent = agent_with_messages(6);
+        agent.prune_history();
+        // Prunes 1 middle message, replaced by summary: system(1) + summary(1) + last 4 = 6
+        assert_eq!(agent.history().len(), 6);
+    }
+
+    #[test]
+    fn test_message_role_roundtrip() {
+        for role in [Role::User, Role::Assistant, Role::System, Role::Tool] {
+            let json = serde_json::to_string(&role).unwrap();
+            let back: Role = serde_json::from_str(&json).unwrap();
+            assert_eq!(role, back);
+        }
+    }
+
+    #[test]
+    fn test_agent_response_construction() {
+        let resp = AgentResponse {
+            content: String::new(),
+            tool_calls: vec![],
+            iterations: 3,
+            usage: TokenUsage::default(),
+        };
+        assert!(resp.content.is_empty());
+        assert!(resp.tool_calls.is_empty());
+        assert_eq!(resp.iterations, 3);
+    }
 }
