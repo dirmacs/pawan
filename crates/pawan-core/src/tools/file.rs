@@ -3,7 +3,7 @@
 use super::Tool;
 use async_trait::async_trait;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Normalize a path relative to the workspace root.
 ///
@@ -18,7 +18,7 @@ use std::path::PathBuf;
 ///
 /// # Returns
 /// The normalized path as a PathBuf
-pub fn normalize_path(workspace_root: &PathBuf, path: &str) -> PathBuf {
+pub fn normalize_path(workspace_root: &Path, path: &str) -> PathBuf {
     let p = PathBuf::from(path);
     if p.is_absolute() {
         let ws = workspace_root.to_string_lossy();
