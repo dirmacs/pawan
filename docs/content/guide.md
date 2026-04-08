@@ -35,7 +35,7 @@ NVIDIA_API_KEY=nvapi-...
 
 ### Local Inference (Free, Optional)
 
-The `mlx` provider runs a model locally on Mac via [mlx_lm.server](https://github.com/ml-explore/mlx-examples/tree/main/llms). No API key needed, $0/token. Optional — pawan defaults to Mistral Small 4 on NVIDIA NIM.
+The `mlx` provider runs a model locally on Mac via [mlx_lm.server](https://github.com/ml-explore/mlx-examples/tree/main/llms). No API key needed, $0/token. Optional — pawan defaults to Qwen3.5 122B on NVIDIA NIM.
 
 ```toml
 provider = "mlx"
@@ -79,7 +79,7 @@ Priority: CLI flags > environment variables > pawan.toml > defaults
 
 | Variable | Description |
 |----------|-------------|
-| `PAWAN_MODEL` | Model override (e.g., `qwen/qwen3.5-397b-a17b`) |
+| `PAWAN_MODEL` | Model override (e.g., `minimaxai/minimax-m2.5`) |
 | `PAWAN_PROVIDER` | Provider: `nvidia`, `ollama`, `openai`, `mlx` |
 | `PAWAN_TEMPERATURE` | Temperature (0.0-2.0) |
 | `PAWAN_MAX_TOKENS` | Max output tokens |
@@ -89,7 +89,7 @@ Priority: CLI flags > environment variables > pawan.toml > defaults
 
 ```toml
 provider = "nvidia"
-model = "mistralai/mistral-small-4-119b-2603"
+model = "qwen/qwen3.5-122b-a10b"
 temperature = 0.6
 max_tokens = 4096
 max_tool_iterations = 20
@@ -97,7 +97,7 @@ thinking_budget = 0
 
 [cloud]
 provider = "nvidia"
-model = "stepfun-ai/step-3.5-flash"
+model = "minimaxai/minimax-m2.5"
 
 [eruka]
 enabled = true

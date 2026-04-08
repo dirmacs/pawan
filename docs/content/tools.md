@@ -16,7 +16,7 @@ Tools are organized into tiers to save LLM prompt tokens:
 
 Extended tools are always executable — they just don't appear in the LLM prompt until the model calls one. This saves ~40% prompt tokens on simple tasks.
 
-**Auto-install**: If a native tool (erd, ast-grep, rg, fd, sd) is missing, pawan auto-installs it via mise on first use. No manual setup needed.
+**Auto-install**: If a native tool (ast-grep, rg, fd, sd) is missing, pawan auto-installs it via mise on first use. No manual setup needed.
 
 ## File Tools
 
@@ -90,11 +90,11 @@ lsp(action="analyze", path=".")
 |------|-------------|
 | `bash` | Execute shell commands with configurable timeout |
 | `sd` | Native `sd` wrapper — find-and-replace in files (fixed strings or regex) |
-| `tree` | **erdtree** — fast filesystem tree with disk usage, line counts, metadata |
+| `tree` | Filesystem tree with disk usage, line counts, metadata |
 | `mise` | **Polyglot tool/runtime/task/env manager** — install tools, run tasks, manage envs |
 | `zoxide` | Smart directory navigation — query, add, list paths |
 
-### tree (erdtree) — full-power filesystem intelligence
+### tree — filesystem intelligence
 
 ```bash
 # Lines of code per directory
@@ -114,7 +114,7 @@ tree(path=".", long=true, hidden=true)
 
 ```bash
 # Self-install any missing tool
-mise(action="install", tool="erdtree")
+mise(action="install", tool="ast-grep")
 
 # Run project tasks defined in mise.toml
 mise(action="run", task="test")
@@ -186,7 +186,7 @@ new_content: "fn main() -> Result<()>"
 
 ## Safety & Intelligence
 
-- **Auto-install**: Missing CLI tools (erd, ast-grep, rg, fd, sd) are auto-installed via mise on first use
+- **Auto-install**: Missing CLI tools (ast-grep, rg, fd, sd) are auto-installed via mise on first use
 - **Tiered visibility**: Only core tools in LLM prompt by default — extended tools activate on first use
 - **Path normalization**: All file tools detect and correct double workspace prefix
 - **Compile-gated confidence**: After writing `.rs` files, `cargo check` runs automatically

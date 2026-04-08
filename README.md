@@ -119,9 +119,11 @@ pawan/
 - **Streaming markdown** — bold, code, italic, headers, lists rendered in real-time
 - **vim-like navigation** — `j/k`, `g/G`, `Ctrl+U/D`, `/search`, `n/N`
 
-### Intelligence (2026-03-20)
+### Intelligence (2026-04-08)
 
-**Mistral Small 4 119B** — primary model. First to achieve 100% autonomous score (interval tree 6/6). 11 NIM models benchmarked.
+**Qwen3.5 122B A10B** — primary model. 383ms latency, 13.6s task completion, solid tool calling. MiniMax M2.5 (SWE 80.2%) as cloud fallback. 12 NIM models benchmarked.
+
+**Multi-model thinking** — per-model thinking mode: Qwen/GLM (`chat_template_kwargs`), Mistral Small 4 (`reasoning_effort`), Gemma (`enable_thinking`), DeepSeek (`thinking`).
 
 **ast-grep + LSP** — AST-level code search/rewrite + rust-analyzer powered intelligence. Structural refactors in one tool call.
 
@@ -135,7 +137,7 @@ Priority: CLI flags > env vars > `pawan.toml` > `~/.config/pawan/pawan.toml` > d
 
 ```bash
 PAWAN_PROVIDER=nvidia           # nvidia | ollama | openai | mlx
-PAWAN_MODEL=mistralai/mistral-small-4-119b-2603
+PAWAN_MODEL=qwen/qwen3.5-122b-a10b
 PAWAN_TEMPERATURE=0.6
 PAWAN_MAX_TOKENS=4096
 NVIDIA_API_KEY=nvapi-...
@@ -144,7 +146,7 @@ NVIDIA_API_KEY=nvapi-...
 ```toml
 # pawan.toml
 provider = "nvidia"
-model = "mistralai/mistral-small-4-119b-2603"
+model = "qwen/qwen3.5-122b-a10b"
 temperature = 0.6
 max_tokens = 4096
 max_tool_iterations = 20
@@ -152,7 +154,7 @@ thinking_budget = 0
 
 [cloud]
 provider = "nvidia"
-model = "stepfun-ai/step-3.5-flash"
+model = "minimaxai/minimax-m2.5"
 
 [eruka]
 enabled = true
@@ -168,18 +170,18 @@ args = ["serve", "--transport", "stdio", "--quiet"]
 Pawan supports local-first inference with cloud fallback:
 
 1. **Local** (primary) — MLX on Mac M4 / Ollama / llama.cpp — $0/token
-2. **Cloud** (fallback) — NVIDIA NIM StepFun Flash — automatic failover when local is down
+2. **Cloud** (fallback) — NVIDIA NIM MiniMax M2.5 — automatic failover when local is down
 
 Zero-cost local inference with cloud reliability as a safety net.
 
-## Model triage (11 models tested)
+## Model triage (12 NIM models tested, 2026-04-08)
 
-| Model | Provider | Coding | Tool Calling | Notes |
-|-------|----------|--------|-------------|-------|
-| **Mistral Small 4 119B** | NIM | **Best** (6/6 interval tree) | Good | First 100% autonomous score. Self-corrects via semantic reasoning. |
-| **StepFun Flash** | NIM | Good | **Best** (98.9%) | Best for orchestration and multi-step tool chains. |
-| MiniMax M2.5 | NIM | Good (4/5 B-Tree) | Good | Tied with Mistral on B-Tree, fewer tool calls. |
-| Qwen3.5-9B-OptiQ | MLX | Execution only | 85% | Best local. 17-18 tok/s, $0. Can't generate complex algos. |
+| Model | Latency | Task Time | Notes |
+|-------|---------|-----------|-------|
+| **Qwen3.5 122B A10B** | 383ms | **13.6s** | Primary. Fastest task completion, solid tool calling. S tier. |
+| **MiniMax M2.5** | 374ms | 73.8s | Cloud fallback. SWE 80.2% — best quality analysis. |
+| Step 3.5 Flash | 379ms | — | S+ tier but empty responses in dogfooding. |
+| Mistral Small 4 119B | 341ms | error | Eruka context injection triggers 400. |
 
 Full triage: [dirmacs.github.io/pawan/triage/](https://dirmacs.github.io/pawan/triage/)
 
