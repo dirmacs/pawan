@@ -636,4 +636,241 @@ base_url = "http://192.168.1.100:8080/v1"
             Some("http://192.168.1.100:8080/v1")
         );
     }
+
+    // --- ModelRouting tests ---
+
+    #[test]
+    fn test_route_code_signals() {
+        let routing = ModelRouting {
+            code: Some("code-model".into()),
+            orchestrate: Some("orch-model".into()),
+            execute: Some("exec-model".into()),
+        };
+        assert_eq!(routing.route("implement a linked list"), Some("code-model"));
+        assert_eq!(routing.route("refactor the parser"), Some("code-model"));
+        assert_eq!(routing.route("add test for config"), Some("code-model"));
+        assert_eq!(routing.route("Write a new struct"), Some("code-model"));
+    }
+
+    #[test]
+    fn test_route_orchestration_signals() {
+        let routing = ModelRouting {
+            code: Some("code-model".into()),
+            orchestrate: Some("orch-model".into()),
+            execute: Some("exec-model".into()),
+        };
+        assert_eq!(routing.route("analyze the error logs"), Some("orch-model"));
+        assert_eq!(routing.route("review this PR"), Some("orch-model"));
+        assert_eq!(routing.route("explain how the agent works"), Some("orch-model"));
+        assert_eq!(routing.route("search for uses of foo"), Some("orch-model"));
+    }
+
+    #[test]
+    fn test_route_execution_signals() {
+        let routing = ModelRouting {
+            code: Some("code-model".into()),
+            orchestrate: Some("orch-model".into()),
+            execute: Some("exec-model".into()),
+        };
+        assert_eq!(routing.route("run cargo test"), Some("exec-model"));
+        assert_eq!(routing.route("execute the deploy script"), Some("exec-model"));
+        assert_eq!(routing.route("build the project"), Some("exec-model"));
+        assert_eq!(routing.route("commit these changes"), Some("exec-model"));
+    }
+
+    #[test]
+    fn test_route_no_match_returns_none() {
+        let routing = ModelRouting {
+            code: Some("code-model".into()),
+            orchestrate: Some("orch-model".into()),
+            execute: Some("exec-model".into()),
+        };
+        assert_eq!(routing.route("hello world"), None);
+    }
+
+    #[test]
+    fn test_route_empty_routing_returns_none() {
+        let routing = ModelRouting::default();
+        assert_eq!(routing.route("implement something"), None);
+        assert_eq!(routing.route("search for bugs"), None);
+    }
+
+    #[test]
+    fn test_route_case_insensitive() {
+        let routing = ModelRouting {
+            code: Some("code-model".into()),
+            orchestrate: None,
+            execute: None,
+        };
+        assert_eq!(routing.route("IMPLEMENT a FUNCTION"), Some("code-model"));
+    }
+
+    #[test]
+    fn test_route_partial_routing() {
+        // Only code model configured, orch/exec queries return None
+        let routing = ModelRouting {
+            code: Some("code-model".into()),
+            orchestrate: None,
+            execute: None,
+        };
+        assert_eq!(routing.route("implement x"), Some("code-model"));
+        assert_eq!(routing.route("search for y"), None);
+        assert_eq!(routing.route("run tests"), None);
+    }
+
+    // --- apply_env_overrides tests ---
+
+    #[test]
+    fn test_env_override_model() {
+        let mut config = PawanConfig::default();
+        std::env::set_var("PAWAN_MODEL", "custom/model-123");
+        config.apply_env_overrides();
+        std::env::remove_var("PAWAN_MODEL");
+        assert_eq!(config.model, "custom/model-123");
+    }
+
+    #[test]
+    fn test_env_override_temperature() {
+        let mut config = PawanConfig::default();
+        std::env::set_var("PAWAN_TEMPERATURE", "0.9");
+        config.apply_env_overrides();
+        std::env::remove_var("PAWAN_TEMPERATURE");
+        assert!((config.temperature - 0.9).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_env_override_invalid_temperature_ignored() {
+        let mut config = PawanConfig::default();
+        let original = config.temperature;
+        std::env::set_var("PAWAN_TEMPERATURE", "not_a_number");
+        config.apply_env_overrides();
+        std::env::remove_var("PAWAN_TEMPERATURE");
+        assert!((config.temperature - original).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_env_override_max_tokens() {
+        let mut config = PawanConfig::default();
+        std::env::set_var("PAWAN_MAX_TOKENS", "16384");
+        config.apply_env_overrides();
+        std::env::remove_var("PAWAN_MAX_TOKENS");
+        assert_eq!(config.max_tokens, 16384);
+    }
+
+    #[test]
+    fn test_env_override_fallback_models() {
+        let mut config = PawanConfig::default();
+        std::env::set_var("PAWAN_FALLBACK_MODELS", "model-a, model-b, model-c");
+        config.apply_env_overrides();
+        std::env::remove_var("PAWAN_FALLBACK_MODELS");
+        assert_eq!(config.fallback_models, vec!["model-a", "model-b", "model-c"]);
+    }
+
+    #[test]
+    fn test_env_override_fallback_models_filters_empty() {
+        let mut config = PawanConfig::default();
+        std::env::set_var("PAWAN_FALLBACK_MODELS", "model-a,,, model-b,");
+        config.apply_env_overrides();
+        std::env::remove_var("PAWAN_FALLBACK_MODELS");
+        assert_eq!(config.fallback_models, vec!["model-a", "model-b"]);
+    }
+
+    #[test]
+    fn test_env_override_provider_variants() {
+        for (env_val, expected) in [
+            ("nvidia", LlmProvider::Nvidia),
+            ("nim", LlmProvider::Nvidia),
+            ("ollama", LlmProvider::Ollama),
+            ("openai", LlmProvider::OpenAI),
+            ("mlx", LlmProvider::Mlx),
+        ] {
+            let mut config = PawanConfig::default();
+            std::env::set_var("PAWAN_PROVIDER", env_val);
+            config.apply_env_overrides();
+            std::env::remove_var("PAWAN_PROVIDER");
+            assert_eq!(config.provider, expected, "PAWAN_PROVIDER={} should map to {:?}", env_val, expected);
+        }
+    }
+
+    // --- use_thinking_mode tests ---
+
+    #[test]
+    fn test_thinking_mode_supported_models() {
+        for model in ["deepseek-ai/deepseek-r1", "google/gemma-4-31b-it", "z-ai/glm5",
+                       "qwen/qwen3.5-122b", "mistralai/mistral-small-4-119b"] {
+            let config = PawanConfig { model: model.into(), reasoning_mode: true, ..Default::default() };
+            assert!(config.use_thinking_mode(), "thinking mode should be on for {}", model);
+        }
+    }
+
+    #[test]
+    fn test_thinking_mode_disabled_when_reasoning_off() {
+        let config = PawanConfig { model: "deepseek-ai/deepseek-r1".into(), reasoning_mode: false, ..Default::default() };
+        assert!(!config.use_thinking_mode());
+    }
+
+    #[test]
+    fn test_thinking_mode_unsupported_models() {
+        for model in ["meta/llama-3.1-70b", "minimaxai/minimax-m2.5", "stepfun-ai/step-3.5-flash"] {
+            let config = PawanConfig { model: model.into(), reasoning_mode: true, ..Default::default() };
+            assert!(!config.use_thinking_mode(), "thinking mode should be off for {}", model);
+        }
+    }
+
+    // --- get_system_prompt tests ---
+
+    #[test]
+    fn test_system_prompt_default() {
+        let config = PawanConfig::default();
+        let prompt = config.get_system_prompt();
+        assert!(prompt.contains("Pawan"), "default prompt should mention Pawan");
+        assert!(prompt.contains("coding"), "default prompt should mention coding");
+    }
+
+    #[test]
+    fn test_system_prompt_custom_override() {
+        let config = PawanConfig { system_prompt: Some("Custom system prompt.".into()), ..Default::default() };
+        let prompt = config.get_system_prompt();
+        assert!(prompt.starts_with("Custom system prompt."));
+    }
+
+    // --- Config TOML parsing tests ---
+
+    #[test]
+    fn test_config_with_cloud_fallback() {
+        let toml = r#"
+model = "qwen/qwen3.5-122b-a10b"
+[cloud]
+provider = "nvidia"
+model = "minimaxai/minimax-m2.5"
+"#;
+        let config: PawanConfig = toml::from_str(toml).expect("should parse");
+        assert_eq!(config.model, "qwen/qwen3.5-122b-a10b");
+        let cloud = config.cloud.unwrap();
+        assert_eq!(cloud.model, "minimaxai/minimax-m2.5");
+    }
+
+    #[test]
+    fn test_config_with_healing() {
+        let toml = r#"
+model = "test"
+[healing]
+fix_errors = true
+fix_warnings = false
+fix_tests = true
+"#;
+        let config: PawanConfig = toml::from_str(toml).expect("should parse");
+        assert!(config.healing.fix_errors);
+        assert!(!config.healing.fix_warnings);
+        assert!(config.healing.fix_tests);
+    }
+
+    #[test]
+    fn test_config_defaults_sensible() {
+        let config = PawanConfig::default();
+        assert_eq!(config.provider, LlmProvider::Nvidia);
+        assert!(config.temperature > 0.0 && config.temperature <= 1.0);
+        assert!(config.max_tokens > 0);
+        assert!(config.max_tool_iterations > 0);
+    }
 }
