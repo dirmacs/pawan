@@ -244,14 +244,21 @@ impl CompilerFixer {
             else if line.trim().starts_with("-->") {
                 if let Some(ref mut d) = current_diagnostic {
                     let path_part = line.trim().trim_start_matches("-->").trim();
-                    // Parse file:line:column
+                    // Parse file:line:column (column may be absent)
                     let parts: Vec<&str> = path_part.rsplitn(3, ':').collect();
-                    if parts.len() >= 2 {
-                        d.column = parts[0].parse().ok();
-                        d.line = parts[1].parse().ok();
-                        if parts.len() >= 3 {
+                    match parts.len() {
+                        3 => {
+                            // file:line:column
+                            d.column = parts[0].parse().ok();
+                            d.line = parts[1].parse().ok();
                             d.file = Some(PathBuf::from(parts[2]));
                         }
+                        2 => {
+                            // file:line (no column)
+                            d.line = parts[0].parse().ok();
+                            d.file = Some(PathBuf::from(parts[1]));
+                        }
+                        _ => {}
                     }
                 }
             }
