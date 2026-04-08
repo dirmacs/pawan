@@ -205,7 +205,7 @@ impl ToolRegistry {
 
         let mut scored: Vec<(i32, String)> = Vec::new();
 
-        for (name, _tool) in &self.tools {
+        for name in self.tools.keys() {
             let tier = self.tiers.get(name.as_str()).copied().unwrap_or(ToolTier::Standard);
 
             // Core tools always included — skip scoring
