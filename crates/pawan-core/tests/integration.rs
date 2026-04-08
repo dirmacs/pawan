@@ -345,9 +345,12 @@ fn test_config_system_prompt_with_reasoning() {
 
     // System prompt contains Pawan identity
     assert!(prompt.contains("Pawan"));
-    // Default model is StepFun (not deepseek), so thinking mode is off
+    // Default model (mistral-small-4) supports thinking
+    assert!(config.use_thinking_mode());
+    // Non-thinking models don't activate it
+    config.model = "stepfun-ai/step-3.5-flash".to_string();
     assert!(!config.use_thinking_mode());
-    // But with a deepseek model, thinking mode activates
+    // DeepSeek also activates thinking
     config.model = "deepseek-ai/deepseek-v3.2".to_string();
     assert!(config.use_thinking_mode());
 }

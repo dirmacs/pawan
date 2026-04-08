@@ -526,10 +526,14 @@ impl PawanConfig {
     }
 
     /// Check if thinking mode should be enabled.
-    /// Applicable to DeepSeek and Gemma-4 models on NIM.
+    /// Applicable to DeepSeek, Gemma-4, GLM, Qwen, and Mistral Small 4+ models on NIM.
     pub fn use_thinking_mode(&self) -> bool {
         self.reasoning_mode
-            && (self.model.contains("deepseek") || self.model.contains("gemma"))
+            && (self.model.contains("deepseek")
+                || self.model.contains("gemma")
+                || self.model.contains("glm")
+                || self.model.contains("qwen")
+                || self.model.contains("mistral-small-4"))
     }
 }
 

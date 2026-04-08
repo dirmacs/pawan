@@ -4,38 +4,37 @@ title = "Model Triage"
 
 Pawan is model-agnostic — it works with any OpenAI-compatible API. We've triaged models on NVIDIA NIM and local inference for real-world coding agent tasks: tool calling, multi-step reasoning, code generation, and self-healing.
 
-## Triage Results (updated 2026-03-19)
+## Triage Results (updated 2026-04-08)
 
-Tested across 1000+ cumulative tool calls, 16 data structure builds, and 372 tests across the workspace. 11 NIM models benchmarked on the B-Tree ringer test (2026-03-21).
+Tested across 1000+ cumulative tool calls, 16 data structure builds, and 372 tests across the workspace. 12 NIM models benchmarked via latency (nimakai) and real-world dogfooding (pawan task).
 
 ### Tier 1 — Production Ready
 
-| Model | Provider | Tool Call | Coding | Notes |
-|-------|----------|----------|--------|-------|
-| **Mistral Small 4 119B** | NIM | Good | **Best** | First 100% autonomous score (interval tree 6/6). Self-corrects via semantic reasoning. Primary model. |
-| **StepFun Flash** | NIM | **Best** (98.9%) | Good | Best for multi-step orchestration. Cloud fallback. |
-| **MiniMax M2.5** | NIM | Good | Good (4/5 B-Tree) | Tied with Mistral on B-Tree. Fewer tool calls needed. |
-| **Qwen3.5-9B-OptiQ-4bit** (local) | MLX | ~85% | Execution only | 17-18 tok/s, $0. `enable_thinking: false` required. Can't generate complex algos. |
+| Model | Provider | Latency | Task Time | Notes |
+|-------|----------|---------|-----------|-------|
+| **Qwen3.5 122B A10B** | NIM | 383ms | **13.6s** | Primary model. Fastest task completion, solid tool calling, thinking mode support. S tier (66% SWE). |
+| **MiniMax M2.5** | NIM | 374ms | 73.8s | Cloud fallback. Highest SWE-bench score (80.2%). Best analysis quality but slower. |
+| **Step 3.5 Flash** | NIM | 379ms | — | S+ tier (74.4% SWE). Fast latency but produced empty responses in dogfooding — needs investigation. |
 
 ### Tier 2 — Usable with Guardrails
 
 | Model | Provider | Notes |
 |-------|----------|-------|
-| **Qwen3.5-122B** | NIM | Strong code but can't fix borrow checker in time (6 errors on B-Tree). |
-| **GPT-OSS 120B** | NIM | Fixes things but breaks other things. Destructive fix loops. |
-| **Nemotron-Super-49B** | NIM | Too simple implementations (1/5 B-Tree). |
+| **Kimi K2 Thinking** | NIM | 470ms. Strong reasoning model but thinking mode overhead slows agentic tasks. |
+| **Kimi K2 Instruct 0905** | NIM | 458ms. No thinking overhead, decent tool calling. |
+| **Mistral Large 3 675B** | NIM | 685ms. Capable but slow for agent loops. |
+| **GLM-4.7** | NIM | 1614ms. Strong benchmarks but too slow for real-time agent use. |
 
 ### Tier 3 — Avoid for Agents
 
 | Model | Provider | Issue |
 |-------|----------|-------|
-| **DeepSeek V3.2** | NIM | Infinite loop on tool calling. Never terminates. |
-| **Mistral-Nemotron** | NIM | Describes actions but never makes tool calls. |
-| **Nemotron-3-Nano-30B** | NIM | All thinking tokens, zero tool calls. |
-| **Nemotron-Ultra-253B** | NIM | Hit max iterations, never completed. |
-| **Nemotron-3-Super-120B** | NIM | Missing Default trait, compile errors. |
-| **Nemotron-3-Nano-4B** | MLX | Broken chat template, garbled output. |
-| **Nemotron-Cascade-8B** | MLX | Can't disable thinking. Burns all tokens. |
+| **Mistral Small 4 119B** | NIM | 400 error: "Unexpected role 'user' after role 'tool'" — Eruka context injection breaks Mistral's strict message ordering. |
+| **Gemma 4 31B IT** | NIM | Thinking mode stalls pawan (15+ min with no tool calls). 9 TPS too slow for agentic tasks. |
+| **GLM-5** | NIM | 8313ms latency. Unstable. |
+| **DeepSeek V3.2** | NIM | Timeout in latency benchmark. |
+| **Kimi K2.5** | NIM | Timeout in latency benchmark. |
+| **Qwen3.5 397B A17B** | NIM | 404 / timeout — not reliably available. |
 
 ## Guardrails That Make It Work
 
@@ -65,7 +64,7 @@ max_tool_iterations = 20
 
 [cloud]
 provider = "nvidia"
-model = "step-ai/step-2-flash"
+model = "minimaxai/minimax-m2.5"
 ```
 
 The local model runs at $0/token. If it's down (OOM, Mac asleep), pawan seamlessly falls back to NIM cloud. Zero manual intervention.
@@ -104,27 +103,26 @@ Front-load prompts with all context the model would otherwise explore: exact fil
 
 ## Dogfood Stats
 
-Updated 2026-03-21:
+Updated 2026-04-08:
 
-- **1000+ tool calls** across 11 models
-- **11 NIM models** benchmarked on B-Tree ringer test
-- **First 100% autonomous score**: Mistral Small 4 wrote interval tree (6/6 tests)
-- **Best coding accuracy**: Mistral Small 4 (4/5 B-Tree, 6/6 interval tree, self-refactored 9 callsites)
-- **Best tool calling**: StepFun Flash (98.9% success rate)
-- **16 data structures** in grind workspace: bloom filter, fenwick, skip list, trie, segment tree, DSU, treap, suffix array, leftist heap, radix tree, pairing heap, splay tree, rope, AVL tree, LRU cache, interval tree
-- **119 grind tests + 207 pawan-core tests + 46 TUI tests = 372 total**
+- **12 NIM models** benchmarked via nimakai latency + real-world pawan task dogfooding
+- **Fastest task completion**: Qwen3.5 122B (13.6s for healing module review)
+- **Highest SWE-bench**: MiniMax M2.5 (80.2%)
+- **16 data structures** in grind workspace
+- **31 pawan-core tests** passing, zero clippy warnings
 - **29 tools** in 3 tiers (Core/Standard/Extended) with auto-install via mise
-- **Pawan dogfoods itself**: wrote 14 tests for its own git.rs, native.rs, bash.rs, agent.rs
+- **Multi-model thinking support**: Qwen (`enable_thinking`), Gemma (`enable_thinking`), GLM (`enable_thinking` + `clear_thinking`), Mistral Small 4 (`reasoning_effort`), DeepSeek (`thinking`)
 - **Token budget tracking**: thinking vs action token split visible in TUI and CLI
 
 ## Running Your Own Triage
 
 ```bash
-# Test a model with a simple coding task
-pawan run "create a Rust function that checks if a string is a palindrome" \
-  --timeout 60 --verbose
+# Latency benchmark via nimakai
+nimakai --once -m "qwen/qwen3.5-122b-a10b,minimaxai/minimax-m2.5,stepfun-ai/step-3.5-flash"
 
-# Compare local vs cloud
-PAWAN_PROVIDER=mlx pawan run "implement a binary search tree" --output json
-PAWAN_PROVIDER=nvidia PAWAN_MODEL=step-ai/step-2-flash pawan run "implement a binary search tree" --output json
+# Test a model with a real coding task
+pawan task "read src/lib.rs and identify the top 3 issues"
+
+# Override model for comparison
+PAWAN_MODEL=minimaxai/minimax-m2.5 pawan task "read src/lib.rs and identify the top 3 issues"
 ```
