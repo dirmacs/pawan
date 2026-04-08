@@ -101,9 +101,9 @@ pub type Result<T> = std::result::Result<T, PawanError>;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Default model for coding tasks (Mistral Small 4 119B MoE via NVIDIA NIM)
-/// First model to achieve 100% autonomous score (interval tree 6/6).
-/// Best for code generation, self-correction, and semantic reasoning.
-pub const DEFAULT_MODEL: &str = "mistralai/mistral-small-4-119b-2603";
+/// Default model — Qwen3.5 122B (S tier, 383ms, solid tool calling).
+/// Override via pawan.toml or PAWAN_MODEL env var.
+pub const DEFAULT_MODEL: &str = "qwen/qwen3.5-122b-a10b";
 
 /// Default NVIDIA API URL
 pub const DEFAULT_NVIDIA_API_URL: &str = "https://integrate.api.nvidia.com/v1";

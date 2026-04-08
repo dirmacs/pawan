@@ -215,17 +215,10 @@ impl Default for PawanConfig {
     fn default() -> Self {
         let mut targets = HashMap::new();
         targets.insert(
-            "ares".to_string(),
-            TargetConfig {
-                path: PathBuf::from("../.."),
-                description: "A.R.E.S server codebase".to_string(),
-            },
-        );
-        targets.insert(
             "self".to_string(),
             TargetConfig {
                 path: PathBuf::from("."),
-                description: "Pawan's own codebase".to_string(),
+                description: "Current project codebase".to_string(),
             },
         );
 

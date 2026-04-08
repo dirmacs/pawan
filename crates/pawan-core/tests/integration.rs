@@ -329,7 +329,7 @@ fn test_healing_config_defaults() {
 fn test_config_defaults() {
     let config = PawanConfig::default();
 
-    assert_eq!(config.model, "mistralai/mistral-small-4-119b-2603");
+    assert_eq!(config.model, "qwen/qwen3.5-122b-a10b");
     assert!(!config.dry_run);
     assert!(config.auto_backup);
     assert!(config.reasoning_mode);
@@ -409,7 +409,6 @@ fn test_config_targets() {
     let config = PawanConfig::default();
 
     // Should have default targets
-    assert!(config.get_target("ares").is_some());
     assert!(config.get_target("self").is_some());
 
     // Nonexistent target
