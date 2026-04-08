@@ -49,17 +49,23 @@ pub struct McpManager {
 }
 
 impl McpManager {
-    /// Connect to all configured MCP servers and discover their tools
+    /// Connect to all configured MCP servers in parallel and discover their tools
     pub async fn connect(configs: &[McpServerConfig]) -> Result<Self> {
-        let mut servers = Vec::new();
-
-        for config in configs {
-            if !config.enabled {
-                tracing::debug!("Skipping disabled MCP server: {}", config.name);
-                continue;
+        let enabled: Vec<_> = configs.iter().filter(|c| {
+            if !c.enabled {
+                tracing::debug!("Skipping disabled MCP server: {}", c.name);
             }
+            c.enabled
+        }).collect();
 
-            match Self::connect_one(config).await {
+        // Connect to all servers concurrently
+        let results = futures::future::join_all(
+            enabled.iter().map(|config| Self::connect_one(config))
+        ).await;
+
+        let mut servers = Vec::new();
+        for result in results {
+            match result {
                 Ok(server) => {
                     tracing::info!(
                         "Connected to MCP server '{}': {} tools",
@@ -69,8 +75,7 @@ impl McpManager {
                     servers.push(server);
                 }
                 Err(e) => {
-                    tracing::warn!("Failed to connect to MCP server '{}': {}", config.name, e);
-                    eprintln!("Warning: MCP server '{}' failed: {}", config.name, e);
+                    tracing::warn!("Failed to connect to MCP server: {}", e);
                 }
             }
         }
