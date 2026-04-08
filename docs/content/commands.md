@@ -8,7 +8,7 @@ title = "Commands"
 
 Default TUI mode with ratatui-powered interface.
 
-Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split layout with activity panel, streaming markdown, vim-like navigation (`j/k`, `g/G`, `Ctrl+U/D`, `/search`, `n/N`), message timestamps, scroll position indicator, session stats, conversation export.
+Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split layout with activity panel, streaming markdown with interleaved tool call display, inline slash command popup, vim-like navigation (`j/k`, `g/G`, `Ctrl+U/D`, `/search`, `n/N`), expand/collapse tool results (`e`), message timestamps, scroll position indicator, session stats, conversation export.
 
 ### TUI Slash Commands
 
@@ -37,7 +37,9 @@ Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split lay
 | `Ctrl+U/D` | Messages | Half-page scroll |
 | `/` | Messages | Enter search mode |
 | `n/N` | Messages | Next/previous search match |
+| `e` | Messages | Expand/collapse nearest tool call result |
 | `i` | Messages | Return to input |
+| `/` | Input | Open inline slash command popup |
 
 ### `pawan chat --resume <ID>`
 
