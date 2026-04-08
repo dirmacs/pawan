@@ -1108,7 +1108,7 @@ mod env_override_tests {
 
 #[cfg(test)]
 mod healing_config_tests {
-    use crate::config::{PawanConfig, HealingConfig};
+    use crate::config::PawanConfig;
 
     #[test]
     fn test_healing_defaults() {

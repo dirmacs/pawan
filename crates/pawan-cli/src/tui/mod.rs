@@ -1917,7 +1917,7 @@ mod tests {
 
     #[test]
     fn test_session_stats_increment() {
-        let mut app = test_app();
+        let app = test_app();
         assert_eq!(app.session_tool_calls, 0);
         assert_eq!(app.session_files_edited, 0);
     }

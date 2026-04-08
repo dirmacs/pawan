@@ -21,7 +21,7 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use pawan::agent::{
-    AgentResponse, Message, PawanAgent, Role, TokenCallback, ToolCallback, ToolStartCallback,
+    PawanAgent, TokenCallback, ToolCallback, ToolStartCallback,
     ToolCallRecord,
 };
 use pawan::config::PawanConfig;
