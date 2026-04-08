@@ -58,7 +58,7 @@ impl GitSessionStore {
 
     fn sig(&self) -> Signature<'_> {
         let now = chrono::Utc::now().timestamp();
-        Signature::new("pawan", "pawan@dirmacs.com", &Time::new(now, 0))
+        Signature::new("pawan", "pawan@localhost", &Time::new(now, 0))
             .expect("valid signature")
     }
 
