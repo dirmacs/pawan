@@ -208,6 +208,8 @@ struct App<'a> {
     /// Session stats
     session_tool_calls: u32,
     session_files_edited: u32,
+    /// Inline slash command popup (triggered by typing /)
+    slash_popup_selected: usize,
     /// Welcome screen shown on first launch
     show_welcome: bool,
     /// Channel to send commands to the agent task
@@ -253,6 +255,7 @@ impl<'a> App<'a> {
             help_overlay: false,
             session_tool_calls: 0,
             session_files_edited: 0,
+            slash_popup_selected: 0,
             show_welcome: true,
             cmd_tx,
             event_rx,
@@ -486,7 +489,55 @@ impl<'a> App<'a> {
 
                 match self.focus {
                     Panel::Input => {
-                        if key.code == KeyCode::Enter {
+                        let slash_active = self.is_slash_popup_active();
+                        if slash_active {
+                            match key.code {
+                                KeyCode::Esc => {
+                                    // Close popup, clear input
+                                    self.input = TextArea::default();
+                                    self.input.set_cursor_line_style(Style::default());
+                                    self.input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to quit)");
+                                    self.slash_popup_selected = 0;
+                                }
+                                KeyCode::Up => {
+                                    self.slash_popup_selected = self.slash_popup_selected.saturating_sub(1);
+                                }
+                                KeyCode::Down => {
+                                    let items = self.slash_items();
+                                    if !items.is_empty() {
+                                        self.slash_popup_selected = (self.slash_popup_selected + 1).min(items.len() - 1);
+                                    }
+                                }
+                                KeyCode::Tab => {
+                                    let items = self.slash_items();
+                                    if !items.is_empty() {
+                                        self.slash_popup_selected = (self.slash_popup_selected + 1) % items.len();
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    let items = self.slash_items();
+                                    if let Some((cmd, _)) = items.get(self.slash_popup_selected) {
+                                        let cmd = cmd.to_string();
+                                        // Replace input with selected command
+                                        self.input = TextArea::default();
+                                        self.input.set_cursor_line_style(Style::default());
+                                        self.input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to quit)");
+                                        self.input.insert_str(&cmd);
+                                        self.slash_popup_selected = 0;
+                                        // If it's a simple command (no args needed), submit immediately
+                                        let simple = ["/help", "/tools", "/heal", "/clear", "/quit", "/?"];
+                                        if simple.contains(&cmd.as_str()) {
+                                            self.submit_input();
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    // Pass through to input, then reset selection
+                                    self.input.input(Input::from(key));
+                                    self.slash_popup_selected = 0;
+                                }
+                            }
+                        } else if key.code == KeyCode::Enter {
                             self.submit_input();
                         } else if key.code == KeyCode::Tab {
                             self.focus = Panel::Messages;
@@ -732,6 +783,11 @@ impl<'a> App<'a> {
         self.render_input(f, chunks[1]);
         self.render_status(f, chunks[2]);
 
+        // Inline slash popup (above input, below other overlays)
+        if self.is_slash_popup_active() && !self.show_welcome && !self.help_overlay && !self.palette_open {
+            self.render_slash_popup(f, chunks[1]);
+        }
+
         // Overlays (on top of everything)
         if self.show_welcome {
             self.render_welcome(f);
@@ -765,6 +821,73 @@ impl<'a> App<'a> {
         all_items.into_iter()
             .filter(|(cmd, desc)| cmd.to_lowercase().contains(&q) || desc.to_lowercase().contains(&q))
             .collect()
+    }
+
+    /// Check if the inline slash popup should be shown.
+    fn is_slash_popup_active(&self) -> bool {
+        let text: String = self.input.lines().join("\n");
+        let trimmed = text.trim();
+        trimmed.starts_with('/') && !trimmed.contains(' ')
+    }
+
+    /// Get filtered slash command items based on current input.
+    fn slash_items(&self) -> Vec<(&str, &str)> {
+        let all_items: Vec<(&str, &str)> = vec![
+            ("/help", "Show available commands"),
+            ("/model", "Show or switch LLM model"),
+            ("/search", "Web search via Daedra"),
+            ("/tools", "List available tools"),
+            ("/heal", "Auto-fix build errors"),
+            ("/export", "Export conversation to markdown"),
+            ("/clear", "Clear chat history"),
+            ("/quit", "Exit pawan"),
+        ];
+        let text: String = self.input.lines().join("\n");
+        let q = text.trim().to_lowercase();
+        if q == "/" {
+            return all_items;
+        }
+        all_items.into_iter()
+            .filter(|(cmd, _)| cmd.to_lowercase().starts_with(&q))
+            .collect()
+    }
+
+    /// Render inline slash command popup above the input area.
+    fn render_slash_popup(&self, f: &mut Frame, input_area: Rect) {
+        let items = self.slash_items();
+        if items.is_empty() {
+            return;
+        }
+
+        let h = (items.len() as u16 + 2).min(10); // +2 for borders
+        let w = 45u16.min(input_area.width);
+        let y = input_area.y.saturating_sub(h);
+        let popup_area = Rect::new(input_area.x, y, w, h);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title(" / Commands ");
+
+        f.render_widget(ratatui::widgets::Clear, popup_area);
+
+        let selected = self.slash_popup_selected.min(items.len().saturating_sub(1));
+        let list_items: Vec<ListItem> = items.iter().enumerate().map(|(i, (cmd, desc))| {
+            let style = if i == selected {
+                Style::default().fg(Color::Black).bg(Color::Cyan)
+            } else {
+                Style::default()
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(format!(" {} ", cmd), style.add_modifier(Modifier::BOLD)),
+                Span::styled(format!("— {}", desc), if i == selected {
+                    Style::default().fg(Color::Black).bg(Color::Cyan)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                }),
+            ]))
+        }).collect();
+        f.render_widget(List::new(list_items).block(block), popup_area);
     }
 
     /// Render command palette overlay
