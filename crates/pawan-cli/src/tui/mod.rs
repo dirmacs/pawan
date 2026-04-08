@@ -70,6 +70,8 @@ pub struct DisplayMessage {
     pub role: Role,
     blocks: Vec<ContentBlock>,
     pub timestamp: std::time::Instant,
+    /// Cached rendered lines for content blocks (excludes header). None = needs rebuild.
+    cached_block_lines: Option<Vec<Line<'static>>>,
 }
 
 impl DisplayMessage {
@@ -78,6 +80,7 @@ impl DisplayMessage {
             role,
             blocks: vec![ContentBlock::Text { content: content.into(), streaming: false }],
             timestamp: std::time::Instant::now(),
+            cached_block_lines: None,
         }
     }
 
@@ -93,7 +96,25 @@ impl DisplayMessage {
                 state: Box::new(ToolBlockState::Done { record: tc.clone(), expanded: !tc.success }),
             });
         }
-        Self { role: Role::Assistant, blocks, timestamp: std::time::Instant::now() }
+        Self { role: Role::Assistant, blocks, timestamp: std::time::Instant::now(), cached_block_lines: None }
+    }
+
+    /// Invalidate the render cache (call when blocks change).
+    fn invalidate_cache(&mut self) {
+        self.cached_block_lines = None;
+    }
+
+    /// Get or build cached block lines. Returns cached lines if available.
+    fn block_lines_cached(&mut self) -> &[Line<'static>] {
+        if self.cached_block_lines.is_none() {
+            let mut lines = Vec::new();
+            let is_assistant = self.role == Role::Assistant;
+            for block in &self.blocks {
+                App::render_block_to_lines(block, is_assistant, &mut lines);
+            }
+            self.cached_block_lines = Some(lines);
+        }
+        self.cached_block_lines.as_ref().unwrap()
     }
 
     /// Flat text content for search and export.
@@ -357,11 +378,15 @@ impl<'a> App<'a> {
                                             *streaming = false;
                                         }
                                     }
-                                    DisplayMessage { role: Role::Assistant, blocks, timestamp: std::time::Instant::now() }
+                                    DisplayMessage { role: Role::Assistant, blocks, timestamp: std::time::Instant::now(), cached_block_lines: None }
                                 } else {
                                     DisplayMessage::from_agent_response(&resp)
                                 };
                                 self.messages.push(msg);
+                                // Pre-populate render cache for the finalized message
+                                if let Some(last) = self.messages.last_mut() {
+                                    last.block_lines_cached();
+                                }
                                 self.total_tokens += resp.usage.total_tokens;
                                 self.total_prompt_tokens += resp.usage.prompt_tokens;
                                 self.total_completion_tokens += resp.usage.completion_tokens;
@@ -1142,6 +1167,7 @@ impl<'a> App<'a> {
     }
 
     /// Render a single DisplayMessage into Lines.
+    /// Uses cached block lines when available (populated by `block_lines_cached()`).
     fn render_message_to_lines(&self, msg: &DisplayMessage, now: std::time::Instant, lines: &mut Vec<Line<'static>>) {
         let (prefix, style) = match msg.role {
             Role::User => ("You", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
@@ -1166,9 +1192,14 @@ impl<'a> App<'a> {
             Span::styled(format!("({})", time_str), Style::default().fg(Color::DarkGray)),
         ]));
 
-        let is_assistant = msg.role == Role::Assistant;
-        for block in &msg.blocks {
-            Self::render_block_to_lines(block, is_assistant, lines);
+        // Use cached block lines if available; otherwise render fresh
+        if let Some(ref cached) = msg.cached_block_lines {
+            lines.extend(cached.iter().cloned());
+        } else {
+            let is_assistant = msg.role == Role::Assistant;
+            for block in &msg.blocks {
+                Self::render_block_to_lines(block, is_assistant, lines);
+            }
         }
     }
 
@@ -1301,6 +1332,8 @@ impl<'a> App<'a> {
                     *expanded = !*expanded;
                 }
             }
+            // Invalidate cache since expanded state changed
+            self.messages[mi].invalidate_cache();
         }
     }
 
@@ -1825,6 +1858,7 @@ mod tests {
                 },
             ],
             timestamp: std::time::Instant::now(),
+            cached_block_lines: None,
         });
 
         let backend = TestBackend::new(80, 24);
