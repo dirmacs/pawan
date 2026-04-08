@@ -1063,29 +1063,33 @@ mod config_tests {
     }
 
     #[test]
-    fn test_thinking_mode_deepseek_and_gemma() {
+    fn test_thinking_mode_supported_models() {
         let mut config = PawanConfig::default();
         config.reasoning_mode = true;
 
-        // Non-thinking models
-        config.model = "mistralai/mistral-small-4-119b-2603".into();
-        assert!(!config.use_thinking_mode());
+        // Non-thinking models (no chat_template_kwargs or reasoning_effort)
         config.model = "stepfun-ai/step-3.5-flash".into();
         assert!(!config.use_thinking_mode());
+        config.model = "minimaxai/minimax-m2.5".into();
+        assert!(!config.use_thinking_mode());
 
-        // DeepSeek enables thinking
+        // Thinking-capable models
         config.model = "deepseek-ai/deepseek-v3".into();
         assert!(config.use_thinking_mode());
-
-        // Gemma-4 enables thinking
         config.model = "google/gemma-4-31b-it".into();
+        assert!(config.use_thinking_mode());
+        config.model = "z-ai/glm4.7".into();
+        assert!(config.use_thinking_mode());
+        config.model = "qwen/qwen3.5-122b-a10b".into();
+        assert!(config.use_thinking_mode());
+        config.model = "mistralai/mistral-small-4-119b-2603".into();
         assert!(config.use_thinking_mode());
 
         // reasoning_mode=false disables it for all
         config.reasoning_mode = false;
         config.model = "deepseek-ai/deepseek-v3".into();
         assert!(!config.use_thinking_mode());
-        config.model = "google/gemma-4-31b-it".into();
+        config.model = "mistralai/mistral-small-4-119b-2603".into();
         assert!(!config.use_thinking_mode());
     }
 }

@@ -46,17 +46,27 @@ impl OpenAiCompatBackend {
     }
 
     /// Check if a model supports the `chat_template_kwargs` parameter.
-    /// Only Qwen-family and Gemma-4 models on NIM support this. Mistral, LLaMA, and others reject it with 400.
+    /// Qwen, DeepSeek, Gemma-4, and GLM models support this. Mistral, LLaMA, and others reject it with 400.
     fn supports_chat_template_kwargs(model: &str) -> bool {
         let m = model.to_lowercase();
-        m.contains("qwen") || m.contains("deepseek") || m.contains("gemma")
+        m.contains("qwen") || m.contains("deepseek") || m.contains("gemma") || m.contains("glm")
+    }
+
+    /// Check if a model uses the `reasoning_effort` parameter instead of chat_template_kwargs.
+    /// Mistral Small 4+ uses per-request `reasoning_effort` (none/high).
+    fn supports_reasoning_effort(model: &str) -> bool {
+        let m = model.to_lowercase();
+        m.contains("mistral-small-4")
     }
 
     /// Get the correct `chat_template_kwargs` value for thinking mode.
-    /// Gemma-4 uses `enable_thinking`, Qwen/DeepSeek use `thinking`.
+    /// GLM uses `enable_thinking` + `clear_thinking`, Gemma uses `enable_thinking`,
+    /// Qwen/DeepSeek use `thinking`.
     fn thinking_kwargs(model: &str, enabled: bool) -> serde_json::Value {
         let m = model.to_lowercase();
-        if m.contains("gemma") {
+        if m.contains("glm") {
+            json!({ "enable_thinking": enabled, "clear_thinking": false })
+        } else if m.contains("gemma") {
             json!({ "enable_thinking": enabled })
         } else {
             json!({ "thinking": enabled })
@@ -64,12 +74,12 @@ impl OpenAiCompatBackend {
     }
 
     /// Check if a model supports tool use (function calling).
-    /// Models known NOT to support tools on NIM: mistral-small, llama-3.1-8b, etc.
-    /// Models known to support tools: devstral, qwen, deepseek, nemotron, llama-3.1-70b+
+    /// Models known NOT to support tools on NIM: mistral-7b, old mistral-small (pre-v4).
+    /// Models known to support tools: mistral-small-4, devstral, qwen, deepseek, nemotron, llama-3.1-70b+
     fn supports_tool_use(model: &str) -> bool {
         let m = model.to_lowercase();
-        // Explicit deny list — models that reject tools on NIM
-        if m.contains("mistral-small") || m.contains("mistral-7b") {
+        // Explicit deny list — old models that reject tools on NIM
+        if m.contains("mistral-7b") {
             return false;
         }
         // Everything else: assume tool use support (fail gracefully in retry loop)
@@ -652,9 +662,17 @@ impl LlmBackend for OpenAiCompatBackend {
             request_body["tools"] = json!(api_tools);
         }
 
-        // Only send chat_template_kwargs for models that support it (Qwen/Gemma family).
-        // Mistral, LLaMA, and other models reject this parameter with 400 errors.
-        if Self::supports_chat_template_kwargs(&self.cfg.model) {
+        // Thinking mode: use the right mechanism per model family.
+        // - Mistral Small 4+: `reasoning_effort` (none/high)
+        // - Qwen/Gemma/GLM: `chat_template_kwargs`
+        // - Others: no thinking support
+        if Self::supports_reasoning_effort(&self.cfg.model) {
+            request_body["reasoning_effort"] = if self.cfg.use_thinking {
+                json!("high")
+            } else {
+                json!("none")
+            };
+        } else if Self::supports_chat_template_kwargs(&self.cfg.model) {
             request_body["chat_template_kwargs"] =
                 Self::thinking_kwargs(&self.cfg.model, self.cfg.use_thinking);
         }
@@ -687,14 +705,23 @@ impl LlmBackend for OpenAiCompatBackend {
             for model in models {
                 request_body["model"] = json!(model);
 
-                // Dynamically add/remove chat_template_kwargs based on model support
-                if Self::supports_chat_template_kwargs(model) {
+                // Dynamically add/remove thinking params based on model support
+                if Self::supports_reasoning_effort(model) {
+                    request_body.as_object_mut().map(|o| o.remove("chat_template_kwargs"));
+                    request_body["reasoning_effort"] = if self.cfg.use_thinking {
+                        json!("high")
+                    } else {
+                        json!("none")
+                    };
+                } else if Self::supports_chat_template_kwargs(model) {
+                    request_body.as_object_mut().map(|o| o.remove("reasoning_effort"));
                     if request_body.get("chat_template_kwargs").is_none() {
                         request_body["chat_template_kwargs"] =
                             Self::thinking_kwargs(model, self.cfg.use_thinking);
                     }
                 } else {
                     request_body.as_object_mut().map(|o| o.remove("chat_template_kwargs"));
+                    request_body.as_object_mut().map(|o| o.remove("reasoning_effort"));
                 }
 
                 // Dynamically add/remove tools based on model support
@@ -950,10 +977,22 @@ mod tests {
         assert!(OpenAiCompatBackend::supports_chat_template_kwargs("Qwen/Qwen2.5-72B-Instruct"));
         assert!(OpenAiCompatBackend::supports_chat_template_kwargs("deepseek-ai/deepseek-v3"));
         assert!(OpenAiCompatBackend::supports_chat_template_kwargs("google/gemma-4-31b-it"));
+        assert!(OpenAiCompatBackend::supports_chat_template_kwargs("z-ai/glm4.7"));
+        assert!(OpenAiCompatBackend::supports_chat_template_kwargs("z-ai/glm5"));
 
+        // Mistral uses reasoning_effort, not chat_template_kwargs
         assert!(!OpenAiCompatBackend::supports_chat_template_kwargs("mistralai/mistral-small-4-119b-2603"));
         assert!(!OpenAiCompatBackend::supports_chat_template_kwargs("meta/llama-3.1-70b-instruct"));
         assert!(!OpenAiCompatBackend::supports_chat_template_kwargs("stepfun-ai/step-3.5-flash"));
+        assert!(!OpenAiCompatBackend::supports_chat_template_kwargs("minimaxai/minimax-m2.5"));
+    }
+
+    #[test]
+    fn test_supports_reasoning_effort() {
+        assert!(OpenAiCompatBackend::supports_reasoning_effort("mistralai/mistral-small-4-119b-2603"));
+        assert!(!OpenAiCompatBackend::supports_reasoning_effort("stepfun-ai/step-3.5-flash"));
+        assert!(!OpenAiCompatBackend::supports_reasoning_effort("minimaxai/minimax-m2.5"));
+        assert!(!OpenAiCompatBackend::supports_reasoning_effort("qwen/qwen3.5-122b-a10b"));
     }
 
     #[test]
@@ -962,6 +1001,14 @@ mod tests {
                    json!({ "enable_thinking": true }));
         assert_eq!(OpenAiCompatBackend::thinking_kwargs("google/gemma-4-31b-it", false),
                    json!({ "enable_thinking": false }));
+    }
+
+    #[test]
+    fn test_thinking_kwargs_glm_uses_enable_thinking_and_clear_thinking() {
+        assert_eq!(OpenAiCompatBackend::thinking_kwargs("z-ai/glm4.7", true),
+                   json!({ "enable_thinking": true, "clear_thinking": false }));
+        assert_eq!(OpenAiCompatBackend::thinking_kwargs("z-ai/glm5", false),
+                   json!({ "enable_thinking": false, "clear_thinking": false }));
     }
 
     #[test]
