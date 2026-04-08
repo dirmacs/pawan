@@ -263,7 +263,7 @@ impl OpenAiCompatBackend {
                                                 tool_calls.push(ToolCallRequest {
                                                     id: String::new(),
                                                     name: String::new(),
-                                                    arguments: json!({}),
+                                                    arguments: json!(""),
                                                 });
                                             }
 
@@ -1099,5 +1099,154 @@ mod think_strip_tests {
     #[test]
     fn strip_whitespace_only() {
         assert_eq!(OpenAiCompatBackend::strip_think_from_str("   ").trim(), "");
+    }
+}
+
+#[cfg(test)]
+mod mistral_tool_call_tests {
+    use super::OpenAiCompatBackend;
+
+    #[test]
+    fn parse_json_array_variant() {
+        let content = r#"I'll use the tool. [TOOL_CALLS] [{"name":"read_file","arguments":{"path":"src/main.rs"}}]"#;
+        let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "read_file");
+        assert_eq!(calls[0].arguments["path"], "src/main.rs");
+    }
+
+    #[test]
+    fn parse_compact_variant() {
+        let content = r#"[TOOL_CALLS] bash{"command":"ls -la"}"#;
+        let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "bash");
+        assert_eq!(calls[0].arguments["command"], "ls -la");
+    }
+
+    #[test]
+    fn parse_multiple_tools() {
+        let content = r#"[TOOL_CALLS] [{"name":"read_file","arguments":{"path":"a.rs"}},{"name":"read_file","arguments":{"path":"b.rs"}}]"#;
+        let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].arguments["path"], "a.rs");
+        assert_eq!(calls[1].arguments["path"], "b.rs");
+    }
+
+    #[test]
+    fn no_marker_returns_empty() {
+        let content = "Just regular text with no tool calls";
+        let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn marker_with_invalid_json() {
+        let content = "[TOOL_CALLS] {invalid json here}";
+        let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
+        assert!(calls.is_empty());
+    }
+
+    #[test]
+    fn empty_name_filtered_out() {
+        let content = r#"[TOOL_CALLS] [{"name":"","arguments":{}}]"#;
+        let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
+        assert!(calls.is_empty());
+    }
+}
+
+#[cfg(test)]
+mod streaming_tool_call_tests {
+    use serde_json::json;
+
+    /// Simulate streaming tool call argument accumulation — the exact pattern
+    /// that was buggy when arguments were initialized as json!({}) instead of json!("").
+    #[test]
+    fn streaming_args_accumulate_across_deltas() {
+        // Simulate the streaming accumulation logic from the streaming() method
+        let mut arguments = json!(""); // Fixed: was json!({}) which broke .as_str()
+
+        // Delta 1: partial arguments
+        let delta1 = r#"{"pa"#;
+        let current = arguments.as_str().unwrap_or("");
+        arguments = json!(format!("{}{}", current, delta1));
+
+        // Delta 2: more arguments
+        let delta2 = r#"th":"src/"#;
+        let current = arguments.as_str().unwrap_or("");
+        arguments = json!(format!("{}{}", current, delta2));
+
+        // Delta 3: closing
+        let delta3 = r#"main.rs"}"#;
+        let current = arguments.as_str().unwrap_or("");
+        arguments = json!(format!("{}{}", current, delta3));
+
+        // Verify accumulated string is valid JSON
+        let args_str = arguments.as_str().unwrap();
+        assert_eq!(args_str, r#"{"path":"src/main.rs"}"#);
+
+        // Verify it parses correctly
+        let parsed: serde_json::Value = serde_json::from_str(args_str).unwrap();
+        assert_eq!(parsed["path"], "src/main.rs");
+    }
+
+    #[test]
+    fn streaming_args_init_as_empty_string_not_object() {
+        let arguments = json!("");
+        // This must return Some, not None
+        assert!(arguments.as_str().is_some(), "json!(\"\") must be a string");
+        assert_eq!(arguments.as_str().unwrap(), "");
+
+        // Contrast: json!({}) returns None for as_str()
+        let bad_arguments = json!({});
+        assert!(bad_arguments.as_str().is_none(), "json!({{}}) is not a string");
+    }
+
+    #[test]
+    fn streaming_args_with_think_blocks_cleaned() {
+        use super::OpenAiCompatBackend;
+
+        // Simulate StepFun/Qwen model interleaving <think> in arguments
+        let accumulated = r#"<think>let me write the path</think>{"path":"test.rs","content":"fn main() {}"}"#;
+        let clean = OpenAiCompatBackend::strip_think_from_str(accumulated);
+        let parsed: serde_json::Value = serde_json::from_str(&clean).unwrap();
+        assert_eq!(parsed["path"], "test.rs");
+        assert_eq!(parsed["content"], "fn main() {}");
+    }
+}
+
+#[cfg(test)]
+mod bracket_matching_tests {
+    use super::OpenAiCompatBackend;
+
+    #[test]
+    fn find_matching_bracket_simple() {
+        assert_eq!(OpenAiCompatBackend::find_matching_bracket("{}", '{', '}'), 2);
+        assert_eq!(OpenAiCompatBackend::find_matching_bracket("[]", '[', ']'), 2);
+    }
+
+    #[test]
+    fn find_matching_bracket_nested() {
+        // {"a":{"b":1}} = 13 bytes, outer } at index 12, returns 13
+        assert_eq!(OpenAiCompatBackend::find_matching_bracket(r#"{"a":{"b":1}}"#, '{', '}'), 13);
+    }
+
+    #[test]
+    fn find_matching_bracket_with_strings() {
+        // {"key":"val{ue}"} = 17 bytes, outer } at index 16, returns 17
+        assert_eq!(
+            OpenAiCompatBackend::find_matching_bracket(r#"{"key":"val{ue}"}"#, '{', '}'),
+            17
+        );
+    }
+
+    #[test]
+    fn find_matching_bracket_unmatched() {
+        assert_eq!(OpenAiCompatBackend::find_matching_bracket("{unclosed", '{', '}'), 0);
+    }
+
+    #[test]
+    fn find_matching_bracket_empty() {
+        assert_eq!(OpenAiCompatBackend::find_matching_bracket("", '{', '}'), 0);
     }
 }

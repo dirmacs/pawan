@@ -411,9 +411,9 @@ impl TestFixer {
             }
         }
 
-        // Also look for simple FAILED lines
+        // Also look for simple FAILED lines (but skip "test result:" summary lines)
         for line in output.lines() {
-            if line.contains("FAILED") && line.starts_with("test ") {
+            if line.contains("FAILED") && line.starts_with("test ") && !line.starts_with("test result:") {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 2 {
                     let test_name = parts[1].trim_end_matches(" ...");
@@ -610,5 +610,153 @@ mod tests {
             "crate::module::tests"
         );
         assert_eq!(fixer.extract_module("test_foo"), "");
+    }
+
+    #[test]
+    fn test_parse_text_diagnostic_with_location() {
+        let output = "error[E0308]: mismatched types\n   --> src/lib.rs:42:10\n";
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_text_diagnostics(output);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].file, Some(PathBuf::from("src/lib.rs")));
+        assert_eq!(diagnostics[0].line, Some(42));
+        assert_eq!(diagnostics[0].column, Some(10));
+    }
+
+    #[test]
+    fn test_parse_text_diagnostic_file_line_only() {
+        // Some diagnostics omit the column
+        let output = "warning: unused variable\n   --> src/main.rs:5\n";
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_text_diagnostics(output);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].file, Some(PathBuf::from("src/main.rs")));
+        assert_eq!(diagnostics[0].line, Some(5));
+        assert_eq!(diagnostics[0].column, None);
+    }
+
+    #[test]
+    fn test_parse_text_diagnostic_warning() {
+        let output = "warning: unused variable `x`\n   --> src/lib.rs:3:5\n";
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_text_diagnostics(output);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].kind, DiagnosticKind::Warning);
+        assert!(diagnostics[0].message.contains("unused variable"));
+    }
+
+    #[test]
+    fn test_parse_text_diagnostic_with_help() {
+        let output = "error[E0425]: cannot find value `x`\n   --> src/main.rs:10:5\nhelp: consider importing this\n";
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_text_diagnostics(output);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].suggestion, Some("consider importing this".to_string()));
+    }
+
+    #[test]
+    fn test_parse_text_multiple_diagnostics() {
+        let output = "error[E0425]: first error\n   --> a.rs:1:1\nerror[E0308]: second error\n   --> b.rs:2:2\n";
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_text_diagnostics(output);
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].code, Some("E0425".to_string()));
+        assert_eq!(diagnostics[1].code, Some("E0308".to_string()));
+        assert_eq!(diagnostics[0].file, Some(PathBuf::from("a.rs")));
+        assert_eq!(diagnostics[1].file, Some(PathBuf::from("b.rs")));
+    }
+
+    #[test]
+    fn test_parse_text_empty_output() {
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_text_diagnostics("");
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_parse_json_diagnostic() {
+        let json_line = r#"{"reason":"compiler-message","message":{"level":"error","message":"unused","code":{"code":"E0001"},"spans":[{"file_name":"src/lib.rs","line_start":5,"column_start":3,"is_primary":true}],"children":[]}}"#;
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_diagnostics(json_line);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].kind, DiagnosticKind::Error);
+        assert_eq!(diagnostics[0].file, Some(PathBuf::from("src/lib.rs")));
+        assert_eq!(diagnostics[0].line, Some(5));
+        assert_eq!(diagnostics[0].column, Some(3));
+    }
+
+    #[test]
+    fn test_parse_json_skips_ice() {
+        let json_line = r#"{"reason":"compiler-message","message":{"level":"error","message":"internal compiler error: something broke","spans":[],"children":[]}}"#;
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_diagnostics(json_line);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_parse_test_output_failures() {
+        let output = "---- tests::test_add stdout ----\nthread panicked at 'assertion failed'\n\nfailures:\n    tests::test_add\n\ntest result: FAILED. 1 passed; 1 failed;\n";
+        let fixer = TestFixer::new(PathBuf::from("."));
+        let failures = fixer.parse_test_output(output);
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].name, "tests::test_add");
+        assert_eq!(failures[0].module, "tests");
+        assert!(failures[0].failure.contains("assertion failed"));
+    }
+
+    #[test]
+    fn test_parse_test_output_no_failures() {
+        let output = "running 5 tests\ntest result: ok. 5 passed; 0 failed;\n";
+        let fixer = TestFixer::new(PathBuf::from("."));
+        let failures = fixer.parse_test_output(output);
+        assert!(failures.is_empty());
+    }
+
+    #[test]
+    fn test_parse_test_output_simple_failed_line() {
+        // Use only the "test X ... FAILED" line without "test result: FAILED"
+        let output = "test my_module::test_thing ... FAILED\n";
+        let fixer = TestFixer::new(PathBuf::from("."));
+        let failures = fixer.parse_test_output(output);
+        assert_eq!(failures.len(), 1);
+        assert_eq!(failures[0].name, "my_module::test_thing");
+        assert_eq!(failures[0].module, "my_module");
+    }
+
+    #[test]
+    fn test_format_diagnostics_for_prompt() {
+        let healer = Healer::new(PathBuf::from("."), HealingConfig::default());
+        let diagnostics = vec![Diagnostic {
+            kind: DiagnosticKind::Error,
+            message: "unused variable".into(),
+            file: Some(PathBuf::from("src/lib.rs")),
+            line: Some(10),
+            column: Some(5),
+            code: Some("E0001".into()),
+            suggestion: Some("remove it".into()),
+            raw: String::new(),
+        }];
+        let output = healer.format_diagnostics_for_prompt(&diagnostics);
+        assert!(output.contains("Issue 1"));
+        assert!(output.contains("E0001"));
+        assert!(output.contains("unused variable"));
+        assert!(output.contains("src/lib.rs:10:5"));
+        assert!(output.contains("remove it"));
+    }
+
+    #[test]
+    fn test_format_tests_for_prompt() {
+        let healer = Healer::new(PathBuf::from("."), HealingConfig::default());
+        let tests = vec![FailedTest {
+            name: "tests::test_foo".into(),
+            module: "tests".into(),
+            failure: "assertion failed".into(),
+            file: None,
+            line: None,
+        }];
+        let output = healer.format_tests_for_prompt(&tests);
+        assert!(output.contains("Failed Test 1"));
+        assert!(output.contains("tests::test_foo"));
+        assert!(output.contains("assertion failed"));
     }
 }
