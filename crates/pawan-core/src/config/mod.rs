@@ -592,7 +592,7 @@ Consider reversibility and blast radius before acting:
 - Prefer staging specific files over `git add -A` (avoids committing secrets).
 - Only commit when explicitly asked. Don't be over-eager.
 - Commit messages: focus on WHY, not WHAT. Use HEREDOC for multi-line messages.
-- Author: always use `bkataru <baalateja.k@gmail.com>` via -c flags.
+- Use the git author from `git config user.name` / `git config user.email`.
 
 # Output Style
 Be concise. Lead with the answer, not the reasoning.
