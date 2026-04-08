@@ -339,18 +339,20 @@ impl PawanAgent {
         let end = len - keep_end;
         let pruned_count = end - start;
 
-        // Build summary from middle messages
-        let mut summary = String::new();
+        // Build summary from middle messages (UTF-8 safe truncation)
+        let mut summary = String::with_capacity(2048);
         for msg in &self.history[start..end] {
-            let chunk = if msg.content.len() > 200 {
-                &msg.content[..200]
-            } else {
-                &msg.content
-            };
-            summary.push_str(chunk);
+            let chunk: String = msg.content.chars().take(200).collect();
+            summary.push_str(&chunk);
             summary.push('\n');
             if summary.len() > 2000 {
-                summary.truncate(2000);
+                // Truncate at char boundary
+                let safe_end = summary.char_indices()
+                    .take_while(|(i, _)| *i <= 2000)
+                    .last()
+                    .map(|(i, c)| i + c.len_utf8())
+                    .unwrap_or(0);
+                summary.truncate(safe_end);
                 break;
             }
         }
@@ -362,14 +364,9 @@ impl PawanAgent {
             tool_result: None,
         };
 
-        // Keep first message, insert summary, then last 4
-        let first = self.history[0].clone();
-        let tail: Vec<Message> = self.history[len - keep_end..].to_vec();
-
-        self.history.clear();
-        self.history.push(first);
-        self.history.push(summary_msg);
-        self.history.extend(tail);
+        // Replace middle messages in-place with drain (avoids clone + clear + extend)
+        self.history.drain(start..end);
+        self.history.insert(start, summary_msg);
 
         tracing::info!(pruned = pruned_count, context_estimate = self.context_tokens_estimate, "Pruned messages from history");
     }

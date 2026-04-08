@@ -82,6 +82,8 @@ pub struct ToolRegistry {
     tiers: HashMap<String, ToolTier>,
     /// Extended tools that have been activated (promoted to visible)
     activated: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// Precomputed lowercased "name description" for each tool (avoids per-query allocation)
+    tool_text_cache: HashMap<String, String>,
 }
 
 impl ToolRegistry {
@@ -91,6 +93,7 @@ impl ToolRegistry {
             tools: HashMap::new(),
             tiers: HashMap::new(),
             activated: std::sync::Mutex::new(std::collections::HashSet::new()),
+            tool_text_cache: HashMap::new(),
         }
     }
 
@@ -149,6 +152,8 @@ impl ToolRegistry {
     /// Register a tool at a specific tier
     pub fn register_with_tier(&mut self, tool: Arc<dyn Tool>, tier: ToolTier) {
         let name = tool.name().to_string();
+        let cached_text = format!("{} {}", name, tool.description()).to_lowercase();
+        self.tool_text_cache.insert(name.clone(), cached_text);
         self.tiers.insert(name.clone(), tier);
         self.tools.insert(name, tool);
     }
@@ -200,14 +205,16 @@ impl ToolRegistry {
 
         let mut scored: Vec<(i32, String)> = Vec::new();
 
-        for (name, tool) in &self.tools {
+        for (name, _tool) in &self.tools {
             let tier = self.tiers.get(name.as_str()).copied().unwrap_or(ToolTier::Standard);
 
             // Core tools always included — skip scoring
             if tier == ToolTier::Core { continue; }
 
-            // Score based on keyword overlap between query and tool name + description
-            let tool_text = format!("{} {}", name, tool.description()).to_lowercase();
+            // Score based on keyword overlap — use precomputed cache
+            let tool_text = self.tool_text_cache.get(name.as_str())
+                .map(|s| s.as_str())
+                .unwrap_or("");
             let mut score: i32 = 0;
 
             for word in &query_words {
