@@ -66,7 +66,7 @@ pawan doctor           # diagnose setup issues
 | **File** | read, write, edit (anchor-mode + string-replace), insert_after, append, list_directory |
 | **Search** | glob, grep, ripgrep (native rg), fd (native) |
 | **Code Intelligence** | **ast_grep** — AST-level structural search and rewrite via tree-sitter |
-| **Shell** | bash, sd (find-replace), tree (erdtree), mise (runtime manager), zoxide |
+| **Shell** | bash, sd (find-replace), mise (runtime manager), zoxide |
 | **Git** | status, diff, add, commit, log, blame, branch, checkout, stash |
 | **Agent** | spawn_agent, spawn_agents (parallel sub-agents) |
 | **MCP** | Dynamic tool discovery from any MCP server |
