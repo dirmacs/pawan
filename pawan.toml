@@ -1,12 +1,14 @@
-# Pawan — gemma-4-31b-it (dense, reasoning+agentic, NIM)
+# Pawan — NIM cloud primary (Step 3.5 Flash + Devstral fallback)
 provider = "nvidia"
-model = "google/gemma-4-31b-it"
-temperature = 1.0
-top_p = 0.95
-max_tokens = 16384
+model = "stepfun-ai/step-3.5-flash"
+temperature = 0.6
+max_tokens = 8192
 max_tool_iterations = 20
 thinking_budget = 0
-reasoning_mode = false
+
+[cloud]
+provider = "nvidia"
+model = "mistralai/devstral-2-123b-instruct-2512"
 
 [eruka]
 enabled = true
