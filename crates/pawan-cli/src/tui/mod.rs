@@ -42,25 +42,125 @@ enum AgentCommand {
     Quit,
 }
 
+/// A single content block within a message, preserving event ordering.
+#[derive(Clone, Debug)]
+enum ContentBlock {
+    /// Text emitted by the model. May be built incrementally during streaming.
+    Text { content: String, streaming: bool },
+    /// A tool call with optional result. Transitions: Running -> Done.
+    ToolCall { name: String, args_summary: String, state: ToolBlockState },
+}
+
+/// State of a tool call block.
+#[derive(Clone, Debug)]
+enum ToolBlockState {
+    Running,
+    Done { record: ToolCallRecord, expanded: bool },
+}
+
+/// Streaming state for the assistant message currently being assembled.
+struct StreamingAssistantState {
+    blocks: Vec<ContentBlock>,
+}
+
 #[derive(Clone)]
 /// A message for display in the TUI
-///
-/// Represents a message to be displayed in the terminal UI,
-/// including its role (user/agent), content, and any associated tool calls.
 pub struct DisplayMessage {
-    /// Role of the message sender (User or Agent)
     pub role: Role,
-    /// Content of the message
-    pub content: String,
-    /// Tool calls associated with this message
-    pub tool_calls: Vec<ToolCallRecord>,
-    /// Timestamp when message was created
+    blocks: Vec<ContentBlock>,
     pub timestamp: std::time::Instant,
 }
 
 impl DisplayMessage {
-    fn new(role: Role, content: impl Into<String>, tool_calls: Vec<ToolCallRecord>) -> Self {
-        Self { role, content: content.into(), tool_calls, timestamp: std::time::Instant::now() }
+    fn new_text(role: Role, content: impl Into<String>) -> Self {
+        Self {
+            role,
+            blocks: vec![ContentBlock::Text { content: content.into(), streaming: false }],
+            timestamp: std::time::Instant::now(),
+        }
+    }
+
+    fn from_agent_response(resp: &AgentResponse) -> Self {
+        let mut blocks = Vec::new();
+        if !resp.content.is_empty() {
+            blocks.push(ContentBlock::Text { content: resp.content.clone(), streaming: false });
+        }
+        for tc in &resp.tool_calls {
+            blocks.push(ContentBlock::ToolCall {
+                name: tc.name.clone(),
+                args_summary: summarize_args(&tc.arguments),
+                state: ToolBlockState::Done { record: tc.clone(), expanded: !tc.success },
+            });
+        }
+        Self { role: Role::Assistant, blocks, timestamp: std::time::Instant::now() }
+    }
+
+    /// Flat text content for search and export.
+    fn text_content(&self) -> String {
+        self.blocks.iter().filter_map(|b| match b {
+            ContentBlock::Text { content, .. } => Some(content.as_str()),
+            _ => None,
+        }).collect::<Vec<_>>().join("\n")
+    }
+
+    /// All completed tool call records.
+    fn tool_records(&self) -> Vec<&ToolCallRecord> {
+        self.blocks.iter().filter_map(|b| match b {
+            ContentBlock::ToolCall { state: ToolBlockState::Done { record, .. }, .. } => Some(record),
+            _ => None,
+        }).collect()
+    }
+}
+
+/// Summarize JSON arguments to a compact display string.
+fn summarize_args(args: &serde_json::Value) -> String {
+    match args {
+        serde_json::Value::Object(map) => {
+            map.iter()
+                .filter(|(_, v)| !matches!(v, serde_json::Value::String(s) if s.len() > 100))
+                .take(3)
+                .map(|(k, v)| {
+                    let val = match v {
+                        serde_json::Value::String(s) if s.len() > 40 => {
+                            format!("\"{}...\"", &s[..37])
+                        }
+                        v => v.to_string(),
+                    };
+                    format!("{}={}", k, val)
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        }
+        _ => String::new(),
+    }
+}
+
+/// One-line preview of a tool result for collapsed view.
+fn one_line_preview(result: &serde_json::Value, max_len: usize) -> String {
+    let s = match result {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Object(map) => {
+            if let Some(content) = map.get("content").and_then(|v| v.as_str()) {
+                content.to_string()
+            } else {
+                serde_json::to_string(result).unwrap_or_default()
+            }
+        }
+        v => v.to_string(),
+    };
+    let first_line = s.lines().next().unwrap_or("");
+    if first_line.len() > max_len {
+        format!("{}...", &first_line[..max_len.saturating_sub(3)])
+    } else {
+        first_line.to_string()
+    }
+}
+
+/// Format tool result for expanded display.
+fn format_tool_result(result: &serde_json::Value) -> String {
+    match result {
+        serde_json::Value::String(s) => s.clone(),
+        v => serde_json::to_string_pretty(v).unwrap_or_default(),
     }
 }
 
@@ -90,10 +190,8 @@ struct App<'a> {
     /// Cumulative thinking vs action token split
     total_reasoning_tokens: u64,
     total_action_tokens: u64,
-    /// Streaming content buffer (accumulates tokens during generation)
-    streaming_content: String,
-    /// Active tool calls being displayed during processing
-    active_tool: Option<String>,
+    /// Streaming assistant state: builds interleaved content blocks as events arrive
+    streaming: Option<StreamingAssistantState>,
     /// Iteration count (increments on each tool completion)
     iteration_count: u32,
     /// Context tokens estimate
@@ -144,8 +242,7 @@ impl<'a> App<'a> {
             total_completion_tokens: 0,
             total_reasoning_tokens: 0,
             total_action_tokens: 0,
-            streaming_content: String::new(),
-            active_tool: None,
+            streaming: None,
             iteration_count: 0,
             context_estimate: 0,
             search_mode: false,
@@ -191,16 +288,53 @@ impl<'a> App<'a> {
             while let Ok(event) = self.event_rx.try_recv() {
                 match event {
                     AgentEvent::Token(token) => {
-                        self.streaming_content.push_str(&token);
-                        // Auto-scroll to bottom during streaming
+                        let state = self.streaming.get_or_insert_with(|| StreamingAssistantState {
+                            blocks: Vec::new(),
+                        });
+                        // Append to last streaming text block, or start a new one
+                        match state.blocks.last_mut() {
+                            Some(ContentBlock::Text { content, streaming: true }) => {
+                                content.push_str(&token);
+                            }
+                            _ => {
+                                state.blocks.push(ContentBlock::Text {
+                                    content: token,
+                                    streaming: true,
+                                });
+                            }
+                        }
                         self.scroll = usize::MAX;
                     }
                     AgentEvent::ToolStart(name) => {
-                        self.active_tool = Some(name.clone());
+                        let state = self.streaming.get_or_insert_with(|| StreamingAssistantState {
+                            blocks: Vec::new(),
+                        });
+                        // Freeze current text block
+                        if let Some(ContentBlock::Text { streaming, .. }) = state.blocks.last_mut() {
+                            *streaming = false;
+                        }
+                        state.blocks.push(ContentBlock::ToolCall {
+                            name: name.clone(),
+                            args_summary: String::new(),
+                            state: ToolBlockState::Running,
+                        });
                         self.status = format!("Running tool: {}", name);
                     }
                     AgentEvent::ToolComplete(record) => {
-                        self.active_tool = None;
+                        if let Some(state) = &mut self.streaming {
+                            for block in state.blocks.iter_mut().rev() {
+                                if let ContentBlock::ToolCall { name, args_summary, state: tool_state } = block {
+                                    if matches!(tool_state, ToolBlockState::Running) && *name == record.name {
+                                        *args_summary = summarize_args(&record.arguments);
+                                        *tool_state = ToolBlockState::Done {
+                                            record: record.clone(),
+                                            expanded: !record.success,
+                                        };
+                                        break;
+                                    }
+                                }
+                            }
+                        }
                         self.session_tool_calls += 1;
                         if record.name.contains("write_file") || record.name.contains("edit_file") {
                             self.session_files_edited += 1;
@@ -210,11 +344,20 @@ impl<'a> App<'a> {
                     }
                     AgentEvent::Complete(result) => {
                         self.processing = false;
-                        self.streaming_content.clear();
-                        self.active_tool = None;
                         match result {
                             Ok(resp) => {
-                                self.messages.push(DisplayMessage::new(Role::Assistant, resp.content, resp.tool_calls));
+                                let msg = if let Some(state) = self.streaming.take() {
+                                    let mut blocks = state.blocks;
+                                    for block in &mut blocks {
+                                        if let ContentBlock::Text { streaming, .. } = block {
+                                            *streaming = false;
+                                        }
+                                    }
+                                    DisplayMessage { role: Role::Assistant, blocks, timestamp: std::time::Instant::now() }
+                                } else {
+                                    DisplayMessage::from_agent_response(&resp)
+                                };
+                                self.messages.push(msg);
                                 self.total_tokens += resp.usage.total_tokens;
                                 self.total_prompt_tokens += resp.usage.prompt_tokens;
                                 self.total_completion_tokens += resp.usage.completion_tokens;
@@ -225,8 +368,9 @@ impl<'a> App<'a> {
                                 self.scroll = self.messages.len().saturating_sub(1);
                             }
                             Err(e) => {
+                                self.streaming = None;
                                 self.status = format!("Error: {}", e);
-                                self.messages.push(DisplayMessage::new(Role::Assistant, format!("Error: {}", e), vec![]));
+                                self.messages.push(DisplayMessage::new_text(Role::Assistant, format!("Error: {}", e)));
                                 self.scroll = self.messages.len().saturating_sub(1);
                             }
                         }
@@ -380,7 +524,7 @@ impl<'a> App<'a> {
                                 let query = self.search_query.to_lowercase();
                                 for (i, msg) in self.messages.iter().enumerate() {
                                     if i > self.scroll
-                                        && msg.content.to_lowercase().contains(&query)
+                                        && msg.text_content().to_lowercase().contains(&query)
                                     {
                                         self.scroll = i;
                                         break;
@@ -393,7 +537,7 @@ impl<'a> App<'a> {
                             if !self.search_query.is_empty() {
                                 let query = self.search_query.to_lowercase();
                                 for i in (0..self.scroll).rev() {
-                                    if self.messages[i].content.to_lowercase().contains(&query) {
+                                    if self.messages[i].text_content().to_lowercase().contains(&query) {
                                         self.scroll = i;
                                         break;
                                     }
@@ -443,7 +587,7 @@ impl<'a> App<'a> {
         }
 
         // Normal message — send to agent
-        self.messages.push(DisplayMessage::new(Role::User, content.clone(), vec![]));
+        self.messages.push(DisplayMessage::new_text(Role::User, content.clone()));
 
         self.processing = true;
         self.status = "Processing...".to_string();
@@ -464,36 +608,36 @@ impl<'a> App<'a> {
             }
             "/model" | "/m" => {
                 if arg.is_empty() {
-                    self.messages.push(DisplayMessage::new(Role::System, format!("Current model: {}", self.model_name), vec![]));
+                    self.messages.push(DisplayMessage::new_text(Role::System, format!("Current model: {}", self.model_name)));
                 } else {
                     self.model_name = arg.to_string();
                     self.status = format!("Model → {}", arg);
-                    self.messages.push(DisplayMessage::new(Role::System, format!("Switching model to: {}", arg), vec![]));
+                    self.messages.push(DisplayMessage::new_text(Role::System, format!("Switching model to: {}", arg)));
                     let _ = self.cmd_tx.send(AgentCommand::SwitchModel(arg.to_string()));
                 }
             }
             "/tools" | "/t" => {
-                self.messages.push(DisplayMessage::new(Role::System,
+                self.messages.push(DisplayMessage::new_text(Role::System,
                     "Core: bash, read_file, write_file, edit_file, ast_grep, glob_search, grep_search\n\
                      Standard: git (status/diff/add/commit/log/blame/branch/checkout/stash), agents, edit modes\n\
                      Extended: rg, fd, sd, tree, mise, zoxide, lsp\n\
-                     MCP: mcp_daedra_web_search, mcp_daedra_visit_page", vec![]));
+                     MCP: mcp_daedra_web_search, mcp_daedra_visit_page"));
             }
             "/search" | "/s" => {
                 if arg.is_empty() {
-                    self.messages.push(DisplayMessage::new(Role::System, "Usage: /search <query>", vec![]));
+                    self.messages.push(DisplayMessage::new_text(Role::System, "Usage: /search <query>"));
                 } else {
                     let search_prompt = format!(
                         "Use mcp_daedra_web_search to search for '{}' and report the results", arg
                     );
-                    self.messages.push(DisplayMessage::new(Role::User, format!("/search {}", arg), vec![]));
+                    self.messages.push(DisplayMessage::new_text(Role::User, format!("/search {}", arg)));
                     self.processing = true;
                     self.status = format!("Searching: {}", arg);
                     let _ = self.cmd_tx.send(AgentCommand::Execute(search_prompt));
                 }
             }
             "/heal" | "/h" => {
-                self.messages.push(DisplayMessage::new(Role::User, "/heal", vec![]));
+                self.messages.push(DisplayMessage::new_text(Role::User, "/heal"));
                 self.processing = true;
                 self.status = "Healing...".to_string();
                 let _ = self.cmd_tx.send(AgentCommand::Execute(
@@ -506,12 +650,12 @@ impl<'a> App<'a> {
             "/export" | "/e" => {
                 let path = if arg.is_empty() { "pawan-session.md" } else { arg };
                 match self.export_conversation(path) {
-                    Ok(n) => self.messages.push(DisplayMessage::new(Role::System, format!("Exported {} messages to {}", n, path), vec![])),
-                    Err(e) => self.messages.push(DisplayMessage::new(Role::System, format!("Export failed: {}", e), vec![])),
+                    Ok(n) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Exported {} messages to {}", n, path))),
+                    Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Export failed: {}", e))),
                 }
             }
             "/help" | "/?" => {
-                self.messages.push(DisplayMessage::new(Role::System,
+                self.messages.push(DisplayMessage::new_text(Role::System,
                     "/model [name]  — show or switch LLM model\n\
                      /search <query> — web search via Daedra\n\
                      /tools         — list available tools\n\
@@ -519,10 +663,10 @@ impl<'a> App<'a> {
                      /export [path] — export conversation to markdown\n\
                      /clear         — clear chat history\n\
                      /quit          — exit pawan\n\
-                     /help          — show this help", vec![]));
+                     /help          — show this help"));
             }
             _ => {
-                self.messages.push(DisplayMessage::new(Role::System, format!("Unknown command: {}. Type /help for available commands.", command), vec![]));
+                self.messages.push(DisplayMessage::new_text(Role::System, format!("Unknown command: {}. Type /help for available commands.", command)));
             }
         }
     }
@@ -540,10 +684,11 @@ impl<'a> App<'a> {
                 _ => "**System**",
             };
             writeln!(f, "### {}\n", role).map_err(|e| e.to_string())?;
-            writeln!(f, "{}\n", msg.content).map_err(|e| e.to_string())?;
-            if !msg.tool_calls.is_empty() {
-                writeln!(f, "<details><summary>Tool calls ({})</summary>\n", msg.tool_calls.len()).map_err(|e| e.to_string())?;
-                for tc in &msg.tool_calls {
+            writeln!(f, "{}\n", msg.text_content()).map_err(|e| e.to_string())?;
+            let tool_records = msg.tool_records();
+            if !tool_records.is_empty() {
+                writeln!(f, "<details><summary>Tool calls ({})</summary>\n", tool_records.len()).map_err(|e| e.to_string())?;
+                for tc in tool_records {
                     let status = if tc.success { "ok" } else { "err" };
                     writeln!(f, "- `{}` ({}) — {}ms", tc.name, status, tc.duration_ms).map_err(|e| e.to_string())?;
                 }
@@ -765,7 +910,7 @@ impl<'a> App<'a> {
             .title(" Activity ");
         let mut items: Vec<ListItem> = Vec::new();
         for msg in self.messages.iter().rev().take(5) {
-            for tc in &msg.tool_calls {
+            for tc in msg.tool_records() {
                 let icon = if tc.success { "✓" } else { "✗" };
                 let color = if tc.success { Color::Green } else { Color::Red };
                 items.push(ListItem::new(Line::from(vec![
@@ -775,11 +920,16 @@ impl<'a> App<'a> {
                 ])));
             }
         }
-        if let Some(ref tool) = self.active_tool {
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled(" ⚙ ", Style::default().fg(Color::Yellow)),
-                Span::styled(tool.clone(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            ])));
+        // Show running tools from streaming state
+        if let Some(ref state) = self.streaming {
+            for block in &state.blocks {
+                if let ContentBlock::ToolCall { name, state: ToolBlockState::Running, .. } = block {
+                    items.push(ListItem::new(Line::from(vec![
+                        Span::styled(" ⚙ ", Style::default().fg(Color::Yellow)),
+                        Span::styled(name.clone(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    ])));
+                }
+            }
         }
         if items.is_empty() {
             items.push(ListItem::new(Span::styled(" Waiting...", Style::default().fg(Color::DarkGray))));
@@ -792,106 +942,31 @@ impl<'a> App<'a> {
         let now = std::time::Instant::now();
 
         for msg in &self.messages {
-            let (prefix, style) = match msg.role {
-                Role::User => (
-                    "You",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Role::Assistant => (
-                    "Pawan",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Role::System => ("System", Style::default().fg(Color::Yellow)),
-                Role::Tool => ("Tool", Style::default().fg(Color::Magenta)),
-            };
-
-            let elapsed = now.duration_since(msg.timestamp);
-            let time_str = if elapsed.as_secs() < 5 {
-                "now".to_string()
-            } else if elapsed.as_secs() < 60 {
-                format!("{}s", elapsed.as_secs())
-            } else if elapsed.as_secs() < 3600 {
-                format!("{}m", elapsed.as_secs() / 60)
-            } else {
-                format!("{}h", elapsed.as_secs() / 3600)
-            };
-
-            items.push(ListItem::new(Line::from(vec![
-                Span::styled(format!("{}: ", prefix), style),
-                Span::styled(format!("({})", time_str), Style::default().fg(Color::DarkGray)),
-            ])));
-
-            if msg.role == Role::Assistant {
-                for line in markdown_to_lines(&msg.content) {
-                    let mut spans: Vec<Span<'static>> = vec![Span::raw("  ".to_string())];
-                    spans.extend(line.spans);
-                    items.push(ListItem::new(Line::from(spans)));
-                }
-            } else {
-                for line in msg.content.lines() {
-                    items.push(ListItem::new(Line::from(Span::raw(format!("  {}", line)))));
-                }
-            }
-
-            for tc in &msg.tool_calls {
-                let icon = if tc.success { "✓" } else { "✗" };
-                let color = if tc.success { Color::Green } else { Color::Red };
-                items.push(ListItem::new(Line::from(vec![
-                    Span::styled(format!("  {} ", icon), Style::default().fg(color)),
-                    Span::styled(
-                        format!("{}({}ms) ", tc.name, tc.duration_ms),
-                        Style::default().fg(Color::Magenta),
-                    ),
-                ])));
-            }
-
+            self.render_message_to_items(msg, now, &mut items);
             items.push(ListItem::new(Line::from("")));
         }
 
+        // Streaming state: render the in-progress assistant message
         if self.processing {
-            if !self.streaming_content.is_empty() {
-                // Show streaming content as it arrives
-                items.push(ListItem::new(Line::from(vec![Span::styled(
-                    "Pawan: ",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                )])));
-                for line in self.streaming_content.lines() {
-                    items.push(ListItem::new(Line::from(Span::styled(
-                        format!("  {}", line),
-                        Style::default().fg(Color::Green).add_modifier(Modifier::DIM),
-                    ))));
+            if let Some(ref state) = self.streaming {
+                if !state.blocks.is_empty() {
+                    items.push(ListItem::new(Line::from(vec![Span::styled(
+                        "Pawan: ",
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    )])));
+                    for block in &state.blocks {
+                        Self::render_block_to_items(block, true, &mut items);
+                    }
+                } else {
+                    items.push(ListItem::new(Line::from(vec![Span::styled(
+                        "  Pawan is thinking...",
+                        Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC),
+                    )])));
                 }
-                items.push(ListItem::new(Line::from(vec![Span::styled(
-                    "  ▌",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::SLOW_BLINK),
-                )])));
-            } else if let Some(ref tool) = self.active_tool {
-                items.push(ListItem::new(Line::from(vec![
-                    Span::styled(
-                        "  ⚙ ",
-                        Style::default().fg(Color::Magenta),
-                    ),
-                    Span::styled(
-                        format!("Running {}...", tool),
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::ITALIC),
-                    ),
-                ])));
             } else {
                 items.push(ListItem::new(Line::from(vec![Span::styled(
                     "  Pawan is thinking...",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::ITALIC),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC),
                 )])));
             }
         }
@@ -924,6 +999,122 @@ impl<'a> App<'a> {
 
         let list = List::new(items).block(messages_block);
         f.render_widget(list, area);
+    }
+
+    /// Render a single DisplayMessage into ListItems.
+    fn render_message_to_items(&self, msg: &DisplayMessage, now: std::time::Instant, items: &mut Vec<ListItem<'static>>) {
+        let (prefix, style) = match msg.role {
+            Role::User => ("You", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Role::Assistant => ("Pawan", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Role::System => ("System", Style::default().fg(Color::Yellow)),
+            Role::Tool => ("Tool", Style::default().fg(Color::Magenta)),
+        };
+
+        let elapsed = now.duration_since(msg.timestamp);
+        let time_str = if elapsed.as_secs() < 5 {
+            "now".to_string()
+        } else if elapsed.as_secs() < 60 {
+            format!("{}s", elapsed.as_secs())
+        } else if elapsed.as_secs() < 3600 {
+            format!("{}m", elapsed.as_secs() / 60)
+        } else {
+            format!("{}h", elapsed.as_secs() / 3600)
+        };
+
+        items.push(ListItem::new(Line::from(vec![
+            Span::styled(format!("{}: ", prefix), style),
+            Span::styled(format!("({})", time_str), Style::default().fg(Color::DarkGray)),
+        ])));
+
+        let is_assistant = msg.role == Role::Assistant;
+        for block in &msg.blocks {
+            Self::render_block_to_items(block, is_assistant, items);
+        }
+    }
+
+    /// Render a single ContentBlock into ListItems.
+    fn render_block_to_items(block: &ContentBlock, use_markdown: bool, items: &mut Vec<ListItem<'static>>) {
+        match block {
+            ContentBlock::Text { content, streaming } => {
+                if use_markdown {
+                    for line in markdown_to_lines(content) {
+                        let mut spans: Vec<Span<'static>> = vec![Span::raw("  ".to_string())];
+                        spans.extend(line.spans);
+                        items.push(ListItem::new(Line::from(spans)));
+                    }
+                } else {
+                    for line in content.lines() {
+                        items.push(ListItem::new(Line::from(Span::raw(format!("  {}", line)))));
+                    }
+                }
+                if *streaming {
+                    items.push(ListItem::new(Line::from(vec![Span::styled(
+                        "  ▌",
+                        Style::default().fg(Color::Green).add_modifier(Modifier::SLOW_BLINK),
+                    )])));
+                }
+            }
+            ContentBlock::ToolCall { name, args_summary, state } => {
+                match state {
+                    ToolBlockState::Running => {
+                        items.push(ListItem::new(Line::from(vec![
+                            Span::styled("  ⚙ ", Style::default().fg(Color::Yellow)),
+                            Span::styled(
+                                format!("Running {}...", name),
+                                Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC),
+                            ),
+                        ])));
+                    }
+                    ToolBlockState::Done { record, expanded } => {
+                        let icon = if record.success { "✓" } else { "✗" };
+                        let color = if record.success { Color::Green } else { Color::Red };
+                        let mut spans = vec![
+                            Span::styled(format!("  {} ", icon), Style::default().fg(color)),
+                            Span::styled(
+                                name.clone(),
+                                Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD),
+                            ),
+                        ];
+                        if !args_summary.is_empty() {
+                            spans.push(Span::styled(
+                                format!("({})", args_summary),
+                                Style::default().fg(Color::DarkGray),
+                            ));
+                        }
+                        spans.push(Span::styled(
+                            format!(" {}ms", record.duration_ms),
+                            Style::default().fg(Color::DarkGray),
+                        ));
+                        items.push(ListItem::new(Line::from(spans)));
+
+                        if *expanded {
+                            let result_str = format_tool_result(&record.result);
+                            for line in result_str.lines().take(20) {
+                                items.push(ListItem::new(Line::from(Span::styled(
+                                    format!("    {}", line),
+                                    Style::default().fg(Color::DarkGray),
+                                ))));
+                            }
+                            let total_lines = result_str.lines().count();
+                            if total_lines > 20 {
+                                items.push(ListItem::new(Line::from(Span::styled(
+                                    format!("    ... ({} more lines)", total_lines - 20),
+                                    Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
+                                ))));
+                            }
+                        } else {
+                            let preview = one_line_preview(&record.result, 60);
+                            if !preview.is_empty() {
+                                items.push(ListItem::new(Line::from(Span::styled(
+                                    format!("    {}", preview),
+                                    Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
+                                ))));
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     fn render_input(&self, f: &mut Frame, area: Rect) {
@@ -1326,8 +1517,8 @@ mod tests {
     #[test]
     fn test_render_with_messages() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage::new(Role::User, "Hello pawan", vec![]));
-        app.messages.push(DisplayMessage::new(Role::Assistant, "Hi there!", vec![]));
+        app.messages.push(DisplayMessage::new_text(Role::User, "Hello pawan"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "Hi there!"));
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1357,7 +1548,12 @@ mod tests {
     fn test_render_streaming_content() {
         let mut app = test_app();
         app.processing = true;
-        app.streaming_content = "partial response so far".to_string();
+        app.streaming = Some(StreamingAssistantState {
+            blocks: vec![ContentBlock::Text {
+                content: "partial response so far".to_string(),
+                streaming: true,
+            }],
+        });
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1372,7 +1568,13 @@ mod tests {
     fn test_render_active_tool() {
         let mut app = test_app();
         app.processing = true;
-        app.active_tool = Some("bash".to_string());
+        app.streaming = Some(StreamingAssistantState {
+            blocks: vec![ContentBlock::ToolCall {
+                name: "bash".to_string(),
+                args_summary: String::new(),
+                state: ToolBlockState::Running,
+            }],
+        });
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1400,24 +1602,43 @@ mod tests {
     #[test]
     fn test_render_tool_call_results() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage::new(Role::Assistant, "Done", vec![
-            ToolCallRecord {
-                id: "1".into(),
-                name: "write_file".into(),
-                arguments: serde_json::json!({}),
-                result: serde_json::json!({"success": true}),
-                success: true,
-                duration_ms: 42,
-            },
-            ToolCallRecord {
-                id: "2".into(),
-                name: "bash".into(),
-                arguments: serde_json::json!({}),
-                result: serde_json::json!({"error": "timeout"}),
-                success: false,
-                duration_ms: 30000,
-            },
-        ]));
+        app.messages.push(DisplayMessage {
+            role: Role::Assistant,
+            blocks: vec![
+                ContentBlock::Text { content: "Done".into(), streaming: false },
+                ContentBlock::ToolCall {
+                    name: "write_file".into(),
+                    args_summary: String::new(),
+                    state: ToolBlockState::Done {
+                        record: ToolCallRecord {
+                            id: "1".into(),
+                            name: "write_file".into(),
+                            arguments: serde_json::json!({}),
+                            result: serde_json::json!({"success": true}),
+                            success: true,
+                            duration_ms: 42,
+                        },
+                        expanded: false,
+                    },
+                },
+                ContentBlock::ToolCall {
+                    name: "bash".into(),
+                    args_summary: String::new(),
+                    state: ToolBlockState::Done {
+                        record: ToolCallRecord {
+                            id: "2".into(),
+                            name: "bash".into(),
+                            arguments: serde_json::json!({}),
+                            result: serde_json::json!({"error": "timeout"}),
+                            success: false,
+                            duration_ms: 30000,
+                        },
+                        expanded: true,
+                    },
+                },
+            ],
+            timestamp: std::time::Instant::now(),
+        });
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -1477,7 +1698,7 @@ mod tests {
     #[test]
     fn test_ctrl_l_clears() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage::new(Role::User, "test", vec![]));
+        app.messages.push(DisplayMessage::new_text(Role::User, "test"));
         app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
             KeyCode::Char('l'),
             KeyModifiers::CONTROL,
@@ -1602,9 +1823,9 @@ mod tests {
         let mut app = test_app();
         app.focus = Panel::Messages;
         app.search_query = "target".to_string();
-        app.messages.push(DisplayMessage::new(Role::User, "no match", vec![]));
-        app.messages.push(DisplayMessage::new(Role::User, "has target word", vec![]));
-        app.messages.push(DisplayMessage::new(Role::User, "another target", vec![]));
+        app.messages.push(DisplayMessage::new_text(Role::User, "no match"));
+        app.messages.push(DisplayMessage::new_text(Role::User, "has target word"));
+        app.messages.push(DisplayMessage::new_text(Role::User, "another target"));
         app.scroll = 0;
 
         // n should jump to first match after current scroll
@@ -1627,9 +1848,9 @@ mod tests {
         let mut app = test_app();
         app.focus = Panel::Messages;
         app.search_query = "target".to_string();
-        app.messages.push(DisplayMessage::new(Role::User, "first target", vec![]));
-        app.messages.push(DisplayMessage::new(Role::User, "no match", vec![]));
-        app.messages.push(DisplayMessage::new(Role::User, "second target", vec![]));
+        app.messages.push(DisplayMessage::new_text(Role::User, "first target"));
+        app.messages.push(DisplayMessage::new_text(Role::User, "no match"));
+        app.messages.push(DisplayMessage::new_text(Role::User, "second target"));
         app.scroll = 2;
 
         // N should jump to previous match
@@ -1689,7 +1910,7 @@ mod tests {
         app.submit_input();
 
         assert_eq!(app.messages.len(), 1);
-        assert_eq!(app.messages[0].content, "hello pawan");
+        assert_eq!(app.messages[0].text_content(), "hello pawan");
         assert_eq!(app.messages[0].role, Role::User);
         assert!(app.processing, "Should be processing after submit");
         assert_eq!(app.status, "Processing...");
@@ -1806,16 +2027,16 @@ mod tests {
         app.handle_slash_command("/help");
         assert_eq!(app.messages.len(), 1);
         assert_eq!(app.messages[0].role, Role::System);
-        assert!(app.messages[0].content.contains("/model"));
-        assert!(app.messages[0].content.contains("/search"));
-        assert!(app.messages[0].content.contains("/quit"));
+        assert!(app.messages[0].text_content().contains("/model"));
+        assert!(app.messages[0].text_content().contains("/search"));
+        assert!(app.messages[0].text_content().contains("/quit"));
     }
 
     #[test]
     fn test_slash_clear() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage::new(Role::User, "test", vec![]));
-        app.messages.push(DisplayMessage::new(Role::Assistant, "reply", vec![]));
+        app.messages.push(DisplayMessage::new_text(Role::User, "test"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "reply"));
         app.handle_slash_command("/clear");
         assert!(app.messages.is_empty());
         assert_eq!(app.status, "Cleared");
@@ -1826,7 +2047,7 @@ mod tests {
         let mut app = test_app();
         app.handle_slash_command("/model");
         assert_eq!(app.messages.len(), 1);
-        assert!(app.messages[0].content.contains("test-model"));
+        assert!(app.messages[0].text_content().contains("test-model"));
     }
 
     #[test]
@@ -1834,7 +2055,7 @@ mod tests {
         let mut app = test_app();
         app.handle_slash_command("/model mistral-small-4");
         assert_eq!(app.model_name, "mistral-small-4");
-        assert!(app.messages[0].content.contains("mistral-small-4"));
+        assert!(app.messages[0].text_content().contains("mistral-small-4"));
     }
 
     #[test]
@@ -1842,9 +2063,9 @@ mod tests {
         let mut app = test_app();
         app.handle_slash_command("/tools");
         assert_eq!(app.messages.len(), 1);
-        assert!(app.messages[0].content.contains("bash"));
-        assert!(app.messages[0].content.contains("ast_grep"));
-        assert!(app.messages[0].content.contains("mcp_daedra"));
+        assert!(app.messages[0].text_content().contains("bash"));
+        assert!(app.messages[0].text_content().contains("ast_grep"));
+        assert!(app.messages[0].text_content().contains("mcp_daedra"));
     }
 
     #[test]
@@ -1859,7 +2080,7 @@ mod tests {
         let mut app = test_app();
         app.handle_slash_command("/bogus");
         assert_eq!(app.messages.len(), 1);
-        assert!(app.messages[0].content.contains("Unknown command"));
+        assert!(app.messages[0].text_content().contains("Unknown command"));
     }
 
     #[test]
@@ -2226,8 +2447,8 @@ mod tests {
     #[test]
     fn test_export_conversation() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage::new(Role::User, "Hello", vec![]));
-        app.messages.push(DisplayMessage::new(Role::Assistant, "Hi there!", vec![]));
+        app.messages.push(DisplayMessage::new_text(Role::User, "Hello"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "Hi there!"));
         let path = "/tmp/pawan_test_export.md";
         let result = app.export_conversation(path);
         assert!(result.is_ok());
@@ -2243,13 +2464,13 @@ mod tests {
     #[test]
     fn test_slash_export() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage::new(Role::User, "test msg", vec![]));
+        app.messages.push(DisplayMessage::new_text(Role::User, "test msg"));
         app.handle_slash_command("/export /tmp/pawan_test_slash_export.md");
         // Should have added a system message about export
         assert!(app.messages.len() >= 2);
         let last = app.messages.last().unwrap();
         assert_eq!(last.role, Role::System);
-        assert!(last.content.contains("Exported"), "Should confirm export: {}", last.content);
+        assert!(last.text_content().contains("Exported"), "Should confirm export: {}", last.text_content());
         std::fs::remove_file("/tmp/pawan_test_slash_export.md").ok();
     }
 
@@ -2258,7 +2479,7 @@ mod tests {
     #[test]
     fn test_message_has_timestamp() {
         let before = std::time::Instant::now();
-        let msg = DisplayMessage::new(Role::User, "test", vec![]);
+        let msg = DisplayMessage::new_text(Role::User, "test");
         let after = std::time::Instant::now();
         assert!(msg.timestamp >= before);
         assert!(msg.timestamp <= after);
@@ -2269,9 +2490,9 @@ mod tests {
     #[test]
     fn test_scroll_indicator_in_title() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage::new(Role::User, "msg1", vec![]));
-        app.messages.push(DisplayMessage::new(Role::Assistant, "msg2", vec![]));
-        app.messages.push(DisplayMessage::new(Role::User, "msg3", vec![]));
+        app.messages.push(DisplayMessage::new_text(Role::User, "msg1"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "msg2"));
+        app.messages.push(DisplayMessage::new_text(Role::User, "msg3"));
         app.scroll = 1;
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -2291,8 +2512,8 @@ mod tests {
     #[test]
     fn test_status_bar_shows_message_count() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage::new(Role::User, "hi", vec![]));
-        app.messages.push(DisplayMessage::new(Role::Assistant, "hello", vec![]));
+        app.messages.push(DisplayMessage::new_text(Role::User, "hi"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "hello"));
         let backend = TestBackend::new(120, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| app.ui(f)).unwrap();
