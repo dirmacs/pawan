@@ -9,10 +9,33 @@
 use crate::config::HealingConfig;
 use crate::{PawanError, Result};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use tokio::io::AsyncReadExt;
 use tokio::process::Command;
+
+/// Shared cargo command runner with concurrent stdout/stderr reads and 5-minute timeout.
+async fn run_cargo_command(workspace_root: &Path, args: &[&str]) -> Result<String> {
+    let child = Command::new("cargo")
+        .args(args)
+        .current_dir(workspace_root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .spawn()
+        .map_err(PawanError::Io)?;
+
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(300),
+        child.wait_with_output(),
+    )
+    .await
+    .map_err(|_| PawanError::Timeout("cargo command timed out after 5 minutes".into()))?
+    .map_err(PawanError::Io)?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Ok(format!("{}\n{}", stdout, stderr))
+}
 
 /// A compilation diagnostic (error or warning)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,14 +67,8 @@ pub enum DiagnosticKind {
     Help,
 }
 
-/// Result from a healing operation
+/// Result from a healing operation containing remaining issues and a summary.
 #[derive(Debug)]
-/// Result from a healing operation
-///
-/// Result from a healing operation
-///
-/// Contains statistics about issues found and fixed, remaining unfixed issues,
-/// and a summary of the healing operation.
 pub struct HealingResult {
     /// Remaining unfixed issues
     pub remaining: Vec<Diagnostic>,
@@ -59,12 +76,7 @@ pub struct HealingResult {
     pub summary: String,
 }
 
-/// Compiler error fixer
-/// Compiler error fixer
-///
-/// This struct handles parsing and fixing compilation errors from cargo check output.
-/// It can parse both JSON and text output formats and convert them into structured
-/// Diagnostic objects that can be used by the healing system.
+/// Compiler error fixer — parses cargo check output (JSON + text fallback) into Diagnostics.
 pub struct CompilerFixer {
     workspace_root: PathBuf,
 }
@@ -281,117 +293,41 @@ impl CompilerFixer {
 
     /// Run cargo check and get diagnostics
     pub async fn check(&self) -> Result<Vec<Diagnostic>> {
-        let output = self.run_cargo(&["check", "--message-format=json"]).await?;
+        let output = run_cargo_command(&self.workspace_root, &["check", "--message-format=json"]).await?;
         Ok(self.parse_diagnostics(&output))
-    }
-
-    /// Run a cargo command
-    async fn run_cargo(&self, args: &[&str]) -> Result<String> {
-        let mut cmd = Command::new("cargo");
-        cmd.args(args)
-            .current_dir(&self.workspace_root)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .stdin(Stdio::null());
-
-        let mut child = cmd.spawn().map_err(PawanError::Io)?;
-
-        let mut stdout = String::new();
-        let mut stderr = String::new();
-
-        if let Some(mut handle) = child.stdout.take() {
-            handle.read_to_string(&mut stdout).await.ok();
-        }
-
-        if let Some(mut handle) = child.stderr.take() {
-            handle.read_to_string(&mut stderr).await.ok();
-        }
-
-        child.wait().await.map_err(PawanError::Io)?;
-
-        // Combine stdout and stderr
-        Ok(format!("{}\n{}", stdout, stderr))
     }
 }
 
-/// Clippy warning fixer
-///
-/// This struct handles parsing and fixing clippy warnings from cargo clippy output.
-/// It extends CompilerFixer to parse clippy-specific diagnostics and filter them
-/// to only include warnings that need attention.
-///
-/// # Features
-/// - Run `cargo clippy` with JSON output format
-/// - Parse clippy diagnostics into structured Diagnostic objects
-/// - Filter to show only warnings (excluding notes and helps)
-/// - Support for all clippy lint groups
+/// Clippy warning fixer — runs clippy and filters to warnings only.
 pub struct ClippyFixer {
     workspace_root: PathBuf,
 }
 
 impl ClippyFixer {
-    /// Create a new ClippyFixer
     pub fn new(workspace_root: PathBuf) -> Self {
         Self { workspace_root }
     }
 
     /// Run clippy and get warnings
     pub async fn check(&self) -> Result<Vec<Diagnostic>> {
-        let output = self.run_clippy().await?;
+        let output = run_cargo_command(
+            &self.workspace_root,
+            &["clippy", "--message-format=json", "--", "-W", "clippy::all"],
+        ).await?;
         let fixer = CompilerFixer::new(self.workspace_root.clone());
         let mut diagnostics = fixer.parse_diagnostics(&output);
-
-        // Filter to only warnings
         diagnostics.retain(|d| d.kind == DiagnosticKind::Warning);
-
         Ok(diagnostics)
-    }
-
-    /// Run clippy with JSON output
-    async fn run_clippy(&self) -> Result<String> {
-        let mut cmd = Command::new("cargo");
-        cmd.args(["clippy", "--message-format=json", "--", "-W", "clippy::all"])
-            .current_dir(&self.workspace_root)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .stdin(Stdio::null());
-
-        let mut child = cmd.spawn().map_err(PawanError::Io)?;
-
-        let mut stdout = String::new();
-        let mut stderr = String::new();
-
-        if let Some(mut handle) = child.stdout.take() {
-            handle.read_to_string(&mut stdout).await.ok();
-        }
-
-        if let Some(mut handle) = child.stderr.take() {
-            handle.read_to_string(&mut stderr).await.ok();
-        }
-
-        child.wait().await.map_err(PawanError::Io)?;
-
-        Ok(format!("{}\n{}", stdout, stderr))
     }
 }
 
-/// Test failure fixer
-/// Test failure fixer
-///
-/// This struct handles parsing and fixing failing tests from cargo test output.
-/// It can identify failed tests, extract their output, and provide structured
-/// information about test failures for the healing system to address.
+/// Test failure fixer — parses cargo test output to identify and locate failed tests.
 pub struct TestFixer {
     workspace_root: PathBuf,
 }
 
-/// A failed test
+/// A failed test with name, module, failure output, and optional source location.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-/// A failed test
-///
-/// This struct represents information about a test that failed during execution.
-/// It includes the test name, module path, failure message, file location,
-/// and line number where the test failed.
 pub struct FailedTest {
     /// Test name (full path)
     pub name: String,
@@ -413,35 +349,11 @@ impl TestFixer {
 
     /// Run tests and get failures
     pub async fn check(&self) -> Result<Vec<FailedTest>> {
-        let output = self.run_tests().await?;
+        let output = run_cargo_command(
+            &self.workspace_root,
+            &["test", "--no-fail-fast", "--", "--nocapture"],
+        ).await?;
         Ok(self.parse_test_output(&output))
-    }
-
-    /// Run cargo test
-    async fn run_tests(&self) -> Result<String> {
-        let mut cmd = Command::new("cargo");
-        cmd.args(["test", "--no-fail-fast", "--", "--nocapture"])
-            .current_dir(&self.workspace_root)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .stdin(Stdio::null());
-
-        let mut child = cmd.spawn().map_err(PawanError::Io)?;
-
-        let mut stdout = String::new();
-        let mut stderr = String::new();
-
-        if let Some(mut handle) = child.stdout.take() {
-            handle.read_to_string(&mut stdout).await.ok();
-        }
-
-        if let Some(mut handle) = child.stderr.take() {
-            handle.read_to_string(&mut stderr).await.ok();
-        }
-
-        child.wait().await.map_err(PawanError::Io)?;
-
-        Ok(format!("{}\n{}", stdout, stderr))
     }
 
     /// Parse test output for failures
@@ -533,16 +445,7 @@ impl TestFixer {
     }
 }
 
-/// Healer that coordinates all fixing activities
-/// Healer that coordinates all fixing activities
-///
-/// This struct orchestrates the self-healing process by coordinating multiple fixers:
-/// - CompilerFixer for compilation errors
-/// - ClippyFixer for clippy warnings
-/// - TestFixer for failing tests
-///
-/// It provides a unified interface for getting diagnostics, failed tests, and
-/// counting issues in the workspace.
+/// Healer — coordinates CompilerFixer, ClippyFixer, and TestFixer for self-healing.
 pub struct Healer {
     #[allow(dead_code)]
     workspace_root: PathBuf,
@@ -599,15 +502,14 @@ impl Healer {
         }
     }
 
-    /// Count total issues in the workspace
-    ///
-    /// This method counts errors, warnings, and failed tests.
-    ///
-    /// # Returns
-    /// A tuple of (errors_count, warnings_count, failed_tests_count)
+    /// Count total issues concurrently: (errors, warnings, failed_tests).
     pub async fn count_issues(&self) -> Result<(usize, usize, usize)> {
-        let diagnostics = self.get_diagnostics().await?;
-        let tests = self.get_failed_tests().await?;
+        let (diagnostics, tests) = tokio::join!(
+            self.get_diagnostics(),
+            self.get_failed_tests(),
+        );
+        let diagnostics = diagnostics?;
+        let tests = tests?;
 
         let errors = diagnostics
             .iter()
