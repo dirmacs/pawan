@@ -15,14 +15,6 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 
 /// A compilation diagnostic (error or warning)
-///
-/// Represents a single diagnostic message from the compiler, including:
-/// - The type of diagnostic (error, warning, note, help)
-/// - The diagnostic message
-/// - Location information (file, line, column)
-/// - Error/warning code
-/// - Suggested fix (if available)
-/// - Raw output for context
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Diagnostic {
     /// The type of diagnostic
@@ -44,12 +36,6 @@ pub struct Diagnostic {
 }
 
 /// Type of diagnostic
-///
-/// Represents the severity or purpose of a diagnostic message:
-/// - `Error`: Compilation error that prevents successful build
-/// - `Warning`: Compilation warning that doesn't prevent build
-/// - `Note`: Additional contextual information
-/// - `Help`: Suggested solution or guidance
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DiagnosticKind {
     Error,
@@ -59,12 +45,6 @@ pub enum DiagnosticKind {
 }
 
 /// Result from a healing operation
-///
-/// Contains statistics about issues found and fixed, remaining unfixed issues,
-/// and a summary of the healing operation.
-///
-/// This struct is returned by healing operations to provide feedback on what
-/// was attempted, what was successful, and what issues remain.
 #[derive(Debug)]
 /// Result from a healing operation
 ///
@@ -72,7 +52,6 @@ pub enum DiagnosticKind {
 ///
 /// Contains statistics about issues found and fixed, remaining unfixed issues,
 /// and a summary of the healing operation.
-#[derive(Debug)]
 pub struct HealingResult {
     /// Remaining unfixed issues
     pub remaining: Vec<Diagnostic>,
@@ -80,6 +59,7 @@ pub struct HealingResult {
     pub summary: String,
 }
 
+/// Compiler error fixer
 /// Compiler error fixer
 ///
 /// This struct handles parsing and fixing compilation errors from cargo check output.
@@ -338,12 +318,7 @@ impl CompilerFixer {
 /// - Parse clippy diagnostics into structured Diagnostic objects
 /// - Filter to show only warnings (excluding notes and helps)
 /// - Support for all clippy lint groups
-/// Clippy lint fixer
-///
-/// This struct handles parsing and fixing Clippy lint warnings from cargo clippy output.
-/// It can parse both JSON and text output formats and convert them into structured
-/// Diagnostic objects that can be used by the healing system to automatically fix
-/// code quality issues and style warnings.
+pub struct ClippyFixer {
     workspace_root: PathBuf,
 }
 
@@ -399,14 +374,7 @@ impl ClippyFixer {
 /// This struct handles parsing and fixing failing tests from cargo test output.
 /// It can identify failed tests, extract their output, and provide structured
 /// information about test failures for the healing system to address.
-/// Test failure fixer
-///
-/// This struct handles analyzing and fixing test failures by parsing test output
-/// and identifying which tests failed, what the failure messages were, and
-/// providing context for the healing system to automatically fix the issues.
-///
-/// The TestFixer can parse output from `cargo test` and extract information
-/// about failed tests including test names, failure messages, and stack traces.
+pub struct TestFixer {
     workspace_root: PathBuf,
 }
 
@@ -417,17 +385,7 @@ impl ClippyFixer {
 /// This struct represents information about a test that failed during execution.
 /// It includes the test name, module path, failure message, file location,
 /// and line number where the test failed.
-/// Information about a failed test
-///
-/// Represents a single test that failed during execution, including:
-/// - The name of the test
-/// - The failure message
-/// - The full output from the test run
-/// - The file and line where the test is defined
-/// - Any stack trace or panic information
-///
-/// This information is used by the healing system to understand what went wrong
-/// and generate appropriate fixes.
+pub struct FailedTest {
     /// Test name (full path)
     pub name: String,
     /// Test module path
@@ -578,20 +536,7 @@ impl TestFixer {
 ///
 /// It provides a unified interface for getting diagnostics, failed tests, and
 /// counting issues in the workspace.
-/// Main healing orchestrator
-///
-/// The Healer is the main orchestrator for the self-healing system. It coordinates
-/// the various fixers (compiler, clippy, test) and applies fixes to the codebase.
-///
-/// The Healer can:
-/// - Parse diagnostics from multiple sources
-/// - Format diagnostics for LLM prompts
-/// - Apply fixes to source files
-/// - Verify that fixes resolve the issues
-/// - Handle multiple iterations of fixing
-///
-/// The Healer uses a configuration to control its behavior, including which
-/// types of issues to fix and how aggressive to be with fixes.
+pub struct Healer {
     #[allow(dead_code)]
     workspace_root: PathBuf,
     config: HealingConfig,
@@ -711,17 +656,6 @@ impl Healer {
     }
 
     /// Format failed tests for LLM prompt
-    /// Format failed tests for LLM prompt
-    ///
-    /// Converts a list of failed tests into a formatted string suitable for inclusion
-    /// in an LLM prompt. The format includes test names, failure messages, and
-    /// relevant context to help the LLM understand what needs to be fixed.
-    ///
-    /// # Arguments
-    /// * `tests` - A slice of FailedTest objects to format
-    ///
-    /// # Returns
-    /// A formatted string containing all the test failure information
     pub fn format_tests_for_prompt(&self, tests: &[FailedTest]) -> String {
         let mut output = String::new();
 
