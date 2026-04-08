@@ -93,19 +93,17 @@ impl BeadStatus {
         }
     }
 
-    /// Create a BeadStatus from a string representation
-    ///
-    /// # Arguments
-    /// * `s` - The string to parse ("in_progress", "closed", or any other value for "open")
-    ///
-    /// # Returns
-    /// The corresponding BeadStatus enum variant
-    pub fn from_str(s: &str) -> Self {
-        match s {
+}
+
+impl std::str::FromStr for BeadStatus {
+    type Err = std::convert::Infallible;
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        Ok(match s {
             "in_progress" => Self::InProgress,
             "closed" => Self::Closed,
             _ => Self::Open,
-        }
+        })
     }
 }
 
@@ -250,7 +248,7 @@ impl BeadStore {
                         id: BeadId(row.get::<_, String>(0)?),
                         title: row.get(1)?,
                         description: row.get(2)?,
-                        status: BeadStatus::from_str(&row.get::<_, String>(3)?),
+                        status: row.get::<_, String>(3)?.parse().unwrap_or(BeadStatus::Open),
                         priority: row.get(4)?,
                         created_at: row.get(5)?,
                         updated_at: row.get(6)?,
@@ -352,7 +350,7 @@ impl BeadStore {
                     id: BeadId(row.get::<_, String>(0)?),
                     title: row.get(1)?,
                     description: row.get(2)?,
-                    status: BeadStatus::from_str(&row.get::<_, String>(3)?),
+                    status: row.get::<_, String>(3)?.parse().unwrap_or(BeadStatus::Open),
                     priority: row.get(4)?,
                     created_at: row.get(5)?,
                     updated_at: row.get(6)?,
