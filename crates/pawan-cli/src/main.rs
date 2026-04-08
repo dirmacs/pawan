@@ -1843,7 +1843,7 @@ async fn run_tasks(action: TasksAction) -> Result<()> {
 
         TasksAction::Update { id, status, priority, title } => {
             let bid = BeadId::parse(&id);
-            let status = status.map(|s| BeadStatus::from_str(&s));
+            let status = status.map(|s| s.parse::<BeadStatus>().unwrap_or(BeadStatus::Open));
             store.update(&bid, title.as_deref(), status, priority)?;
             println!("{} {}", "Updated:".green().bold(), bid.display().cyan());
         }

@@ -217,7 +217,7 @@ impl OpenAiCompatBackend {
                 if let Some(data) = line.strip_prefix("data: ") {
                     if let Ok(json) = serde_json::from_str::<Value>(data) {
                         // Capture usage from final chunk (OpenAI stream_options, vllm-mlx, etc.)
-                        if let Some(_) = json.get("usage").and_then(|u| u.get("total_tokens")) {
+                        if json.get("usage").and_then(|u| u.get("total_tokens")).is_some() {
                             stream_usage = Self::parse_usage(&json);
                         }
 
@@ -699,7 +699,7 @@ impl LlmBackend for OpenAiCompatBackend {
 
                 // Dynamically add/remove tools based on model support
                 if Self::supports_tool_use(model) {
-                    if !api_tools.is_empty() && !request_body.get("tools").is_some() {
+                    if !api_tools.is_empty() && request_body.get("tools").is_none() {
                         request_body["tools"] = json!(api_tools);
                     }
                 } else {

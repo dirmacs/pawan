@@ -421,8 +421,8 @@ impl Tool for ErdTool {
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         // Auto-install erd if missing; fall back to fd if mise unavailable
-        if !binary_exists("erd") {
-            if !auto_install("erd", &self.workspace_root).await || !binary_exists("erd") {
+        if !binary_exists("erd")
+            && (!auto_install("erd", &self.workspace_root).await || !binary_exists("erd")) {
                 let path = args["path"].as_str().unwrap_or(".");
                 let depth = args["depth"].as_u64().unwrap_or(3).to_string();
                 let cmd_args = vec![".", path, "--max-depth", &depth, "--color", "never"];
@@ -430,7 +430,6 @@ impl Tool for ErdTool {
                     .unwrap_or(("(erd and fd not available)".into(), String::new(), false));
                 return Ok(json!({ "tree": stdout, "tool": "fd-fallback" }));
             }
-        }
 
         let path = args["path"].as_str().unwrap_or(".");
         let depth_str = args["depth"].as_u64().unwrap_or(3).to_string();
