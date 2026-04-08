@@ -1,4 +1,4 @@
-//! Native CLI tool wrappers — rg, fd, sd, ag, erd
+//! Native CLI tool wrappers — rg, fd, sd, ag
 //!
 //! Each tool auto-checks binary availability and provides structured output.
 //! Faster than bash for search/replace tasks because they bypass shell parsing.
