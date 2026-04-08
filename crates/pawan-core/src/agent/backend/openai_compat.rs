@@ -46,10 +46,21 @@ impl OpenAiCompatBackend {
     }
 
     /// Check if a model supports the `chat_template_kwargs` parameter.
-    /// Only Qwen-family models on NIM support this. Mistral, LLaMA, and others reject it with 400.
+    /// Only Qwen-family and Gemma-4 models on NIM support this. Mistral, LLaMA, and others reject it with 400.
     fn supports_chat_template_kwargs(model: &str) -> bool {
         let m = model.to_lowercase();
-        m.contains("qwen") || m.contains("deepseek")
+        m.contains("qwen") || m.contains("deepseek") || m.contains("gemma")
+    }
+
+    /// Get the correct `chat_template_kwargs` value for thinking mode.
+    /// Gemma-4 uses `enable_thinking`, Qwen/DeepSeek use `thinking`.
+    fn thinking_kwargs(model: &str, enabled: bool) -> serde_json::Value {
+        let m = model.to_lowercase();
+        if m.contains("gemma") {
+            json!({ "enable_thinking": enabled })
+        } else {
+            json!({ "thinking": enabled })
+        }
     }
 
     /// Check if a model supports tool use (function calling).
@@ -641,14 +652,11 @@ impl LlmBackend for OpenAiCompatBackend {
             request_body["tools"] = json!(api_tools);
         }
 
-        // Only send chat_template_kwargs for models that support it (Qwen family).
+        // Only send chat_template_kwargs for models that support it (Qwen/Gemma family).
         // Mistral, LLaMA, and other models reject this parameter with 400 errors.
         if Self::supports_chat_template_kwargs(&self.cfg.model) {
-            if self.cfg.use_thinking {
-                request_body["chat_template_kwargs"] = json!({ "thinking": true });
-            } else {
-                request_body["chat_template_kwargs"] = json!({ "enable_thinking": false });
-            }
+            request_body["chat_template_kwargs"] =
+                Self::thinking_kwargs(&self.cfg.model, self.cfg.use_thinking);
         }
 
         request_body["seed"] = json!(42);
@@ -681,12 +689,9 @@ impl LlmBackend for OpenAiCompatBackend {
 
                 // Dynamically add/remove chat_template_kwargs based on model support
                 if Self::supports_chat_template_kwargs(model) {
-                    if !request_body.get("chat_template_kwargs").is_some() {
-                        if self.cfg.use_thinking {
-                            request_body["chat_template_kwargs"] = json!({ "thinking": true });
-                        } else {
-                            request_body["chat_template_kwargs"] = json!({ "enable_thinking": false });
-                        }
+                    if request_body.get("chat_template_kwargs").is_none() {
+                        request_body["chat_template_kwargs"] =
+                            Self::thinking_kwargs(model, self.cfg.use_thinking);
                     }
                 } else {
                     request_body.as_object_mut().map(|o| o.remove("chat_template_kwargs"));
