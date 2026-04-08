@@ -190,7 +190,6 @@ Full triage: [dirmacs.github.io/pawan/triage/](https://dirmacs.github.io/pawan/t
 | [ares](https://github.com/dirmacs/ares) | Agentic retrieval-enhanced server (RAG, embeddings, multi-provider LLM) |
 | [eruka](https://eruka.dirmacs.com) | Context intelligence engine (knowledge graph, memory tiers, decay) |
 | [aegis](https://github.com/dirmacs/aegis) | Config management + WireGuard mesh overlay (aegis-net) |
-| [doltares](https://github.com/dirmacs/doltares) | Orchestration daemon (DAG workflows, council/consultant nodes) |
 | [doltclaw](https://github.com/dirmacs/doltclaw) | Minimal Rust agent runtime |
 | [nimakai](https://github.com/dirmacs/nimakai) | NIM model latency benchmarker (Nim) |
 | [daedra](https://dirmacs.github.io/daedra) | Self-contained web search MCP server (7 backends, automatic fallback) |
