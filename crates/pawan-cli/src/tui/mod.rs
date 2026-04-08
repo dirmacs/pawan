@@ -48,11 +48,12 @@ enum ContentBlock {
     /// Text emitted by the model. May be built incrementally during streaming.
     Text { content: String, streaming: bool },
     /// A tool call with optional result. Transitions: Running -> Done.
-    ToolCall { name: String, args_summary: String, state: ToolBlockState },
+    ToolCall { name: String, args_summary: String, state: Box<ToolBlockState> },
 }
 
 /// State of a tool call block.
 #[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
 enum ToolBlockState {
     Running,
     Done { record: ToolCallRecord, expanded: bool },
@@ -89,7 +90,7 @@ impl DisplayMessage {
             blocks.push(ContentBlock::ToolCall {
                 name: tc.name.clone(),
                 args_summary: summarize_args(&tc.arguments),
-                state: ToolBlockState::Done { record: tc.clone(), expanded: !tc.success },
+                state: Box::new(ToolBlockState::Done { record: tc.clone(), expanded: !tc.success }),
             });
         }
         Self { role: Role::Assistant, blocks, timestamp: std::time::Instant::now() }
@@ -106,7 +107,7 @@ impl DisplayMessage {
     /// All completed tool call records.
     fn tool_records(&self) -> Vec<&ToolCallRecord> {
         self.blocks.iter().filter_map(|b| match b {
-            ContentBlock::ToolCall { state: ToolBlockState::Done { record, .. }, .. } => Some(record),
+            ContentBlock::ToolCall { state, .. } => if let ToolBlockState::Done { record, .. } = state.as_ref() { Some(record) } else { None },
             _ => None,
         }).collect()
     }
@@ -319,7 +320,7 @@ impl<'a> App<'a> {
                         state.blocks.push(ContentBlock::ToolCall {
                             name: name.clone(),
                             args_summary: String::new(),
-                            state: ToolBlockState::Running,
+                            state: Box::new(ToolBlockState::Running),
                         });
                         self.status = format!("Running tool: {}", name);
                     }
@@ -327,9 +328,9 @@ impl<'a> App<'a> {
                         if let Some(state) = &mut self.streaming {
                             for block in state.blocks.iter_mut().rev() {
                                 if let ContentBlock::ToolCall { name, args_summary, state: tool_state } = block {
-                                    if matches!(tool_state, ToolBlockState::Running) && *name == record.name {
+                                    if matches!(tool_state.as_ref(), ToolBlockState::Running) && *name == record.name {
                                         *args_summary = summarize_args(&record.arguments);
-                                        *tool_state = ToolBlockState::Done {
+                                        **tool_state = ToolBlockState::Done {
                                             record: record.clone(),
                                             expanded: !record.success,
                                         };
@@ -1049,11 +1050,13 @@ impl<'a> App<'a> {
         // Show running tools from streaming state
         if let Some(ref state) = self.streaming {
             for block in &state.blocks {
-                if let ContentBlock::ToolCall { name, state: ToolBlockState::Running, .. } = block {
-                    items.push(ListItem::new(Line::from(vec![
-                        Span::styled(" ⚙ ", Style::default().fg(Color::Yellow)),
-                        Span::styled(name.clone(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    ])));
+                if let ContentBlock::ToolCall { name, state, .. } = block {
+                    if matches!(state.as_ref(), ToolBlockState::Running) {
+                        items.push(ListItem::new(Line::from(vec![
+                            Span::styled(" ⚙ ", Style::default().fg(Color::Yellow)),
+                            Span::styled(name.clone(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        ])));
+                    }
                 }
             }
         }
@@ -1192,7 +1195,7 @@ impl<'a> App<'a> {
                 }
             }
             ContentBlock::ToolCall { name, args_summary, state } => {
-                match state {
+                match state.as_ref() {
                     ToolBlockState::Running => {
                         lines.push(Line::from(vec![
                             Span::styled("  ⚙ ", Style::default().fg(Color::Yellow)),
@@ -1262,14 +1265,12 @@ impl<'a> App<'a> {
         for (mi, msg) in self.messages.iter().enumerate() {
             line_offset += 1; // header line
             for (bi, block) in msg.blocks.iter().enumerate() {
-                if let ContentBlock::ToolCall { state: ToolBlockState::Done { .. }, .. } = block {
-                    let dist = if line_offset > self.scroll {
-                        line_offset - self.scroll
-                    } else {
-                        self.scroll - line_offset
-                    };
-                    if best.is_none() || dist < best.unwrap().2 {
-                        best = Some((mi, bi, dist));
+                if let ContentBlock::ToolCall { state, .. } = block {
+                    if matches!(state.as_ref(), ToolBlockState::Done { .. }) {
+                        let dist = line_offset.abs_diff(self.scroll);
+                        if best.is_none() || dist < best.unwrap().2 {
+                            best = Some((mi, bi, dist));
+                        }
                     }
                 }
                 // Estimate lines this block takes
@@ -1277,23 +1278,28 @@ impl<'a> App<'a> {
                     ContentBlock::Text { content, .. } => {
                         line_offset += content.lines().count().max(1);
                     }
-                    ContentBlock::ToolCall { state: ToolBlockState::Done { expanded, record, .. }, .. } => {
-                        line_offset += 1; // summary line
-                        if *expanded {
-                            line_offset += format_tool_result(&record.result).lines().count().min(21);
+                    ContentBlock::ToolCall { state, .. } => {
+                        if let ToolBlockState::Done { expanded, record } = state.as_ref() {
+                            line_offset += 1; // summary line
+                            if *expanded {
+                                line_offset += format_tool_result(&record.result).lines().count().min(21);
+                            } else {
+                                line_offset += 1; // preview line
+                            }
                         } else {
-                            line_offset += 1; // preview line
+                            line_offset += 1;
                         }
                     }
-                    ContentBlock::ToolCall { .. } => { line_offset += 1; }
                 }
             }
             line_offset += 1; // spacer
         }
 
         if let Some((mi, bi, _)) = best {
-            if let ContentBlock::ToolCall { state: ToolBlockState::Done { expanded, .. }, .. } = &mut self.messages[mi].blocks[bi] {
-                *expanded = !*expanded;
+            if let ContentBlock::ToolCall { state, .. } = &mut self.messages[mi].blocks[bi] {
+                if let ToolBlockState::Done { expanded, .. } = state.as_mut() {
+                    *expanded = !*expanded;
+                }
             }
         }
     }
@@ -1753,7 +1759,7 @@ mod tests {
             blocks: vec![ContentBlock::ToolCall {
                 name: "bash".to_string(),
                 args_summary: String::new(),
-                state: ToolBlockState::Running,
+                state: Box::new(ToolBlockState::Running),
             }],
         });
 
@@ -1790,7 +1796,7 @@ mod tests {
                 ContentBlock::ToolCall {
                     name: "write_file".into(),
                     args_summary: String::new(),
-                    state: ToolBlockState::Done {
+                    state: Box::new(ToolBlockState::Done {
                         record: ToolCallRecord {
                             id: "1".into(),
                             name: "write_file".into(),
@@ -1800,12 +1806,12 @@ mod tests {
                             duration_ms: 42,
                         },
                         expanded: false,
-                    },
+                    }),
                 },
                 ContentBlock::ToolCall {
                     name: "bash".into(),
                     args_summary: String::new(),
-                    state: ToolBlockState::Done {
+                    state: Box::new(ToolBlockState::Done {
                         record: ToolCallRecord {
                             id: "2".into(),
                             name: "bash".into(),
@@ -1815,7 +1821,7 @@ mod tests {
                             duration_ms: 30000,
                         },
                         expanded: true,
-                    },
+                    }),
                 },
             ],
             timestamp: std::time::Instant::now(),

@@ -6,7 +6,8 @@
 # provider = "nvidia"
 
 # Model to use (provider-specific ID)
-model = "mistralai/devstral-2-123b-instruct-2512"
+# Default: qwen/qwen3.5-122b-a10b (S tier on NVIDIA NIM)
+model = "qwen/qwen3.5-122b-a10b"
 
 # Generation parameters
 temperature = 0.6
@@ -16,8 +17,13 @@ temperature = 0.6
 # Maximum tool-calling iterations per prompt
 # max_tool_iterations = 50
 
-# Enable reasoning/thinking mode for DeepSeek models
+# Enable reasoning/thinking mode (auto-detected for DeepSeek, Gemma, Qwen, GLM, Mistral)
 # reasoning_mode = true
+
+# Cloud fallback model (used when primary fails)
+# [cloud]
+# provider = "nvidia"
+# model = "minimaxai/minimax-m2.5"
 
 # Self-healing settings
 [healing]

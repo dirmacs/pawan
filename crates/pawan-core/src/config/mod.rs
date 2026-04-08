@@ -124,8 +124,8 @@ pub struct PawanConfig {
 /// # Example (pawan.toml)
 /// ```toml
 /// [models]
-/// code = "mistralai/mistral-small-4-119b-2603"     # best for code generation
-/// orchestrate = "stepfun-ai/step-3.5-flash"         # best for tool calling
+/// code = "qwen/qwen3.5-122b-a10b"                  # best for code generation
+/// orchestrate = "minimaxai/minimax-m2.5"            # best for tool calling
 /// execute = "mlx-community/Qwen3.5-9B-OptiQ-4bit"  # fast local execution
 /// ```
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

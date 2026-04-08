@@ -42,30 +42,32 @@ pawan-cli/     — Binary with clap CLI + ratatui TUI
 
 ## NIM Model Compatibility
 
-| Model | Tool Use | Notes |
-|-------|----------|-------|
-| `nvidia/devstral-2-123b` | ✅ | Recommended for coding tasks |
-| `qwen/qwen3-coder-480b-a35b` | ✅ | Strong coder, high latency |
-| `stepfun-ai/step-3.5-flash` | ✅ | Fast, reliable |
-| `deepseek-ai/deepseek-v3.2` | ⚠️ | Context drift on long sessions |
-| `deepseek-ai/deepseek-r1` | ⚠️ | Reasoning model, slow for coding |
+| Tier | Model | Tool Use | Notes |
+|------|-------|----------|-------|
+| S | `qwen/qwen3.5-122b-a10b` | ✅ | **Primary** — fastest task completion, solid tool calling |
+| S | `minimaxai/minimax-m2.5` | ✅ | **Cloud fallback** — highest quality output |
+| A | `google/gemma-4-31b-it` | ✅ | Fast thinking model, good for reasoning tasks |
+| A | `meta/llama-4-maverick-17b-128e-instruct` | ✅ | Good tool calling, occasional formatting quirks |
+| B | `deepseek-ai/deepseek-v3.2` | ⚠️ | Context drift on long sessions |
+| B | `deepseek-ai/deepseek-r1` | ⚠️ | Reasoning model, slow for coding |
+
+See `docs/content/triage.md` for full dogfooding results.
 
 ## Configuration
 
 ```toml
 # pawan.toml
-[providers.nvidia-nim]
-base_url = "https://integrate.api.nvidia.com/v1"
-api_key = "${NVIDIA_API_KEY}"
+model = "qwen/qwen3.5-122b-a10b"
+temperature = 0.6
 
-[[providers.nvidia-nim.models]]
-id = "nvidia/devstral-2-123b"
-name = "Devstral 2 123B"
+[cloud]
+provider = "nvidia"
+model = "minimaxai/minimax-m2.5"
 
-[agent]
-primary = "nvidia-nim/nvidia/devstral-2-123b"
-fallbacks = ["nvidia-nim/stepfun-ai/step-3.5-flash"]
-max_iterations = 30
+[healing]
+fix_errors = true
+fix_warnings = true
+fix_tests = true
 
 [tools]
 allow_bash = true
