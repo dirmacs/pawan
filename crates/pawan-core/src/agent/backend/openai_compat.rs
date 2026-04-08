@@ -210,16 +210,16 @@ impl OpenAiCompatBackend {
         use futures::StreamExt;
 
         let mut buffer = String::new();
+        let mut buf_start = 0usize;
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(|e| PawanError::Llm(format!("Stream error: {}", e)))?;
             buffer.push_str(&String::from_utf8_lossy(&chunk));
 
-            while let Some(newline_pos) = buffer.find('\n') {
-                let line = buffer[..newline_pos].to_string();
-                buffer = buffer[newline_pos + 1..].to_string();
-
-                let line = line.trim();
+            while let Some(rel_pos) = buffer[buf_start..].find('\n') {
+                let newline_pos = buf_start + rel_pos;
+                let line = buffer[buf_start..newline_pos].trim();
+                buf_start = newline_pos + 1; // advance past newline (zero-copy)
                 if line.is_empty() || line == "data: [DONE]" {
                     continue;
                 }
@@ -301,6 +301,11 @@ impl OpenAiCompatBackend {
                         }
                     }
                 }
+            }
+            // Compact buffer: only reallocate when >50% consumed
+            if buf_start > 0 {
+                buffer = buffer[buf_start..].to_string();
+                buf_start = 0;
             }
         }
 
