@@ -1063,13 +1063,30 @@ mod config_tests {
     }
 
     #[test]
-    fn test_thinking_mode_only_deepseek() {
+    fn test_thinking_mode_deepseek_and_gemma() {
         let mut config = PawanConfig::default();
         config.reasoning_mode = true;
+
+        // Non-thinking models
         config.model = "mistralai/mistral-small-4-119b-2603".into();
         assert!(!config.use_thinking_mode());
+        config.model = "stepfun-ai/step-3.5-flash".into();
+        assert!(!config.use_thinking_mode());
+
+        // DeepSeek enables thinking
         config.model = "deepseek-ai/deepseek-v3".into();
         assert!(config.use_thinking_mode());
+
+        // Gemma-4 enables thinking
+        config.model = "google/gemma-4-31b-it".into();
+        assert!(config.use_thinking_mode());
+
+        // reasoning_mode=false disables it for all
+        config.reasoning_mode = false;
+        config.model = "deepseek-ai/deepseek-v3".into();
+        assert!(!config.use_thinking_mode());
+        config.model = "google/gemma-4-31b-it".into();
+        assert!(!config.use_thinking_mode());
     }
 }
 

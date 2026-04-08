@@ -944,6 +944,39 @@ mod tests {
         assert!(delay_2.as_millis() >= 3200 && delay_2.as_millis() <= 4800,
                 "Delay 2 should be ~4s with jitter: {}ms", delay_2.as_millis());
     }
+
+    #[test]
+    fn test_supports_chat_template_kwargs() {
+        assert!(OpenAiCompatBackend::supports_chat_template_kwargs("Qwen/Qwen2.5-72B-Instruct"));
+        assert!(OpenAiCompatBackend::supports_chat_template_kwargs("deepseek-ai/deepseek-v3"));
+        assert!(OpenAiCompatBackend::supports_chat_template_kwargs("google/gemma-4-31b-it"));
+
+        assert!(!OpenAiCompatBackend::supports_chat_template_kwargs("mistralai/mistral-small-4-119b-2603"));
+        assert!(!OpenAiCompatBackend::supports_chat_template_kwargs("meta/llama-3.1-70b-instruct"));
+        assert!(!OpenAiCompatBackend::supports_chat_template_kwargs("stepfun-ai/step-3.5-flash"));
+    }
+
+    #[test]
+    fn test_thinking_kwargs_gemma_uses_enable_thinking() {
+        assert_eq!(OpenAiCompatBackend::thinking_kwargs("google/gemma-4-31b-it", true),
+                   json!({ "enable_thinking": true }));
+        assert_eq!(OpenAiCompatBackend::thinking_kwargs("google/gemma-4-31b-it", false),
+                   json!({ "enable_thinking": false }));
+    }
+
+    #[test]
+    fn test_thinking_kwargs_qwen_uses_thinking() {
+        assert_eq!(OpenAiCompatBackend::thinking_kwargs("Qwen/Qwen2.5-72B-Instruct", true),
+                   json!({ "thinking": true }));
+        assert_eq!(OpenAiCompatBackend::thinking_kwargs("Qwen/Qwen2.5-72B-Instruct", false),
+                   json!({ "thinking": false }));
+    }
+
+    #[test]
+    fn test_thinking_kwargs_deepseek_uses_thinking() {
+        assert_eq!(OpenAiCompatBackend::thinking_kwargs("deepseek-ai/deepseek-r1", true),
+                   json!({ "thinking": true }));
+    }
 }
 
 #[cfg(test)]
