@@ -1,14 +1,10 @@
-# Pawan — NIM cloud primary (Step 3.5 Flash + Devstral fallback)
 provider = "nvidia"
-model = "stepfun-ai/step-3.5-flash"
+model = "qwen/qwen3.5-122b-a10b"
 temperature = 0.6
-max_tokens = 8192
+top_p = 0.95
+max_tokens = 16384
 max_tool_iterations = 20
 thinking_budget = 0
-
-[cloud]
-provider = "nvidia"
-model = "mistralai/devstral-2-123b-instruct-2512"
 
 [eruka]
 enabled = true
