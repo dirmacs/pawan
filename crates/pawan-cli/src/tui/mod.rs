@@ -496,6 +496,9 @@ impl<'a> App<'a> {
                     }
                     Panel::Messages => match key.code {
                         KeyCode::Tab | KeyCode::Char('i') => self.focus = Panel::Input,
+                        KeyCode::Char('e') => {
+                            self.toggle_nearest_tool_expansion();
+                        }
                         KeyCode::Up | KeyCode::Char('k') => {
                             self.scroll = self.scroll.saturating_sub(1);
                         }
@@ -938,36 +941,36 @@ impl<'a> App<'a> {
     }
 
     fn render_messages(&self, f: &mut Frame, area: Rect) {
-        let mut items: Vec<ListItem> = Vec::new();
+        let mut lines: Vec<Line<'static>> = Vec::new();
         let now = std::time::Instant::now();
 
         for msg in &self.messages {
-            self.render_message_to_items(msg, now, &mut items);
-            items.push(ListItem::new(Line::from("")));
+            self.render_message_to_lines(msg, now, &mut lines);
+            lines.push(Line::from(""));
         }
 
         // Streaming state: render the in-progress assistant message
         if self.processing {
             if let Some(ref state) = self.streaming {
                 if !state.blocks.is_empty() {
-                    items.push(ListItem::new(Line::from(vec![Span::styled(
+                    lines.push(Line::from(vec![Span::styled(
                         "Pawan: ",
                         Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                    )])));
+                    )]));
                     for block in &state.blocks {
-                        Self::render_block_to_items(block, true, &mut items);
+                        Self::render_block_to_lines(block, true, &mut lines);
                     }
                 } else {
-                    items.push(ListItem::new(Line::from(vec![Span::styled(
+                    lines.push(Line::from(vec![Span::styled(
                         "  Pawan is thinking...",
                         Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC),
-                    )])));
+                    )]));
                 }
             } else {
-                items.push(ListItem::new(Line::from(vec![Span::styled(
+                lines.push(Line::from(vec![Span::styled(
                     "  Pawan is thinking...",
                     Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC),
-                )])));
+                )]));
             }
         }
 
@@ -977,9 +980,18 @@ impl<'a> App<'a> {
             Style::default().fg(Color::DarkGray)
         };
 
-        let scroll_indicator = if self.messages.len() > 1 {
-            let pos = self.scroll.min(self.messages.len().saturating_sub(1));
-            format!(" [{}/{}]", pos + 1, self.messages.len())
+        let total_lines = lines.len();
+        let visible_height = area.height.saturating_sub(2) as usize; // minus borders
+        let max_offset = total_lines.saturating_sub(visible_height);
+        let scroll_offset = if self.scroll == usize::MAX {
+            max_offset // auto-scroll to bottom
+        } else {
+            self.scroll.min(max_offset)
+        };
+
+        let scroll_indicator = if total_lines > visible_height {
+            let pct = if max_offset > 0 { scroll_offset * 100 / max_offset } else { 100 };
+            format!(" [{}%]", pct)
         } else {
             String::new()
         };
@@ -989,7 +1001,7 @@ impl<'a> App<'a> {
         } else if !self.search_query.is_empty() {
             format!(" Messages{} [/{}] (n/N next/prev) ", scroll_indicator, self.search_query)
         } else {
-            format!(" Messages{} (Tab, j/k, /, g/G) ", scroll_indicator)
+            format!(" Messages{} (Tab, j/k, /, g/G, e) ", scroll_indicator)
         };
 
         let messages_block = Block::default()
@@ -997,12 +1009,14 @@ impl<'a> App<'a> {
             .border_style(border_style)
             .title(title);
 
-        let list = List::new(items).block(messages_block);
-        f.render_widget(list, area);
+        let paragraph = Paragraph::new(lines)
+            .block(messages_block)
+            .scroll((scroll_offset as u16, 0));
+        f.render_widget(paragraph, area);
     }
 
-    /// Render a single DisplayMessage into ListItems.
-    fn render_message_to_items(&self, msg: &DisplayMessage, now: std::time::Instant, items: &mut Vec<ListItem<'static>>) {
+    /// Render a single DisplayMessage into Lines.
+    fn render_message_to_lines(&self, msg: &DisplayMessage, now: std::time::Instant, lines: &mut Vec<Line<'static>>) {
         let (prefix, style) = match msg.role {
             Role::User => ("You", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Role::Assistant => ("Pawan", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
@@ -1021,49 +1035,49 @@ impl<'a> App<'a> {
             format!("{}h", elapsed.as_secs() / 3600)
         };
 
-        items.push(ListItem::new(Line::from(vec![
+        lines.push(Line::from(vec![
             Span::styled(format!("{}: ", prefix), style),
             Span::styled(format!("({})", time_str), Style::default().fg(Color::DarkGray)),
-        ])));
+        ]));
 
         let is_assistant = msg.role == Role::Assistant;
         for block in &msg.blocks {
-            Self::render_block_to_items(block, is_assistant, items);
+            Self::render_block_to_lines(block, is_assistant, lines);
         }
     }
 
-    /// Render a single ContentBlock into ListItems.
-    fn render_block_to_items(block: &ContentBlock, use_markdown: bool, items: &mut Vec<ListItem<'static>>) {
+    /// Render a single ContentBlock into Lines.
+    fn render_block_to_lines(block: &ContentBlock, use_markdown: bool, lines: &mut Vec<Line<'static>>) {
         match block {
             ContentBlock::Text { content, streaming } => {
                 if use_markdown {
                     for line in markdown_to_lines(content) {
                         let mut spans: Vec<Span<'static>> = vec![Span::raw("  ".to_string())];
                         spans.extend(line.spans);
-                        items.push(ListItem::new(Line::from(spans)));
+                        lines.push(Line::from(spans));
                     }
                 } else {
-                    for line in content.lines() {
-                        items.push(ListItem::new(Line::from(Span::raw(format!("  {}", line)))));
+                    for line_str in content.lines() {
+                        lines.push(Line::from(Span::raw(format!("  {}", line_str))));
                     }
                 }
                 if *streaming {
-                    items.push(ListItem::new(Line::from(vec![Span::styled(
+                    lines.push(Line::from(vec![Span::styled(
                         "  ▌",
                         Style::default().fg(Color::Green).add_modifier(Modifier::SLOW_BLINK),
-                    )])));
+                    )]));
                 }
             }
             ContentBlock::ToolCall { name, args_summary, state } => {
                 match state {
                     ToolBlockState::Running => {
-                        items.push(ListItem::new(Line::from(vec![
+                        lines.push(Line::from(vec![
                             Span::styled("  ⚙ ", Style::default().fg(Color::Yellow)),
                             Span::styled(
                                 format!("Running {}...", name),
                                 Style::default().fg(Color::Yellow).add_modifier(Modifier::ITALIC),
                             ),
-                        ])));
+                        ]));
                     }
                     ToolBlockState::Done { record, expanded } => {
                         let icon = if record.success { "✓" } else { "✗" };
@@ -1085,34 +1099,78 @@ impl<'a> App<'a> {
                             format!(" {}ms", record.duration_ms),
                             Style::default().fg(Color::DarkGray),
                         ));
-                        items.push(ListItem::new(Line::from(spans)));
+                        lines.push(Line::from(spans));
 
                         if *expanded {
                             let result_str = format_tool_result(&record.result);
-                            for line in result_str.lines().take(20) {
-                                items.push(ListItem::new(Line::from(Span::styled(
-                                    format!("    {}", line),
+                            for result_line in result_str.lines().take(20) {
+                                lines.push(Line::from(Span::styled(
+                                    format!("    {}", result_line),
                                     Style::default().fg(Color::DarkGray),
-                                ))));
+                                )));
                             }
-                            let total_lines = result_str.lines().count();
-                            if total_lines > 20 {
-                                items.push(ListItem::new(Line::from(Span::styled(
-                                    format!("    ... ({} more lines)", total_lines - 20),
+                            let total = result_str.lines().count();
+                            if total > 20 {
+                                lines.push(Line::from(Span::styled(
+                                    format!("    ... ({} more lines)", total - 20),
                                     Style::default().fg(Color::DarkGray).add_modifier(Modifier::ITALIC),
-                                ))));
+                                )));
                             }
                         } else {
                             let preview = one_line_preview(&record.result, 60);
                             if !preview.is_empty() {
-                                items.push(ListItem::new(Line::from(Span::styled(
+                                lines.push(Line::from(Span::styled(
                                     format!("    {}", preview),
                                     Style::default().fg(Color::DarkGray).add_modifier(Modifier::DIM),
-                                ))));
+                                )));
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+
+    /// Toggle expand/collapse on the nearest tool block to the current scroll position.
+    fn toggle_nearest_tool_expansion(&mut self) {
+        let mut line_offset = 0usize;
+        let mut best: Option<(usize, usize, usize)> = None; // (msg_idx, block_idx, distance)
+
+        for (mi, msg) in self.messages.iter().enumerate() {
+            line_offset += 1; // header line
+            for (bi, block) in msg.blocks.iter().enumerate() {
+                if let ContentBlock::ToolCall { state: ToolBlockState::Done { .. }, .. } = block {
+                    let dist = if line_offset > self.scroll {
+                        line_offset - self.scroll
+                    } else {
+                        self.scroll - line_offset
+                    };
+                    if best.is_none() || dist < best.unwrap().2 {
+                        best = Some((mi, bi, dist));
+                    }
+                }
+                // Estimate lines this block takes
+                match block {
+                    ContentBlock::Text { content, .. } => {
+                        line_offset += content.lines().count().max(1);
+                    }
+                    ContentBlock::ToolCall { state: ToolBlockState::Done { expanded, record, .. }, .. } => {
+                        line_offset += 1; // summary line
+                        if *expanded {
+                            line_offset += format_tool_result(&record.result).lines().count().min(21);
+                        } else {
+                            line_offset += 1; // preview line
+                        }
+                    }
+                    ContentBlock::ToolCall { .. } => { line_offset += 1; }
+                }
+            }
+            line_offset += 1; // spacer
+        }
+
+        if let Some((mi, bi, _)) = best {
+            if let ContentBlock::ToolCall { state: ToolBlockState::Done { expanded, .. }, .. } = &mut self.messages[mi].blocks[bi] {
+                *expanded = !*expanded;
             }
         }
     }
@@ -2490,10 +2548,11 @@ mod tests {
     #[test]
     fn test_scroll_indicator_in_title() {
         let mut app = test_app();
-        app.messages.push(DisplayMessage::new_text(Role::User, "msg1"));
-        app.messages.push(DisplayMessage::new_text(Role::Assistant, "msg2"));
-        app.messages.push(DisplayMessage::new_text(Role::User, "msg3"));
-        app.scroll = 1;
+        // Add enough messages to exceed the visible area so scroll indicator appears
+        for i in 0..20 {
+            app.messages.push(DisplayMessage::new_text(Role::User, format!("message line {}", i)));
+        }
+        app.scroll = 5;
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| app.ui(f)).unwrap();
@@ -2504,7 +2563,9 @@ mod tests {
                 text.push_str(buf[(x, y)].symbol());
             }
         }
-        assert!(text.contains("[2/3]"), "Should show scroll position [2/3], got:\n{}", &text[..200.min(text.len())]);
+        // Scroll indicator now shows percentage when content exceeds visible area
+        assert!(text.contains("[") && text.contains("%]"),
+            "Should show scroll percentage indicator, got:\n{}", &text[..300.min(text.len())]);
     }
 
     // ===== Message count in status bar =====
