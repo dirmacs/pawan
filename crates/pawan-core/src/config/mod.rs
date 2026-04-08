@@ -526,9 +526,10 @@ impl PawanConfig {
     }
 
     /// Check if thinking mode should be enabled.
-    /// Only applicable to DeepSeek models (other NIM models don't support thinking tokens).
+    /// Applicable to DeepSeek and Gemma-4 models on NIM.
     pub fn use_thinking_mode(&self) -> bool {
-        self.reasoning_mode && self.model.contains("deepseek")
+        self.reasoning_mode
+            && (self.model.contains("deepseek") || self.model.contains("gemma"))
     }
 }
 
@@ -556,7 +557,7 @@ Available tools:
 - File: read_file, write_file, edit_file, edit_file_lines, insert_after, append_file, list_directory
 - Code: ast_grep (AST search + rewrite)
 - Search: glob_search, grep_search, ripgrep, fd
-- Shell: bash, sd (find-replace), tree (erdtree), mise (tool/task/env manager), zoxide
+- Shell: bash, sd (find-replace), mise (tool/task/env manager), zoxide
 - Git: git_status, git_diff, git_add, git_commit, git_log, git_blame, git_branch, git_checkout, git_stash
 - Agent: spawn_agent, spawn_agents
 
