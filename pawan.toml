@@ -6,7 +6,7 @@ top_p = 0.95
 max_tokens = 16384
 max_tool_iterations = 20
 thinking_budget = 0
-reasoning_mode = true
+reasoning_mode = false
 
 [eruka]
 enabled = true
