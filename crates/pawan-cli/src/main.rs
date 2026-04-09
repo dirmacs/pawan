@@ -1657,6 +1657,28 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
         }
     }
 
+    // 9. Check native tool binaries (inspired by gstack health checks)
+    println!("\n{}", "  Native Binaries:".bold());
+    let binaries = [
+        ("rg", "ripgrep — fast code search"),
+        ("fd", "fd — fast file finder"),
+        ("ast-grep", "ast-grep — structural search/replace"),
+        ("bat", "bat — syntax-highlighted file viewer"),
+        ("delta", "delta — git diff viewer"),
+    ];
+    let mut missing_count = 0;
+    for (bin, desc) in &binaries {
+        if which::which(bin).is_ok() {
+            println!("    {} {} {}", "✓".green(), bin, format!("({})", desc).dimmed());
+        } else {
+            println!("    {} {} {}", "-".dimmed(), bin, format!("({})", desc).dimmed());
+            missing_count += 1;
+        }
+    }
+    if missing_count > 0 {
+        println!("    {}", "Install missing: mise install <name>".dimmed());
+    }
+
     // Summary
     println!("\n{}", "─".repeat(40).dimmed());
     if issues == 0 {
