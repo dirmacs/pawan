@@ -791,7 +791,7 @@ impl Tool for ZoxideTool {
 
     fn description(&self) -> &str {
         "zoxide — smart directory jumper. Learns from your cd history. \
-         Use 'query' to find a directory by fuzzy match (e.g. 'pawan' finds /opt/pawan). \
+         Use 'query' to find a directory by fuzzy match (e.g. 'myproject' finds ~/projects/myproject). \
          Use 'add' to teach it a new path. Use 'list' to see known paths."
     }
 

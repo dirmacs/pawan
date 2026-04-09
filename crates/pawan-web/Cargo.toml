@@ -45,6 +45,7 @@ toml = { workspace = true }
 
 # Config
 dotenvy = "0.15"
+dirs = "6"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

@@ -9,7 +9,8 @@ UNIT_NAME="pawan-task-$(date +%s)"
 echo "Running pawan task: $*"
 echo "Unit name: $UNIT_NAME"
 
-systemd-run --unit="$UNIT_NAME" --wait /opt/pawan/target/release/pawan task "$@"
+PAWAN_BIN=$(which pawan 2>/dev/null || echo "pawan")
+systemd-run --unit="$UNIT_NAME" --wait "$PAWAN_BIN" task "$@"
 
 # Get the exit status of the systemd-run command
 EXIT_STATUS=$?
