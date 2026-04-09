@@ -27,6 +27,7 @@ pawan-mcp = { workspace = true, optional = true }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 toml = { workspace = true }
+which = "7"
 
 # CLI
 clap = { version = "4.5", features = ["derive", "color", "env"] }
