@@ -1,9 +1,52 @@
-//! File read/write tools
+//! File read/write tools with safety validation
 
 use super::Tool;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
+
+/// Validate a file path for write safety.
+/// Returns Err with reason if the write should be blocked.
+/// Inspired by claw-code's file_ops.rs safety checks.
+pub fn validate_file_write(path: &Path) -> Result<(), &'static str> {
+    let path_str = path.to_string_lossy();
+    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+
+    // Block: writes inside .git directory (corrupts repository)
+    for component in path.components() {
+        if let std::path::Component::Normal(c) = component {
+            if c == ".git" {
+                return Err("refuses to write inside .git directory");
+            }
+        }
+    }
+
+    // Block: sensitive credential/secret files
+    let blocked_files = [
+        ".env", ".env.local", ".env.production",
+        "id_rsa", "id_ed25519", "id_ecdsa",
+        "credentials.json", "service-account.json",
+        ".npmrc", ".pypirc",
+    ];
+    if blocked_files.contains(&filename) {
+        return Err("refuses to overwrite credential/secret file");
+    }
+
+    // Block: critical system paths
+    if path_str.starts_with("/etc/") || path_str.starts_with("/usr/") || path_str.starts_with("/bin/")
+        || path_str.starts_with("/sbin/") || path_str.starts_with("/boot/")
+    {
+        return Err("refuses to write to system directory");
+    }
+
+    // Warn-level (allow but log): lock files
+    let warn_files = ["Cargo.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Gemfile.lock", "poetry.lock"];
+    if warn_files.contains(&filename) {
+        tracing::warn!(path = %path_str, "Writing to lock file — usually auto-generated");
+    }
+
+    Ok(())
+}
 
 /// Normalize a path relative to the workspace root.
 ///
@@ -203,6 +246,13 @@ impl Tool for WriteFileTool {
             .ok_or_else(|| crate::PawanError::Tool("content is required".into()))?;
 
         let full_path = self.resolve_path(path);
+
+        // Validate write safety
+        if let Err(reason) = validate_file_write(&full_path) {
+            return Err(crate::PawanError::Tool(format!(
+                "Write blocked: {} — {}", full_path.display(), reason
+            )));
+        }
 
         // Create parent directories if needed
         if let Some(parent) = full_path.parent() {
