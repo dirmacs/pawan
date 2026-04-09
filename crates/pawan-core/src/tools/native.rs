@@ -1196,5 +1196,96 @@ mod tests {
         assert!(schema["properties"]["action"].is_object());
         assert!(schema["properties"]["task"].is_object());
     }
+
+    // --- Tool name + description coverage ---
+
+    #[tokio::test]
+    async fn test_rg_tool_basics() {
+        let tmp = TempDir::new().unwrap();
+        let tool = RipgrepTool::new(tmp.path().into());
+        assert_eq!(tool.name(), "rg");
+        assert!(!tool.description().is_empty());
+        let schema = tool.parameters_schema();
+        assert!(schema["required"].as_array().unwrap().contains(&json!("pattern")));
+    }
+
+    #[tokio::test]
+    async fn test_fd_tool_basics() {
+        let tmp = TempDir::new().unwrap();
+        let tool = FdTool::new(tmp.path().into());
+        assert_eq!(tool.name(), "fd");
+        assert!(!tool.description().is_empty());
+        let schema = tool.parameters_schema();
+        assert!(schema["required"].as_array().unwrap().contains(&json!("pattern")));
+    }
+
+    #[tokio::test]
+    async fn test_sd_tool_basics() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SdTool::new(tmp.path().into());
+        assert_eq!(tool.name(), "sd");
+        assert!(!tool.description().is_empty());
+        let schema = tool.parameters_schema();
+        let required = schema["required"].as_array().unwrap();
+        assert!(required.contains(&json!("find")));
+        assert!(required.contains(&json!("replace")));
+    }
+
+    #[tokio::test]
+    async fn test_zoxide_tool_basics() {
+        let tmp = TempDir::new().unwrap();
+        let tool = ZoxideTool::new(tmp.path().into());
+        assert_eq!(tool.name(), "z");
+        assert!(!tool.description().is_empty());
+        let schema = tool.parameters_schema();
+        assert!(schema["required"].as_array().unwrap().contains(&json!("action")));
+    }
+
+    #[tokio::test]
+    async fn test_native_glob_tool_basics() {
+        let tmp = TempDir::new().unwrap();
+        let tool = GlobSearchTool::new(tmp.path().into());
+        assert_eq!(tool.name(), "glob_search");
+        let schema = tool.parameters_schema();
+        assert!(schema["required"].as_array().unwrap().contains(&json!("pattern")));
+    }
+
+    #[tokio::test]
+    async fn test_native_grep_tool_basics() {
+        let tmp = TempDir::new().unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        assert_eq!(tool.name(), "grep_search");
+        let schema = tool.parameters_schema();
+        assert!(schema["required"].as_array().unwrap().contains(&json!("pattern")));
+    }
+
+    // --- mise_package_name edge cases ---
+
+    #[test]
+    fn test_mise_package_name_all_aliases() {
+        assert_eq!(mise_package_name("ast-grep"), "ast-grep");
+        assert_eq!(mise_package_name("bat"), "bat");
+        assert_eq!(mise_package_name("delta"), "delta");
+        assert_eq!(mise_package_name("jq"), "jq");
+        assert_eq!(mise_package_name("yq"), "yq");
+    }
+
+    // --- ErdTool (tree) fallback behavior ---
+
+    #[tokio::test]
+    async fn test_tree_tool_runs_without_crash() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("sub")).unwrap();
+        std::fs::write(tmp.path().join("sub/a.rs"), "code").unwrap();
+        std::fs::write(tmp.path().join("b.txt"), "text").unwrap();
+
+        let tool = ErdTool::new(tmp.path().into());
+        // Should succeed with the built-in fallback (no erd binary needed)
+        let result = tool.execute(json!({})).await;
+        assert!(result.is_ok(), "tree tool should work with fallback: {:?}", result.err());
+        let val = result.unwrap();
+        assert!(val["tree"].is_string() || val["output"].is_string(),
+                "Should produce tree output");
+    }
 }
 
