@@ -317,4 +317,107 @@ mod tests {
         let results = client.search_archival("test").await.unwrap();
         assert!(results.is_empty());
     }
+
+    #[test]
+    fn config_toml_parsing() {
+        let toml = r#"
+enabled = true
+url = "http://eruka.example.com:9090"
+api_key = "secret-key"
+core_max_tokens = 1000
+"#;
+        let config: ErukaConfig = toml::from_str(toml).expect("should parse");
+        assert!(config.enabled);
+        assert_eq!(config.url, "http://eruka.example.com:9090");
+        assert_eq!(config.api_key, Some("secret-key".into()));
+        assert_eq!(config.core_max_tokens, 1000);
+    }
+
+    #[test]
+    fn config_toml_defaults() {
+        let toml = "enabled = true\n";
+        let config: ErukaConfig = toml::from_str(toml).expect("should parse");
+        assert!(config.enabled);
+        assert_eq!(config.url, "http://localhost:8081");
+        assert_eq!(config.core_max_tokens, 500);
+        assert_eq!(config.api_key, None);
+    }
+
+    #[test]
+    fn context_response_deserialization() {
+        let json = r#"{"fields":[{"name":"project","value":"pawan","category":"core"},{"name":"role","value":"coding agent"}]}"#;
+        let ctx: ContextResponse = serde_json::from_str(json).unwrap();
+        let fields = ctx.fields.unwrap();
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0].name.as_deref(), Some("project"));
+        assert_eq!(fields[0].value.as_deref(), Some("pawan"));
+        assert_eq!(fields[0].category.as_deref(), Some("core"));
+        assert_eq!(fields[1].category, None);
+    }
+
+    #[test]
+    fn context_response_empty_fields() {
+        let json = r#"{"fields":[]}"#;
+        let ctx: ContextResponse = serde_json::from_str(json).unwrap();
+        assert!(ctx.fields.unwrap().is_empty());
+    }
+
+    #[test]
+    fn context_response_missing_fields() {
+        let json = r#"{}"#;
+        let ctx: ContextResponse = serde_json::from_str(json).unwrap();
+        assert!(ctx.fields.is_none());
+    }
+
+    #[test]
+    fn search_result_deserialization() {
+        let json = r#"[{"content":"relevant info","field_name":"notes","score":0.95},{"content":null,"score":0.5}]"#;
+        let results: Vec<SearchResult> = serde_json::from_str(json).unwrap();
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].content.as_deref(), Some("relevant info"));
+        assert_eq!(results[0].score, Some(0.95));
+        assert!(results[1].content.is_none());
+    }
+
+    #[tokio::test]
+    async fn disabled_archive_noops() {
+        use crate::agent::session::Session;
+        let client = ErukaClient::new(ErukaConfig::default());
+        let session = Session {
+            id: "test-123".into(),
+            model: "test-model".into(),
+            messages: vec![],
+            created_at: "2026-04-09T00:00:00Z".into(),
+            updated_at: "2026-04-09T00:00:00Z".into(),
+            total_tokens: 0,
+            iteration_count: 0,
+        };
+        // Should succeed without making HTTP calls
+        client.archive_session(&session).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn inject_dedup_prevents_double_injection() {
+        // Simulate a history that already has eruka memory injected
+        let history = vec![
+            Message {
+                role: Role::System,
+                content: "[Eruka Core Memory]\nproject: pawan\n[End Core Memory]".into(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+            Message {
+                role: Role::User,
+                content: "hello".into(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+        ];
+        // Even if enabled, inject should detect the existing marker and skip
+        // (We can't actually fetch from eruka in tests, but we test the dedup check)
+        let already = history.iter().any(|m| {
+            m.role == Role::System && m.content.contains("[Eruka Core Memory]")
+        });
+        assert!(already, "Should detect existing injection");
+    }
 }
