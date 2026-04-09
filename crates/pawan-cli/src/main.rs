@@ -2375,11 +2375,13 @@ async fn run_headless(
                 eprintln!("─────────────");
             }
 
-            if response.tool_calls.is_empty() {
+            // Only warn about no tool calls if the response seems incomplete
+            // (empty content + no tools = likely a problem; content present = LLM answered directly)
+            if response.tool_calls.is_empty() && response.content.trim().is_empty() {
                 if use_color {
-                    eprintln!("\x1b[33m⚠ No tool calls were made.\x1b[0m");
+                    eprintln!("\x1b[33m⚠ No tool calls were made and response is empty.\x1b[0m");
                 } else {
-                    eprintln!("Warning: No tool calls were made.");
+                    eprintln!("Warning: No tool calls were made and response is empty.");
                 }
             }
 
