@@ -506,31 +506,31 @@ impl PawanConfig {
         self.targets.get(name)
     }
 
-    /// Get the system prompt, with optional PAWAN.md context injection
+    /// Get the system prompt, with optional project context injection.
+    /// Loads from PAWAN.md, AGENTS.md, CLAUDE.md, or .pawan/context.md.
     pub fn get_system_prompt(&self) -> String {
         let base = self
             .system_prompt
             .clone()
             .unwrap_or_else(|| DEFAULT_SYSTEM_PROMPT.to_string());
 
-        // Try to load PAWAN.md from current directory for project context
-        let context = Self::load_context_file();
-        if let Some(ctx) = context {
-            format!("{}\n\n## Project Context (from PAWAN.md)\n\n{}", base, ctx)
+        if let Some((filename, ctx)) = Self::load_context_file() {
+            format!("{}\n\n## Project Context (from {})\n\n{}", base, filename, ctx)
         } else {
             base
         }
     }
 
-    /// Load PAWAN.md context file from current directory (if it exists)
-    fn load_context_file() -> Option<String> {
-        // Check PAWAN.md first, then .pawan/context.md
-        for path in &["PAWAN.md", ".pawan/context.md"] {
+    /// Load project context file from current directory (if it exists).
+    /// Checks PAWAN.md, AGENTS.md (cross-tool standard), CLAUDE.md, then .pawan/context.md.
+    /// Returns (filename, content) of the first found file.
+    fn load_context_file() -> Option<(String, String)> {
+        for path in &["PAWAN.md", "AGENTS.md", "CLAUDE.md", ".pawan/context.md"] {
             let p = PathBuf::from(path);
             if p.exists() {
                 if let Ok(content) = std::fs::read_to_string(&p) {
                     if !content.trim().is_empty() {
-                        return Some(content);
+                        return Some((path.to_string(), content));
                     }
                 }
             }
