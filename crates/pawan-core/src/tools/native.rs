@@ -149,6 +149,83 @@ impl Tool for RipgrepTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder(self.name())
+            .description(self.description())
+            .parameter(
+                Parameter::builder("pattern")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Regex pattern to search for")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Path to search in (default: workspace root)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("type_filter")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("File type filter: rust, py, js, go, ts, c, cpp, java, toml, md")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("max_count")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Max matches per file (default: 20)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("context")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Lines of context around each match (default: 0)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("fixed_strings")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Treat pattern as literal string, not regex")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("case_insensitive")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Case insensitive search (default: false)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("invert")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Invert match: show lines that do NOT match (default: false)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("hidden")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Search hidden files and directories (default: false)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("max_depth")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Max directory depth to search (default: unlimited)")
+                    .build(),
+            )
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         ensure_binary("rg", &self.workspace_root).await?;
         let pattern = args["pattern"].as_str()
@@ -253,6 +330,62 @@ impl Tool for FdTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder(self.name())
+            .description(self.description())
+            .parameter(
+                Parameter::builder("pattern")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Search pattern (regex by default)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Directory to search in (default: workspace root)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("extension")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Filter by extension: rs, py, js, toml, md")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("type_filter")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("f=file, d=directory, l=symlink")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("max_depth")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Max directory depth")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("max_results")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Max results to return (default: 50, prevents context flooding)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("hidden")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Include hidden files (default: false)")
+                    .build(),
+            )
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         ensure_binary("fd", &self.workspace_root).await?;
         let pattern = args["pattern"].as_str()
@@ -338,6 +471,41 @@ impl Tool for SdTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder(self.name())
+            .description(self.description())
+            .parameter(
+                Parameter::builder("find")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Pattern to find (regex)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("replace")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Replacement string")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("File or directory to process")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("fixed_strings")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Treat find as literal, not regex (default: false)")
+                    .build(),
+            )
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         ensure_binary("sd", &self.workspace_root).await?;
         let find = args["find"].as_str()
@@ -417,6 +585,104 @@ impl Tool for ErdTool {
                 "suppress_size": { "type": "boolean", "description": "Hide disk usage column (default: false)" }
             }
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder(self.name())
+            .description(self.description())
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Root directory (default: workspace root)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("depth")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Max traversal depth (default: 3)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("pattern")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Filter by glob pattern (e.g. '*.rs', 'Cargo*')")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("sort")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Sort entries by name, size, or file type (default: name)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("disk_usage")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Disk usage mode: physical (bytes on disk), logical (file size), line (line count), word (word count). Default: physical.")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("layout")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Output layout: regular (root at bottom), inverted (root at top), flat (paths only), iflat (flat + root at top). Default: inverted.")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("long")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Show extended metadata: permissions, owner, group, timestamps (default: false)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("hidden")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Show hidden (dot) files (default: false)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("dirs_only")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Only show directories, not files (default: false)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("human")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Human-readable sizes like 4.2M instead of bytes (default: true)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("icons")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Show file type icons (default: false)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("no_ignore")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Don't respect .gitignore (default: false)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("suppress_size")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Hide disk usage column (default: false)")
+                    .build(),
+            )
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
@@ -516,6 +782,34 @@ impl Tool for GrepSearchTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder(self.name())
+            .description(self.description())
+            .parameter(
+                Parameter::builder("pattern")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Search pattern (regex)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Path to search (default: workspace)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("include")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Glob to include (e.g. '*.rs')")
+                    .build(),
+            )
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         let pattern = args["pattern"].as_str()
             .ok_or_else(|| crate::PawanError::Tool("pattern required".into()))?;
@@ -578,6 +872,27 @@ impl Tool for GlobSearchTool {
             },
             "required": ["pattern"]
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder(self.name())
+            .description(self.description())
+            .parameter(
+                Parameter::builder("pattern")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Glob pattern (e.g. '*.rs', 'test_*')")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Directory to search (default: workspace)")
+                    .build(),
+            )
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
@@ -657,6 +972,52 @@ impl Tool for MiseTool {
             },
             "required": ["action"]
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder(self.name())
+            .description(self.description())
+            .parameter(
+                Parameter::builder("action")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Tool management: install, uninstall, upgrade, list, use, search, outdated, prune. \
+                                  Execution: exec (run with tool env), run (run a task), watch (rerun task on file change). \
+                                  Environment: env (show/set env vars). Tasks: tasks (list/manage tasks). \
+                                  Maintenance: doctor, self-update, trust, prune.")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("tool")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Tool name with optional version. Examples: 'erdtree', 'node@22', 'python@3.12', \
+                                  'ast-grep', 'ripgrep', 'fd', 'sd', 'bat', 'delta', 'jq', 'yq', 'go', 'bun', 'deno'")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("task")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Task name for run/watch/tasks actions (defined in mise.toml or .mise/tasks/)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("args")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Additional arguments (space-separated). For exec: command to run. For run: task args.")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("global")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Apply globally (--global flag) instead of project-local. Default: false.")
+                    .build(),
+            )
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
@@ -806,6 +1167,27 @@ impl Tool for ZoxideTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder(self.name())
+            .description(self.description())
+            .parameter(
+                Parameter::builder("action")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("query, add, or list")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Path or search term")
+                    .build(),
+            )
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         let action = args["action"].as_str()
             .ok_or_else(|| crate::PawanError::Tool("action required (query/add/list)".into()))?;
@@ -891,6 +1273,48 @@ impl Tool for AstGrepTool {
             },
             "required": ["action", "pattern", "path"]
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder(self.name())
+            .description(self.description())
+            .parameter(
+                Parameter::builder("action")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("search: find matching code. rewrite: transform matching code in-place.")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("pattern")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("AST pattern to match. Use $VAR for wildcards, $$$VAR for variadic. e.g. 'fn $NAME($$$ARGS) -> $RET { $$$ }'")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("rewrite")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Replacement pattern (only for action=rewrite). Use captured $VARs. e.g. '$EXPR?'")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("File or directory to search/rewrite")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("lang")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Language: rust, python, javascript, typescript, go, c, cpp, java (default: auto-detect)")
+                    .build(),
+            )
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
@@ -1007,6 +1431,45 @@ impl Tool for LspTool {
             },
             "required": ["action"]
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder(self.name())
+            .description(self.description())
+            .parameter(
+                Parameter::builder("action")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("diagnostics: find errors/warnings in project. \
+                                  search: structural pattern search (e.g. '$a.foo($b)'). \
+                                  ssr: structural search+replace (e.g. '$a.unwrap() ==>> $a?'). \
+                                  symbols: parse file and list symbols. \
+                                  analyze: project-wide type analysis stats.")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("pattern")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("For search: pattern like '$a.foo($b)'. For ssr: rule like '$a.unwrap() ==>> $a?'")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Project path (directory with Cargo.toml) for diagnostics/analyze. File path for symbols.")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("severity")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Minimum severity for diagnostics (default: warning)")
+                    .build(),
+            )
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
