@@ -223,6 +223,17 @@ enum Commands {
         notify: bool,
     },
 
+    /// Distill a session into a reusable SKILL.md via thulpoff
+    Distill {
+        /// Session ID to distill (latest if omitted)
+        #[arg(short, long)]
+        session: Option<String>,
+
+        /// Output directory for generated skill (default: ~/.pawan/skills/)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+
     /// Headless single-prompt execution (for scripting and orchestration)
     Run {
         /// The prompt to execute
@@ -463,6 +474,9 @@ async fn run() -> Result<()> {
             run_review(config, workspace, staged, file).await
         }
         Some(Commands::Explain { query }) => run_explain(config, workspace, &query).await,
+        Some(Commands::Distill { session, output }) => {
+            run_distill(config, session, output).await
+        }
         Some(Commands::Status) => run_status(config, workspace).await,
         Some(Commands::Watch { interval, commit, notify }) => {
             run_watch(config, workspace, interval, commit, notify).await
@@ -1904,6 +1918,67 @@ async fn run_tasks(action: TasksAction) -> Result<()> {
     Ok(())
 }
 
+async fn run_distill(
+    config: PawanConfig,
+    session_id: Option<String>,
+    output_dir: Option<PathBuf>,
+) -> Result<()> {
+    use pawan::agent::session::Session;
+    use pawan::agent::TokenUsage;
+    use pawan::skill_distillation;
+
+    // Resolve which session to distill
+    let session = match session_id {
+        Some(id) => Session::load(&id)?,
+        None => {
+            let sessions = Session::list()?;
+            let latest = sessions.first().ok_or_else(|| {
+                PawanError::NotFound("No saved sessions found. Run a task first, then distill.".into())
+            })?;
+            eprintln!("Using latest session: {}", latest.id);
+            Session::load(&latest.id)?
+        }
+    };
+
+    // Check if session is worth distilling
+    if !skill_distillation::is_distillable(&session) {
+        eprintln!(
+            "Session {} has insufficient content for distillation (needs tool calls + messages).",
+            session.id
+        );
+        return Ok(());
+    }
+
+    let usage = TokenUsage {
+        prompt_tokens: session.total_tokens / 2,
+        completion_tokens: session.total_tokens / 2,
+        total_tokens: session.total_tokens,
+        ..Default::default()
+    };
+
+    let output = output_dir
+        .or_else(|| skill_distillation::skills_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    eprintln!(
+        "Distilling session {} ({} messages, {} tool calls)...",
+        session.id,
+        session.messages.len(),
+        session.messages.iter().flat_map(|m| m.tool_calls.iter()).count()
+    );
+
+    match skill_distillation::distill_and_save(&session, &usage, &config, &output).await {
+        Ok(path) => {
+            println!("Skill distilled to: {}", path.display());
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("Distillation failed: {}", e);
+            Err(e)
+        }
+    }
+}
+
 async fn run_sessions() -> Result<()> {
     use pawan::agent::session::Session;
 
@@ -1981,7 +2056,7 @@ async fn setup_mcp_tools(agent: &mut PawanAgent, config: &PawanConfig) {
 
 /// Show resolved configuration
 fn run_config_show(config: PawanConfig) -> Result<()> {
-    use colored::Colorize;
+    use owo_colors::OwoColorize;
     println!("{}", "Pawan Configuration (resolved)".cyan().bold());
     println!("{}\n", "─".repeat(40).dimmed());
 
