@@ -19,6 +19,10 @@ pawan-mcp = { version = "0.3.0", path = "crates/pawan-mcp" }
 thulp-core = "0.3"
 thulp-skill-files = "0.3"
 
+# Thulpoff — skill distillation from agent sessions
+thulpoff-core = { path = "/opt/thulpoff/crates/thulpoff-core" }
+thulpoff-engine = { path = "/opt/thulpoff/crates/thulpoff-engine" }
+
 # Async runtime
 tokio = { version = "1.48", features = ["full"] }
 
