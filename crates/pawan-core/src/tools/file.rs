@@ -51,7 +51,7 @@ pub fn validate_file_write(path: &Path) -> Result<(), &'static str> {
 /// Normalize a path relative to the workspace root.
 ///
 /// Handles the double-prefix bug where the model passes an absolute path
-/// like "/opt/pawan/grind/opt/pawan/grind/foo.rs" — it joined the workspace
+/// like "/home/user/ws/home/user/ws/foo.rs" — it joined the workspace
 /// root with an absolute path instead of a relative one. We detect the
 /// workspace root appearing twice and collapse to the second occurrence.
 ///
@@ -460,32 +460,32 @@ mod tests {
 
     #[test]
     fn test_normalize_path_double_prefix() {
-        let ws = PathBuf::from("/opt/pawan/grind");
+        let ws = PathBuf::from("/home/user/workspace");
         // Model passes absolute path with workspace root repeated
-        let bad = "/opt/pawan/grind/opt/pawan/grind/leftist_heap/src/lib.rs";
+        let bad = "/home/user/workspace/home/user/workspace/leftist_heap/src/lib.rs";
         let result = normalize_path(&ws, bad);
-        assert_eq!(result, PathBuf::from("/opt/pawan/grind/leftist_heap/src/lib.rs"));
+        assert_eq!(result, PathBuf::from("/home/user/workspace/leftist_heap/src/lib.rs"));
     }
 
     #[test]
     fn test_normalize_path_normal_absolute() {
-        let ws = PathBuf::from("/opt/pawan/grind");
-        let normal = "/opt/pawan/grind/trie/src/lib.rs";
+        let ws = PathBuf::from("/home/user/workspace");
+        let normal = "/home/user/workspace/trie/src/lib.rs";
         let result = normalize_path(&ws, normal);
-        assert_eq!(result, PathBuf::from("/opt/pawan/grind/trie/src/lib.rs"));
+        assert_eq!(result, PathBuf::from("/home/user/workspace/trie/src/lib.rs"));
     }
 
     #[test]
     fn test_normalize_path_relative() {
-        let ws = PathBuf::from("/opt/pawan/grind");
+        let ws = PathBuf::from("/home/user/workspace");
         let rel = "trie/src/lib.rs";
         let result = normalize_path(&ws, rel);
-        assert_eq!(result, PathBuf::from("/opt/pawan/grind/trie/src/lib.rs"));
+        assert_eq!(result, PathBuf::from("/home/user/workspace/trie/src/lib.rs"));
     }
 
     #[test]
     fn test_normalize_path_unrelated_absolute() {
-        let ws = PathBuf::from("/opt/pawan/grind");
+        let ws = PathBuf::from("/home/user/workspace");
         let other = "/tmp/foo/bar.rs";
         let result = normalize_path(&ws, other);
         assert_eq!(result, PathBuf::from("/tmp/foo/bar.rs"));

@@ -864,11 +864,11 @@ mod tests {
 
     #[test]
     fn test_parse_mistral_tool_calls_compact_format() {
-        let content = r#"[TOOL_CALLS]read_file{"path":"/opt/pawan/src/main.rs"}"#;
+        let content = r#"[TOOL_CALLS]read_file{"path":"/home/user/project/src/main.rs"}"#;
         let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "read_file");
-        assert_eq!(calls[0].arguments["path"], "/opt/pawan/src/main.rs");
+        assert_eq!(calls[0].arguments["path"], "/home/user/project/src/main.rs");
     }
 
     #[test]
