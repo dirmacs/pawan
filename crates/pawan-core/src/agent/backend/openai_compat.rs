@@ -1250,3 +1250,102 @@ mod bracket_matching_tests {
         assert_eq!(OpenAiCompatBackend::find_matching_bracket("", '{', '}'), 0);
     }
 }
+
+#[cfg(test)]
+mod api_error_tests {
+    use super::OpenAiCompatBackend;
+    use reqwest::StatusCode;
+
+    #[test]
+    fn format_error_json_message() {
+        let body = r#"{"error":{"message":"Invalid API key"}}"#;
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::UNAUTHORIZED, body);
+        assert!(result.contains("Invalid API key"));
+        assert!(result.contains("401"));
+        assert!(result.contains("check your API key"));
+    }
+
+    #[test]
+    fn format_error_detail_field() {
+        let body = r#"{"detail":"Model not found"}"#;
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::NOT_FOUND, body);
+        assert!(result.contains("Model not found"));
+        assert!(result.contains("404"));
+    }
+
+    #[test]
+    fn format_error_message_field() {
+        let body = r#"{"message":"Rate limit exceeded"}"#;
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::TOO_MANY_REQUESTS, body);
+        assert!(result.contains("Rate limit exceeded"));
+        assert!(result.contains("rate limited"));
+    }
+
+    #[test]
+    fn format_error_empty_body() {
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::INTERNAL_SERVER_ERROR, "");
+        assert!(result.contains("500"));
+        assert!(result.contains("server error"));
+        assert!(!result.contains(": \n")); // no trailing garbage
+    }
+
+    #[test]
+    fn format_error_non_json_body() {
+        let body = "Bad Gateway: upstream timeout";
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::BAD_GATEWAY, body);
+        assert!(result.contains("502"));
+        assert!(result.contains("upstream timeout"));
+    }
+
+    #[test]
+    fn format_error_forbidden() {
+        let body = r#"{"error":{"message":"Forbidden"}}"#;
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::FORBIDDEN, body);
+        assert!(result.contains("403"));
+        assert!(result.contains("permissions"));
+    }
+
+    #[test]
+    fn format_error_unknown_status() {
+        let result = OpenAiCompatBackend::format_api_error(StatusCode::IM_A_TEAPOT, "teapot");
+        assert!(result.contains("418"));
+        assert!(result.contains("teapot"));
+        // No special hint for unknown codes
+        assert!(!result.contains("check"));
+    }
+}
+
+#[cfg(test)]
+mod usage_parsing_tests {
+    use super::OpenAiCompatBackend;
+    use serde_json::json;
+
+    #[test]
+    fn parse_usage_full() {
+        let resp = json!({
+            "usage": {
+                "prompt_tokens": 100,
+                "completion_tokens": 50,
+                "total_tokens": 150
+            }
+        });
+        let usage = OpenAiCompatBackend::parse_usage(&resp).unwrap();
+        assert_eq!(usage.prompt_tokens, 100);
+        assert_eq!(usage.completion_tokens, 50);
+        assert_eq!(usage.total_tokens, 150);
+    }
+
+    #[test]
+    fn parse_usage_missing() {
+        let resp = json!({"choices": []});
+        assert!(OpenAiCompatBackend::parse_usage(&resp).is_none());
+    }
+
+    #[test]
+    fn parse_usage_partial() {
+        let resp = json!({"usage": {"prompt_tokens": 42}});
+        let usage = OpenAiCompatBackend::parse_usage(&resp).unwrap();
+        assert_eq!(usage.prompt_tokens, 42);
+        assert_eq!(usage.completion_tokens, 0); // defaults to 0
+    }
+}
