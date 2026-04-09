@@ -2150,8 +2150,8 @@ async fn run_headless(
         let buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         Some(Box::new(move |token: &str| {
             use std::io::Write;
-            let mut sup = suppressing.lock().unwrap();
-            let mut buf = buffer.lock().unwrap();
+            let mut sup = suppressing.lock().unwrap_or_else(|e| e.into_inner());
+            let mut buf = buffer.lock().unwrap_or_else(|e| e.into_inner());
 
             // Accumulate into buffer for pattern detection
             buf.push_str(token);
