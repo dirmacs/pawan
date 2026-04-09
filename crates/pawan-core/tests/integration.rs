@@ -846,3 +846,98 @@ fn test_session_save_restore_roundtrip() {
     // Clean up
     std::fs::remove_file(path).ok();
 }
+
+/// Test that Prompt permission blocks write bash commands in headless mode
+#[tokio::test]
+async fn test_prompt_permission_blocks_write_bash() {
+    use pawan::agent::backend::mock::{MockBackend, MockResponse};
+    use pawan::config::ToolPermission;
+
+    let temp_dir = TempDir::new().unwrap();
+    let mut config = PawanConfig::default();
+    config.permissions.insert("bash".to_string(), ToolPermission::Prompt);
+
+    let backend = MockBackend::new(vec![
+        // LLM tries a write command
+        MockResponse::tool_call("bash", json!({"command": "rm -rf ./build"})),
+        MockResponse::text("I need approval for that."),
+    ]);
+
+    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
+        .with_backend(Box::new(backend));
+
+    let response = agent.execute("Clean the build directory").await.unwrap();
+
+    // Write command should be denied under Prompt in headless
+    assert_eq!(response.tool_calls.len(), 1);
+    assert!(!response.tool_calls[0].success);
+}
+
+/// Test that Prompt permission auto-allows read-only bash commands
+#[tokio::test]
+async fn test_prompt_permission_allows_read_only_bash() {
+    use pawan::agent::backend::mock::{MockBackend, MockResponse};
+    use pawan::config::ToolPermission;
+
+    let temp_dir = TempDir::new().unwrap();
+    let mut config = PawanConfig::default();
+    config.permissions.insert("bash".to_string(), ToolPermission::Prompt);
+
+    let backend = MockBackend::new(vec![
+        // LLM tries a read-only command
+        MockResponse::tool_call("bash", json!({"command": "ls -la"})),
+        MockResponse::text("Here are the files."),
+    ]);
+
+    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
+        .with_backend(Box::new(backend));
+
+    let response = agent.execute("List files").await.unwrap();
+
+    // Read-only command should be auto-allowed under Prompt
+    assert_eq!(response.tool_calls.len(), 1);
+    assert!(response.tool_calls[0].success, "Read-only bash should succeed under Prompt permission");
+}
+
+/// Test bash validation blocks dangerous commands regardless of permission
+#[tokio::test]
+async fn test_bash_validation_blocks_dangerous() {
+    use pawan::agent::backend::mock::{MockBackend, MockResponse};
+
+    let temp_dir = TempDir::new().unwrap();
+    let config = PawanConfig::default(); // Allow permission (default)
+
+    let backend = MockBackend::new(vec![
+        MockResponse::tool_call("bash", json!({"command": "rm -rf /"})),
+        MockResponse::text("I couldn't do that."),
+    ]);
+
+    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
+        .with_backend(Box::new(backend));
+
+    let response = agent.execute("Delete root").await.unwrap();
+
+    // Bash validation should block even with Allow permission
+    assert_eq!(response.tool_calls.len(), 1);
+    assert!(!response.tool_calls[0].success, "Dangerous command should be blocked by validation");
+}
+
+/// Test ToolPermission::resolve defaults
+#[test]
+fn test_permission_resolve_integration() {
+    use pawan::config::ToolPermission;
+    use std::collections::HashMap;
+
+    // Empty config: everything defaults to Allow
+    let empty: HashMap<String, ToolPermission> = HashMap::new();
+    assert_eq!(ToolPermission::resolve("bash", &empty), ToolPermission::Allow);
+    assert_eq!(ToolPermission::resolve("read_file", &empty), ToolPermission::Allow);
+
+    // Explicit overrides take precedence
+    let mut perms = HashMap::new();
+    perms.insert("bash".into(), ToolPermission::Prompt);
+    perms.insert("write_file".into(), ToolPermission::Deny);
+    assert_eq!(ToolPermission::resolve("bash", &perms), ToolPermission::Prompt);
+    assert_eq!(ToolPermission::resolve("write_file", &perms), ToolPermission::Deny);
+    assert_eq!(ToolPermission::resolve("read_file", &perms), ToolPermission::Allow);
+}
