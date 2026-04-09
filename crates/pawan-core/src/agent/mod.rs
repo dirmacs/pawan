@@ -1259,4 +1259,61 @@ mod tests {
         let arr = result.as_array().unwrap();
         assert!(arr.len() < 1000, "Array should be truncated");
     }
+
+    // --- message_importance tests ---
+
+    #[test]
+    fn test_importance_failed_tool_highest() {
+        let msg = Message {
+            role: Role::Tool,
+            content: "error".into(),
+            tool_calls: vec![],
+            tool_result: Some(ToolResultMessage {
+                tool_call_id: "1".into(),
+                content: json!({"error": "failed"}),
+                success: false,
+            }),
+        };
+        assert!(PawanAgent::message_importance(&msg) > 0.8, "Failed tools should be high importance");
+    }
+
+    #[test]
+    fn test_importance_successful_tool_lowest() {
+        let msg = Message {
+            role: Role::Tool,
+            content: "ok".into(),
+            tool_calls: vec![],
+            tool_result: Some(ToolResultMessage {
+                tool_call_id: "1".into(),
+                content: json!({"success": true}),
+                success: true,
+            }),
+        };
+        assert!(PawanAgent::message_importance(&msg) < 0.3, "Successful tools should be low importance");
+    }
+
+    #[test]
+    fn test_importance_user_medium() {
+        let msg = Message { role: Role::User, content: "hello".into(), tool_calls: vec![], tool_result: None };
+        let score = PawanAgent::message_importance(&msg);
+        assert!(score > 0.4 && score < 0.8, "User messages should be medium: {}", score);
+    }
+
+    #[test]
+    fn test_importance_error_assistant_high() {
+        let msg = Message { role: Role::Assistant, content: "Error: something failed".into(), tool_calls: vec![], tool_result: None };
+        assert!(PawanAgent::message_importance(&msg) > 0.7, "Error assistant messages should be high importance");
+    }
+
+    #[test]
+    fn test_importance_ordering() {
+        let failed_tool = Message { role: Role::Tool, content: "err".into(), tool_calls: vec![], tool_result: Some(ToolResultMessage { tool_call_id: "1".into(), content: json!({}), success: false }) };
+        let user = Message { role: Role::User, content: "hi".into(), tool_calls: vec![], tool_result: None };
+        let ok_tool = Message { role: Role::Tool, content: "ok".into(), tool_calls: vec![], tool_result: Some(ToolResultMessage { tool_call_id: "2".into(), content: json!({}), success: true }) };
+
+        let f = PawanAgent::message_importance(&failed_tool);
+        let u = PawanAgent::message_importance(&user);
+        let s = PawanAgent::message_importance(&ok_tool);
+        assert!(f > u && u > s, "Ordering should be: failed({}) > user({}) > success({})", f, u, s);
+    }
 }
