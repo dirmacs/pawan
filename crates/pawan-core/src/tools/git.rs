@@ -75,6 +75,15 @@ impl Tool for GitStatusTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("git_status")
+            .description(self.description())
+            .parameter(Parameter::builder("short").param_type(ParameterType::Boolean).required(false)
+                .description("Use short format output (default: false)").build())
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         let short = args["short"].as_bool().unwrap_or(false);
 
@@ -160,6 +169,21 @@ impl Tool for GitDiffTool {
             },
             "required": []
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("git_diff")
+            .description(self.description())
+            .parameter(Parameter::builder("staged").param_type(ParameterType::Boolean).required(false)
+                .description("Show staged changes only (--cached). Default: false (shows unstaged)").build())
+            .parameter(Parameter::builder("file").param_type(ParameterType::String).required(false)
+                .description("Specific file to diff (optional)").build())
+            .parameter(Parameter::builder("base").param_type(ParameterType::String).required(false)
+                .description("Base commit/branch to diff against (e.g., 'main', 'HEAD~3')").build())
+            .parameter(Parameter::builder("stat").param_type(ParameterType::Boolean).required(false)
+                .description("Show diffstat summary instead of full diff").build())
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
@@ -262,6 +286,17 @@ impl Tool for GitAddTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("git_add")
+            .description(self.description())
+            .parameter(Parameter::builder("files").param_type(ParameterType::Array).required(false)
+                .description("List of files to stage. Use [\".\"] to stage all changes.").build())
+            .parameter(Parameter::builder("all").param_type(ParameterType::Boolean).required(false)
+                .description("Stage all changes including untracked files (-A)").build())
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         let all = args["all"].as_bool().unwrap_or(false);
         let files: Vec<&str> = args["files"]
@@ -352,6 +387,17 @@ impl Tool for GitCommitTool {
             },
             "required": ["message"]
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("git_commit")
+            .description(self.description())
+            .parameter(Parameter::builder("message").param_type(ParameterType::String).required(true)
+                .description("Commit message (required)").build())
+            .parameter(Parameter::builder("body").param_type(ParameterType::String).required(false)
+                .description("Extended commit body (optional)").build())
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
@@ -448,6 +494,19 @@ impl Tool for GitLogTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("git_log")
+            .description(self.description())
+            .parameter(Parameter::builder("count").param_type(ParameterType::Integer).required(false)
+                .description("Number of commits to show (default: 10)").build())
+            .parameter(Parameter::builder("file").param_type(ParameterType::String).required(false)
+                .description("Show commits for a specific file").build())
+            .parameter(Parameter::builder("oneline").param_type(ParameterType::Boolean).required(false)
+                .description("Use compact one-line format (default: false)").build())
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         let count = args["count"].as_u64().unwrap_or(10);
         let file = args["file"].as_str();
@@ -530,6 +589,17 @@ impl Tool for GitBlameTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("git_blame")
+            .description(self.description())
+            .parameter(Parameter::builder("file").param_type(ParameterType::String).required(true)
+                .description("File to blame (required)").build())
+            .parameter(Parameter::builder("lines").param_type(ParameterType::String).required(false)
+                .description("Line range, e.g., '10,20' for lines 10-20").build())
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         let file = args["file"]
             .as_str()
@@ -606,6 +676,15 @@ impl Tool for GitBranchTool {
             },
             "required": []
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("git_branch")
+            .description(self.description())
+            .parameter(Parameter::builder("all").param_type(ParameterType::Boolean).required(false)
+                .description("Show both local and remote branches (default: false)").build())
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
@@ -686,6 +765,19 @@ impl Tool for GitCheckoutTool {
             },
             "required": ["target"]
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("git_checkout")
+            .description(self.description())
+            .parameter(Parameter::builder("target").param_type(ParameterType::String).required(true)
+                .description("Branch name, commit, or file path to checkout").build())
+            .parameter(Parameter::builder("create").param_type(ParameterType::Boolean).required(false)
+                .description("Create a new branch (git checkout -b)").build())
+            .parameter(Parameter::builder("files").param_type(ParameterType::Array).required(false)
+                .description("Specific files to restore (git checkout -- <files>)").build())
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
@@ -770,6 +862,19 @@ impl Tool for GitStashTool {
             },
             "required": []
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("git_stash")
+            .description(self.description())
+            .parameter(Parameter::builder("action").param_type(ParameterType::String).required(false)
+                .description("Stash action (default: push)").build())
+            .parameter(Parameter::builder("message").param_type(ParameterType::String).required(false)
+                .description("Message for stash push").build())
+            .parameter(Parameter::builder("index").param_type(ParameterType::Integer).required(false)
+                .description("Stash index for pop/drop/show (default: 0)").build())
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {

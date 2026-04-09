@@ -48,6 +48,19 @@ impl Tool for GlobSearchTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("glob_search")
+            .description(self.description())
+            .parameter(Parameter::builder("pattern").param_type(ParameterType::String).required(true)
+                .description("Glob pattern to match files").build())
+            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(false)
+                .description("Directory to search in (optional, defaults to workspace root)").build())
+            .parameter(Parameter::builder("max_results").param_type(ParameterType::Integer).required(false)
+                .description("Maximum number of results (default: 100)").build())
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         let pattern = args["pattern"]
             .as_str()
@@ -162,6 +175,23 @@ impl Tool for GrepSearchTool {
             },
             "required": ["pattern"]
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("grep_search")
+            .description(self.description())
+            .parameter(Parameter::builder("pattern").param_type(ParameterType::String).required(true)
+                .description("Pattern to search for (supports regex)").build())
+            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(false)
+                .description("Directory to search in (optional, defaults to workspace root)").build())
+            .parameter(Parameter::builder("include").param_type(ParameterType::String).required(false)
+                .description("File pattern to include (e.g., '*.rs', '*.{ts,tsx}')").build())
+            .parameter(Parameter::builder("max_results").param_type(ParameterType::Integer).required(false)
+                .description("Maximum number of matching files (default: 50)").build())
+            .parameter(Parameter::builder("context_lines").param_type(ParameterType::Integer).required(false)
+                .description("Lines of context around matches (default: 0)").build())
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {

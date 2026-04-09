@@ -448,6 +448,19 @@ impl Tool for InsertAfterTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("insert_after")
+            .description(self.description())
+            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
+                .description("Path to the file").build())
+            .parameter(Parameter::builder("anchor_text").param_type(ParameterType::String).required(true)
+                .description("Text to find — insertion happens AFTER this line").build())
+            .parameter(Parameter::builder("content").param_type(ParameterType::String).required(true)
+                .description("Text to insert after the anchor line").build())
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         let path = args["path"].as_str()
             .ok_or_else(|| crate::PawanError::Tool("path is required".into()))?;
@@ -561,6 +574,17 @@ impl Tool for AppendFileTool {
             },
             "required": ["path", "content"]
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("append_file")
+            .description(self.description())
+            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
+                .description("Path to the file").build())
+            .parameter(Parameter::builder("content").param_type(ParameterType::String).required(true)
+                .description("Content to append").build())
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
