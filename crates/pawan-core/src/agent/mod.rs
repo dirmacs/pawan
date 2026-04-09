@@ -133,6 +133,20 @@ pub type ToolCallback = Box<dyn Fn(&ToolCallRecord) + Send + Sync>;
 /// Callback for tool call start notifications
 pub type ToolStartCallback = Box<dyn Fn(&str) + Send + Sync>;
 
+/// A permission request sent from the agent to the UI for approval.
+#[derive(Debug, Clone)]
+pub struct PermissionRequest {
+    /// Tool name requesting permission
+    pub tool_name: String,
+    /// Summary of arguments (e.g. bash command or file path)
+    pub args_summary: String,
+}
+
+/// Callback for requesting tool permission from the user.
+/// Returns true if the tool should be allowed, false to deny.
+pub type PermissionCallback =
+    Box<dyn Fn(PermissionRequest) -> tokio::sync::oneshot::Receiver<bool> + Send + Sync>;
+
 /// The main Pawan agent — handles conversation, tool calling, and self-healing.
 ///
 /// This struct represents the core Pawan agent that handles:
@@ -447,6 +461,19 @@ impl PawanAgent {
         on_tool: Option<ToolCallback>,
         on_tool_start: Option<ToolStartCallback>,
     ) -> Result<AgentResponse> {
+        self.execute_with_all_callbacks(user_prompt, on_token, on_tool, on_tool_start, None)
+            .await
+    }
+
+    /// Execute with all callbacks, including permission prompt.
+    pub async fn execute_with_all_callbacks(
+        &mut self,
+        user_prompt: &str,
+        on_token: Option<TokenCallback>,
+        on_tool: Option<ToolCallback>,
+        on_tool_start: Option<ToolStartCallback>,
+        on_permission: Option<PermissionCallback>,
+    ) -> Result<AgentResponse> {
         // Inject Eruka core memory before first LLM call
         if let Some(eruka) = &self.eruka {
             if let Err(e) = eruka.inject_core_memory(&mut self.history).await {
@@ -719,14 +746,36 @@ impl PawanAgent {
                                 if crate::tools::bash::is_read_only(cmd) {
                                     tracing::debug!(command = cmd, "Auto-allowing read-only bash command under Prompt permission");
                                     None
+                                } else if let Some(ref perm_cb) = on_permission {
+                                    // Ask TUI for approval
+                                    let args_summary = cmd.chars().take(120).collect::<String>();
+                                    let rx = perm_cb(PermissionRequest {
+                                        tool_name: tool_call.name.clone(),
+                                        args_summary,
+                                    });
+                                    match rx.await {
+                                        Ok(true) => None,
+                                        _ => Some("User denied tool execution"),
+                                    }
                                 } else {
                                     Some("Bash command requires user approval (read-only commands auto-allowed)")
                                 }
                             } else {
                                 Some("Tool requires user approval")
                             }
+                        } else if let Some(ref perm_cb) = on_permission {
+                            // Ask TUI for approval
+                            let args_summary = tool_call.arguments.to_string().chars().take(120).collect::<String>();
+                            let rx = perm_cb(PermissionRequest {
+                                tool_name: tool_call.name.clone(),
+                                args_summary,
+                            });
+                            match rx.await {
+                                Ok(true) => None,
+                                _ => Some("User denied tool execution"),
+                            }
                         } else {
-                            // Non-bash tools: headless = deny for safety
+                            // Headless = deny for safety
                             Some("Tool requires user approval (set permission to 'allow' or use TUI mode)")
                         }
                     }
