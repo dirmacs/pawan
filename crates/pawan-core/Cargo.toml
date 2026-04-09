@@ -63,6 +63,10 @@ git2 = "0.20"
 # Beads-style task tracking (SQLite-backed)
 rusqlite = { version = "0.34", features = ["bundled"] }
 
+# Thulp — reuse tool types + skill file parsing (DRY)
+thulp-core = { workspace = true }
+thulp-skill-files = { workspace = true }
+
 [dev-dependencies]
 tempfile = "3.23"
 tokio-test = "0.4"
