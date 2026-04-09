@@ -928,12 +928,118 @@ mod tests {
         let temp_dir = setup_git_repo().await;
         let tool = GitDiffTool::new(temp_dir.path().to_path_buf());
         let schema = tool.parameters_schema();
-        // Check that schema has the expected parameters
         let obj = schema.as_object().unwrap();
         let props = obj.get("properties").unwrap().as_object().unwrap();
         assert!(props.contains_key("staged"));
         assert!(props.contains_key("file"));
         assert!(props.contains_key("base"));
         assert!(props.contains_key("stat"));
+    }
+
+    #[tokio::test]
+    async fn test_git_diff_with_changes() {
+        let temp_dir = setup_git_repo().await;
+        // Create, add, commit a file
+        std::fs::write(temp_dir.path().join("f.txt"), "original").unwrap();
+        Command::new("git").args(["add", "."]).current_dir(temp_dir.path()).output().await.unwrap();
+        Command::new("git").args(["commit", "-m", "init"]).current_dir(temp_dir.path()).output().await.unwrap();
+        // Modify the file
+        std::fs::write(temp_dir.path().join("f.txt"), "modified").unwrap();
+
+        let tool = GitDiffTool::new(temp_dir.path().into());
+        let result = tool.execute(json!({})).await.unwrap();
+        assert!(result["success"].as_bool().unwrap());
+        assert!(result["has_changes"].as_bool().unwrap());
+        assert!(result["diff"].as_str().unwrap().contains("modified"));
+    }
+
+    #[tokio::test]
+    async fn test_git_log_with_commits() {
+        let temp_dir = setup_git_repo().await;
+        std::fs::write(temp_dir.path().join("a.txt"), "a").unwrap();
+        Command::new("git").args(["add", "."]).current_dir(temp_dir.path()).output().await.unwrap();
+        Command::new("git").args(["commit", "-m", "first commit"]).current_dir(temp_dir.path()).output().await.unwrap();
+        std::fs::write(temp_dir.path().join("b.txt"), "b").unwrap();
+        Command::new("git").args(["add", "."]).current_dir(temp_dir.path()).output().await.unwrap();
+        Command::new("git").args(["commit", "-m", "second commit"]).current_dir(temp_dir.path()).output().await.unwrap();
+
+        let tool = GitLogTool::new(temp_dir.path().into());
+        let result = tool.execute(json!({"count": 5})).await.unwrap();
+        assert!(result["success"].as_bool().unwrap());
+        let log = result["log"].as_str().unwrap();
+        assert!(log.contains("first commit"));
+        assert!(log.contains("second commit"));
+    }
+
+    #[tokio::test]
+    async fn test_git_branch_list() {
+        let temp_dir = setup_git_repo().await;
+        std::fs::write(temp_dir.path().join("f.txt"), "init").unwrap();
+        Command::new("git").args(["add", "."]).current_dir(temp_dir.path()).output().await.unwrap();
+        Command::new("git").args(["commit", "-m", "init"]).current_dir(temp_dir.path()).output().await.unwrap();
+
+        let tool = GitBranchTool::new(temp_dir.path().into());
+        let result = tool.execute(json!({})).await.unwrap();
+        assert!(result["success"].as_bool().unwrap());
+        let branches = result["branches"].as_array().unwrap();
+        assert!(!branches.is_empty(), "Should have at least one branch");
+        assert!(result["current"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_git_checkout_create_branch() {
+        let temp_dir = setup_git_repo().await;
+        std::fs::write(temp_dir.path().join("f.txt"), "init").unwrap();
+        Command::new("git").args(["add", "."]).current_dir(temp_dir.path()).output().await.unwrap();
+        Command::new("git").args(["commit", "-m", "init"]).current_dir(temp_dir.path()).output().await.unwrap();
+
+        let tool = GitCheckoutTool::new(temp_dir.path().into());
+        let result = tool.execute(json!({"target": "feature-test", "create": true})).await.unwrap();
+        assert!(result["success"].as_bool().unwrap());
+
+        // Verify we're on the new branch
+        let branch_tool = GitBranchTool::new(temp_dir.path().into());
+        let branches = branch_tool.execute(json!({})).await.unwrap();
+        assert_eq!(branches["current"].as_str().unwrap(), "feature-test");
+    }
+
+    #[tokio::test]
+    async fn test_git_stash_on_clean_repo() {
+        let temp_dir = setup_git_repo().await;
+        let tool = GitStashTool::new(temp_dir.path().into());
+        // List stashes on empty repo
+        let result = tool.execute(json!({"action": "list"})).await.unwrap();
+        assert!(result["success"].as_bool().unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_git_blame_requires_file() {
+        let temp_dir = setup_git_repo().await;
+        let tool = GitBlameTool::new(temp_dir.path().into());
+        let result = tool.execute(json!({})).await;
+        assert!(result.is_err(), "blame without file should error");
+    }
+
+    #[tokio::test]
+    async fn test_git_tool_schemas() {
+        let tmp = TempDir::new().unwrap();
+        // Verify all git tools have correct names and non-empty schemas
+        let tools: Vec<(&str, Box<dyn Tool>)> = vec![
+            ("git_status", Box::new(GitStatusTool::new(tmp.path().into()))),
+            ("git_diff", Box::new(GitDiffTool::new(tmp.path().into()))),
+            ("git_add", Box::new(GitAddTool::new(tmp.path().into()))),
+            ("git_commit", Box::new(GitCommitTool::new(tmp.path().into()))),
+            ("git_log", Box::new(GitLogTool::new(tmp.path().into()))),
+            ("git_blame", Box::new(GitBlameTool::new(tmp.path().into()))),
+            ("git_branch", Box::new(GitBranchTool::new(tmp.path().into()))),
+            ("git_checkout", Box::new(GitCheckoutTool::new(tmp.path().into()))),
+            ("git_stash", Box::new(GitStashTool::new(tmp.path().into()))),
+        ];
+        for (expected_name, tool) in &tools {
+            assert_eq!(tool.name(), *expected_name, "Tool name mismatch");
+            assert!(!tool.description().is_empty(), "Missing description for {}", expected_name);
+            let schema = tool.parameters_schema();
+            assert!(schema.is_object(), "Schema should be object for {}", expected_name);
+        }
     }
 }
