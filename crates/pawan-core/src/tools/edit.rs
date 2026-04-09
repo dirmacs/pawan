@@ -1,7 +1,7 @@
-//! Edit tool for precise string replacement
+//! Edit tool for precise string replacement with write safety
 
 use super::Tool;
-use super::file::normalize_path;
+use super::file::{normalize_path, validate_file_write};
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -77,6 +77,7 @@ impl Tool for EditFileTool {
         let replace_all = args["replace_all"].as_bool().unwrap_or(false);
 
         let full_path = self.resolve_path(path);
+        validate_file_write(&full_path).map_err(|r| crate::PawanError::Tool(format!("Edit blocked: {} — {}", full_path.display(), r)))?;
 
         if !full_path.exists() {
             return Err(crate::PawanError::NotFound(format!(
@@ -200,6 +201,7 @@ impl Tool for EditFileLinesTool {
             .ok_or_else(|| crate::PawanError::Tool("path is required".into()))?;
 
         let full_path = self.resolve_path(path);
+        validate_file_write(&full_path).map_err(|r| crate::PawanError::Tool(format!("Edit blocked: {} — {}", full_path.display(), r)))?;
         if !full_path.exists() {
             return Err(crate::PawanError::NotFound(format!(
                 "File not found: {}", full_path.display()
@@ -421,6 +423,7 @@ impl Tool for InsertAfterTool {
             .ok_or_else(|| crate::PawanError::Tool("content is required".into()))?;
 
         let full_path = self.resolve_path(path);
+        validate_file_write(&full_path).map_err(|r| crate::PawanError::Tool(format!("Edit blocked: {} — {}", full_path.display(), r)))?;
         if !full_path.exists() {
             return Err(crate::PawanError::NotFound(format!("File not found: {}", full_path.display())));
         }
