@@ -514,11 +514,17 @@ impl PawanConfig {
             .clone()
             .unwrap_or_else(|| DEFAULT_SYSTEM_PROMPT.to_string());
 
+        let mut prompt = base;
+
         if let Some((filename, ctx)) = Self::load_context_file() {
-            format!("{}\n\n## Project Context (from {})\n\n{}", base, filename, ctx)
-        } else {
-            base
+            prompt = format!("{}\n\n## Project Context (from {})\n\n{}", prompt, filename, ctx);
         }
+
+        if let Some(skill_ctx) = Self::load_skill_context() {
+            prompt = format!("{}\n\n## Active Skill (from SKILL.md)\n\n{}", prompt, skill_ctx);
+        }
+
+        prompt
     }
 
     /// Load project context file from current directory (if it exists).
@@ -536,6 +542,36 @@ impl PawanConfig {
             }
         }
         None
+    }
+
+    /// Load SKILL.md files from the project using thulp-skill-files.
+    /// Returns a summary of discovered skills for context injection.
+    pub fn load_skill_context() -> Option<String> {
+        use thulp_skill_files::SkillFile;
+
+        let skill_path = std::path::Path::new("SKILL.md");
+        if !skill_path.exists() {
+            return None;
+        }
+
+        match SkillFile::parse(skill_path) {
+            Ok(skill) => {
+                let name = skill.effective_name();
+                let desc = skill.frontmatter.description.as_deref().unwrap_or("no description");
+                let tools_str = match &skill.frontmatter.allowed_tools {
+                    Some(tools) => tools.join(", "),
+                    None => "all".to_string(),
+                };
+                Some(format!(
+                    "[Skill: {}] {}\nAllowed tools: {}\n---\n{}",
+                    name, desc, tools_str, skill.content
+                ))
+            }
+            Err(e) => {
+                tracing::warn!("Failed to parse SKILL.md: {}", e);
+                None
+            }
+        }
     }
 
     /// Check if thinking mode should be enabled.
