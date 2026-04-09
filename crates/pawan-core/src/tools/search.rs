@@ -320,4 +320,177 @@ mod tests {
         assert_eq!(result["file_count"], 1);
         assert_eq!(result["total_matches"], 1);
     }
+
+    // --- GlobSearchTool expanded tests ---
+
+    #[tokio::test]
+    async fn test_glob_no_matches() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("file.txt"), "text").unwrap();
+        let tool = GlobSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "*.rs"})).await.unwrap();
+        assert_eq!(result["count"], 0);
+        assert_eq!(result["truncated"], false);
+    }
+
+    #[tokio::test]
+    async fn test_glob_invalid_pattern() {
+        let tmp = TempDir::new().unwrap();
+        let tool = GlobSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "[invalid"})).await;
+        assert!(result.is_err(), "Invalid glob should error");
+    }
+
+    #[tokio::test]
+    async fn test_glob_missing_pattern() {
+        let tmp = TempDir::new().unwrap();
+        let tool = GlobSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({})).await;
+        assert!(result.is_err(), "Missing pattern should error");
+    }
+
+    #[tokio::test]
+    async fn test_glob_max_results() {
+        let tmp = TempDir::new().unwrap();
+        for i in 0..10 {
+            std::fs::write(tmp.path().join(format!("f{}.rs", i)), "code").unwrap();
+        }
+        let tool = GlobSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "*.rs", "max_results": 3})).await.unwrap();
+        assert_eq!(result["count"], 3);
+        assert_eq!(result["truncated"], true);
+    }
+
+    #[tokio::test]
+    async fn test_glob_subdirectory() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("sub")).unwrap();
+        std::fs::write(tmp.path().join("sub/a.rs"), "code").unwrap();
+        std::fs::write(tmp.path().join("b.rs"), "code").unwrap();
+        let tool = GlobSearchTool::new(tmp.path().into());
+        // Search only in sub/
+        let result = tool.execute(json!({"pattern": "*.rs", "path": "sub"})).await.unwrap();
+        assert_eq!(result["count"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_glob_result_has_metadata() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "hello world").unwrap();
+        let tool = GlobSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "*.rs"})).await.unwrap();
+        let first = &result["matches"][0];
+        assert!(first["path"].as_str().is_some());
+        assert!(first["size"].as_u64().unwrap() > 0);
+        assert!(first["modified"].as_u64().is_some());
+    }
+
+    // --- GrepSearchTool expanded tests ---
+
+    #[tokio::test]
+    async fn test_grep_no_matches() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "fn main() {}").unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "nonexistent_string_xyz"})).await.unwrap();
+        assert_eq!(result["file_count"], 0);
+        assert_eq!(result["total_matches"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_grep_regex() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "fn foo() {}\nfn bar() {}\nfn baz() {}").unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "fn \\w+\\(\\)"})).await.unwrap();
+        assert_eq!(result["total_matches"], 3);
+    }
+
+    #[tokio::test]
+    async fn test_grep_invalid_regex() {
+        let tmp = TempDir::new().unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "[invalid"})).await;
+        assert!(result.is_err(), "Invalid regex should error");
+    }
+
+    #[tokio::test]
+    async fn test_grep_missing_pattern() {
+        let tmp = TempDir::new().unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({})).await;
+        assert!(result.is_err(), "Missing pattern should error");
+    }
+
+    #[tokio::test]
+    async fn test_grep_include_filter() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("a.rs"), "hello").unwrap();
+        std::fs::write(tmp.path().join("b.txt"), "hello").unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "hello", "include": "*.rs"})).await.unwrap();
+        assert_eq!(result["file_count"], 1);
+        let path = result["files"][0]["path"].as_str().unwrap();
+        assert!(path.ends_with(".rs"));
+    }
+
+    #[tokio::test]
+    async fn test_grep_context_lines() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "line1\nline2\nTARGET\nline4\nline5").unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "TARGET", "context_lines": 1})).await.unwrap();
+        let matches = result["files"][0]["matches"].as_array().unwrap();
+        assert!(matches[0]["context"].is_array());
+        let ctx = matches[0]["context"].as_array().unwrap();
+        assert_eq!(ctx.len(), 3); // 1 before + match + 1 after
+    }
+
+    #[tokio::test]
+    async fn test_grep_max_results() {
+        let tmp = TempDir::new().unwrap();
+        for i in 0..10 {
+            std::fs::write(tmp.path().join(format!("f{}.rs", i)), "match_me").unwrap();
+        }
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "match_me", "max_results": 3})).await.unwrap();
+        assert_eq!(result["file_count"], 3);
+        assert_eq!(result["truncated"], true);
+    }
+
+    #[tokio::test]
+    async fn test_grep_multiple_matches_in_file() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("f.rs"), "foo\nbar\nfoo\nbaz\nfoo").unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "foo"})).await.unwrap();
+        assert_eq!(result["files"][0]["match_count"], 3);
+        assert_eq!(result["total_matches"], 3);
+    }
+
+    #[tokio::test]
+    async fn test_grep_line_truncation() {
+        let tmp = TempDir::new().unwrap();
+        let long_line = "x".repeat(500);
+        std::fs::write(tmp.path().join("f.rs"), &long_line).unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "x+"})).await.unwrap();
+        let content = result["files"][0]["matches"][0]["content"].as_str().unwrap();
+        assert_eq!(content.len(), 200, "Line content should be truncated to 200 chars");
+    }
+
+    #[tokio::test]
+    async fn test_grep_sorted_by_match_count() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("few.rs"), "x").unwrap();
+        std::fs::write(tmp.path().join("many.rs"), "x\nx\nx\nx\nx").unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let result = tool.execute(json!({"pattern": "x"})).await.unwrap();
+        let files = result["files"].as_array().unwrap();
+        assert!(files.len() == 2);
+        // First file should have more matches
+        let first_count = files[0]["match_count"].as_u64().unwrap();
+        let second_count = files[1]["match_count"].as_u64().unwrap();
+        assert!(first_count >= second_count, "Results should be sorted by match count desc");
+    }
 }
