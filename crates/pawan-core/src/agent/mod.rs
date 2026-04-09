@@ -133,8 +133,7 @@ pub type ToolCallback = Box<dyn Fn(&ToolCallRecord) + Send + Sync>;
 /// Callback for tool call start notifications
 pub type ToolStartCallback = Box<dyn Fn(&str) + Send + Sync>;
 
-/// The main Pawan agent
-/// The main Pawan agent
+/// The main Pawan agent — handles conversation, tool calling, and self-healing.
 ///
 /// This struct represents the core Pawan agent that handles:
 /// - Conversation history management
