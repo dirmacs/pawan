@@ -75,6 +75,71 @@ pub fn validate_bash_command(command: &str) -> (BashSafety, &'static str) {
     (BashSafety::Safe, "")
 }
 
+/// Check if a bash command is read-only (no side effects).
+/// Used to auto-allow commands even under Prompt permission.
+/// Inspired by claw-code's readOnlyValidation.
+pub fn is_read_only(command: &str) -> bool {
+    let cmd = command.trim();
+
+    // Extract the first command (before any pipe, &&, ||, ;)
+    let first_cmd = cmd
+        .split(&['|', '&', ';'][..])
+        .next()
+        .unwrap_or(cmd)
+        .trim();
+
+    // Get the binary name (first token)
+    let binary = first_cmd.split_whitespace().next().unwrap_or("");
+
+    // Known read-only commands
+    let read_only_binaries = [
+        // File inspection
+        "cat", "head", "tail", "less", "more", "wc", "file", "stat", "du", "df",
+        // Search
+        "grep", "rg", "ag", "find", "fd", "locate", "which", "whereis", "type",
+        // Directory listing
+        "ls", "tree", "erd", "exa", "lsd",
+        // Git read-only
+        "git log", "git status", "git diff", "git show", "git blame", "git branch",
+        "git remote", "git tag", "git stash list",
+        // Cargo read-only
+        "cargo check", "cargo clippy", "cargo test", "cargo doc", "cargo tree",
+        "cargo metadata", "cargo bench",
+        // System info
+        "uname", "hostname", "whoami", "id", "env", "printenv", "date", "uptime",
+        "free", "top", "ps", "lsof", "netstat", "ss",
+        // Text processing (read-only when not redirecting)
+        "echo", "printf", "jq", "yq", "sort", "uniq", "cut", "awk", "sed",
+        // Other
+        "pwd", "realpath", "basename", "dirname", "test", "true", "false",
+    ];
+
+    // Check multi-word commands first (e.g. "git log")
+    for ro in &read_only_binaries {
+        if ro.contains(' ') && cmd.starts_with(ro) {
+            // Ensure no output redirection
+            if !cmd.contains('>') && !cmd.contains(">>") {
+                return true;
+            }
+        }
+    }
+
+    // Single binary check
+    if read_only_binaries.contains(&binary) {
+        // Not read-only if it redirects output to a file
+        if cmd.contains(" > ") || cmd.contains(" >> ") {
+            return false;
+        }
+        // sed/awk with -i flag is not read-only
+        if (binary == "sed" || binary == "awk") && cmd.contains(" -i") {
+            return false;
+        }
+        return true;
+    }
+
+    false
+}
+
 /// Tool for executing bash commands
 pub struct BashTool {
     workspace_root: PathBuf,
@@ -461,6 +526,57 @@ mod tests {
         assert!(result.is_err(), "Blocked command should return error");
         let err = result.unwrap_err().to_string();
         assert!(err.contains("blocked"), "Error should mention 'blocked': {}", err);
+    }
+
+    // --- is_read_only tests ---
+
+    #[test]
+    fn test_read_only_commands() {
+        let read_only = [
+            "ls -la", "cat src/main.rs", "head -20 file.txt", "tail -f log",
+            "grep 'pattern' src/", "rg 'pattern'", "find . -name '*.rs'",
+            "git log --oneline", "git status", "git diff", "git blame src/lib.rs",
+            "cargo check", "cargo clippy", "cargo test", "cargo tree",
+            "pwd", "whoami", "echo hello", "wc -l file.txt",
+            "tree", "du -sh .", "df -h", "ps aux", "env",
+        ];
+        for cmd in &read_only {
+            assert!(is_read_only(cmd), "Expected read-only: {}", cmd);
+        }
+    }
+
+    #[test]
+    fn test_not_read_only_commands() {
+        let not_ro = [
+            "rm file.txt", "mkdir -p dir", "mv a b", "cp a b",
+            "git commit -m 'msg'", "git push", "git merge branch",
+            "cargo build", "npm install", "pip install pkg",
+            "echo hello > file.txt", "cat foo >> bar.txt",
+            "sed -i 's/old/new/' file.txt",
+        ];
+        for cmd in &not_ro {
+            assert!(!is_read_only(cmd), "Expected NOT read-only: {}", cmd);
+        }
+    }
+
+    #[test]
+    fn test_read_only_with_pipe() {
+        // Piped read-only commands should still be read-only
+        assert!(is_read_only("grep foo | wc -l"));
+        assert!(is_read_only("cat file.txt | head -5"));
+    }
+
+    #[test]
+    fn test_read_only_redirect_makes_not_read_only() {
+        // Output redirection is a write operation
+        assert!(!is_read_only("echo hello > output.txt"));
+        assert!(!is_read_only("cat foo >> bar.txt"));
+    }
+
+    #[test]
+    fn test_read_only_sed_in_place_is_write() {
+        assert!(!is_read_only("sed -i 's/old/new/' file.txt"));
+        assert!(is_read_only("sed 's/old/new/' file.txt")); // without -i is read-only
     }
 }
 
