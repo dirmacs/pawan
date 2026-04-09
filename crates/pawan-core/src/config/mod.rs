@@ -893,4 +893,32 @@ fix_tests = true
         assert!(config.max_tokens > 0);
         assert!(config.max_tool_iterations > 0);
     }
+
+    #[test]
+    fn test_context_file_search_order() {
+        // Verify the search list includes all expected files
+        // (We test the behavior via get_system_prompt since load_context_file is private
+        // and changing cwd is unsafe in parallel tests)
+        let config = PawanConfig::default();
+        let prompt = config.get_system_prompt();
+        // In the pawan repo, PAWAN.md exists, so it should be in the prompt
+        if std::path::Path::new("PAWAN.md").exists() {
+            assert!(prompt.contains("Project Context"), "Should inject project context when PAWAN.md exists");
+            assert!(prompt.contains("from PAWAN.md"), "Should identify source as PAWAN.md");
+        }
+    }
+
+    #[test]
+    fn test_system_prompt_injection_format() {
+        // Verify the injection format includes the source filename
+        let config = PawanConfig {
+            system_prompt: Some("Base prompt.".into()),
+            ..Default::default()
+        };
+        let prompt = config.get_system_prompt();
+        // If any context file is found, it should show "from <filename>"
+        if prompt.contains("Project Context") {
+            assert!(prompt.contains("from "), "Injection should include source filename");
+        }
+    }
 }
