@@ -31,6 +31,12 @@ enum AgentEvent {
     ToolStart(String),
     /// A tool call completed
     ToolComplete(ToolCallRecord),
+    /// Agent requests permission to run a tool
+    PermissionRequest {
+        tool_name: String,
+        args_summary: String,
+        respond: tokio::sync::oneshot::Sender<bool>,
+    },
     /// Agent finished
     Complete(std::result::Result<AgentResponse, PawanError>),
 }
@@ -234,10 +240,19 @@ struct App<'a> {
     slash_popup_selected: usize,
     /// Welcome screen shown on first launch
     show_welcome: bool,
+    /// Permission dialog state — when Some, the agent is waiting for y/n
+    permission_dialog: Option<PermissionDialog>,
     /// Channel to send commands to the agent task
     cmd_tx: mpsc::UnboundedSender<AgentCommand>,
     /// Channel to receive events from the agent task
     event_rx: mpsc::UnboundedReceiver<AgentEvent>,
+}
+
+/// State for an active permission prompt dialog
+struct PermissionDialog {
+    tool_name: String,
+    args_summary: String,
+    respond: Option<tokio::sync::oneshot::Sender<bool>>,
 }
 
 impl<'a> App<'a> {
@@ -279,6 +294,7 @@ impl<'a> App<'a> {
             session_files_edited: 0,
             slash_popup_selected: 0,
             show_welcome: true,
+            permission_dialog: None,
             cmd_tx,
             event_rx,
         }
@@ -367,6 +383,14 @@ impl<'a> App<'a> {
                         let icon = if record.success { "✓" } else { "✗" };
                         self.status = format!("{} {} ({}ms)", icon, record.name, record.duration_ms);
                     }
+                    AgentEvent::PermissionRequest { tool_name, args_summary, respond } => {
+                        self.permission_dialog = Some(PermissionDialog {
+                            tool_name: tool_name.clone(),
+                            args_summary: args_summary.clone(),
+                            respond: Some(respond),
+                        });
+                        self.status = format!("Permission required: {} — y/n", tool_name);
+                    }
                     AgentEvent::Complete(result) => {
                         self.processing = false;
                         match result {
@@ -423,6 +447,34 @@ impl<'a> App<'a> {
     }
 
     fn handle_event(&mut self, event: Event) {
+        // Permission dialog intercepts y/n/Esc before anything else
+        if self.permission_dialog.is_some() {
+            if let Event::Key(key) = &event {
+                match key.code {
+                    KeyCode::Char('y') | KeyCode::Char('Y') => {
+                        if let Some(mut dialog) = self.permission_dialog.take() {
+                            if let Some(tx) = dialog.respond.take() {
+                                let _ = tx.send(true);
+                            }
+                            self.status = format!("Allowed: {}", dialog.tool_name);
+                        }
+                        return;
+                    }
+                    KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => {
+                        if let Some(mut dialog) = self.permission_dialog.take() {
+                            if let Some(tx) = dialog.respond.take() {
+                                let _ = tx.send(false);
+                            }
+                            self.status = format!("Denied: {}", dialog.tool_name);
+                        }
+                        return;
+                    }
+                    _ => return, // Ignore other keys while dialog is open
+                }
+            }
+            return;
+        }
+
         match event {
             Event::Key(key) => {
                 match (key.modifiers, key.code) {
@@ -815,13 +867,62 @@ impl<'a> App<'a> {
         }
 
         // Overlays (on top of everything)
-        if self.show_welcome {
+        if self.permission_dialog.is_some() {
+            self.render_permission_dialog(f);
+        } else if self.show_welcome {
             self.render_welcome(f);
         } else if self.help_overlay {
             self.render_help_overlay(f);
         } else if self.palette_open {
             self.render_palette(f);
         }
+    }
+
+    fn render_permission_dialog(&self, f: &mut Frame) {
+        let dialog = match &self.permission_dialog {
+            Some(d) => d,
+            None => return,
+        };
+
+        let area = f.area();
+        let width = 60u16.min(area.width.saturating_sub(4));
+        let height = 7u16;
+        let x = (area.width.saturating_sub(width)) / 2;
+        let y = (area.height.saturating_sub(height)) / 2;
+        let popup_area = ratatui::layout::Rect::new(x, y, width, height);
+
+        // Clear background
+        f.render_widget(ratatui::widgets::Clear, popup_area);
+
+        let text = vec![
+            Line::from(vec![
+                Span::styled("Tool: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw(&dialog.tool_name),
+            ]),
+            Line::from(vec![
+                Span::styled("Args: ", Style::default().fg(Color::DarkGray)),
+                Span::raw(if dialog.args_summary.len() > 45 {
+                    format!("{}...", &dialog.args_summary[..42])
+                } else {
+                    dialog.args_summary.clone()
+                }),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(" y ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::raw(" Allow  "),
+                Span::styled(" n ", Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)),
+                Span::raw(" Deny"),
+            ]),
+        ];
+
+        let block = Block::default()
+            .title(" Permission Required ")
+            .title_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Yellow));
+        let paragraph = Paragraph::new(text).block(block);
+        f.render_widget(paragraph, popup_area);
     }
 
     /// Get filtered palette items based on query
@@ -1472,12 +1573,26 @@ async fn agent_task(
                         let _ = tool_tx.send(AgentEvent::ToolComplete(record.clone()));
                     });
 
+                // Create permission callback — sends request to TUI, returns oneshot receiver
+                let perm_tx = event_tx.clone();
+                let on_permission: pawan::agent::PermissionCallback =
+                    Box::new(move |req: pawan::agent::PermissionRequest| {
+                        let (tx, rx) = tokio::sync::oneshot::channel();
+                        let _ = perm_tx.send(AgentEvent::PermissionRequest {
+                            tool_name: req.tool_name,
+                            args_summary: req.args_summary,
+                            respond: tx,
+                        });
+                        rx
+                    });
+
                 let result = agent
-                    .execute_with_callbacks(
+                    .execute_with_all_callbacks(
                         &prompt,
                         Some(on_token),
                         Some(on_tool),
                         Some(on_tool_start),
+                        Some(on_permission),
                     )
                     .await;
                 let _ = event_tx.send(AgentEvent::Complete(result));
