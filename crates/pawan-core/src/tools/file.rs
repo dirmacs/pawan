@@ -130,6 +130,19 @@ impl Tool for ReadFileTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("read_file")
+            .description(self.description())
+            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
+                .description("Path to the file to read (relative to workspace root or absolute)").build())
+            .parameter(Parameter::builder("offset").param_type(ParameterType::Integer).required(false)
+                .description("Line number to start reading from (0-based, optional)").build())
+            .parameter(Parameter::builder("limit").param_type(ParameterType::Integer).required(false)
+                .description("Maximum number of lines to read (optional, defaults to 2000)").build())
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         let path = args["path"]
             .as_str()
@@ -240,6 +253,17 @@ impl Tool for WriteFileTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("write_file")
+            .description(self.description())
+            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
+                .description("Path to the file to write (relative to workspace root or absolute)").build())
+            .parameter(Parameter::builder("content").param_type(ParameterType::String).required(true)
+                .description("Content to write to the file").build())
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         let path = args["path"]
             .as_str()
@@ -333,6 +357,19 @@ impl Tool for ListDirectoryTool {
             },
             "required": ["path"]
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("list_directory")
+            .description(self.description())
+            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
+                .description("Path to the directory to list (relative to workspace root or absolute)").build())
+            .parameter(Parameter::builder("recursive").param_type(ParameterType::Boolean).required(false)
+                .description("Whether to list recursively (default: false)").build())
+            .parameter(Parameter::builder("max_depth").param_type(ParameterType::Integer).required(false)
+                .description("Maximum depth for recursive listing (default: 3)").build())
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
