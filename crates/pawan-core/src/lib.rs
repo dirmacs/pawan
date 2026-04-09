@@ -25,6 +25,7 @@ pub mod agent;
 pub mod config;
 pub mod eruka_bridge;
 pub mod healing;
+pub mod skill_distillation;
 pub mod tasks;
 pub mod tools;
 
