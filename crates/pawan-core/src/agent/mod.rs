@@ -325,8 +325,12 @@ impl PawanAgent {
         self.history.clear();
     }
     /// Prune conversation history to reduce context size.
-    /// Keeps the first message (system prompt) and last 4 messages,
-    /// replaces everything in between with a summary message.
+    /// Uses importance scoring (inspired by claude-code-rust's consolidation engine):
+    /// - Tool results with errors: high importance (learning from failures)
+    /// - User messages: medium importance (intent context)
+    /// - Successful tool results: low importance (can be re-derived)
+    ///
+    /// Keeps system prompt + last 4 messages, summarizes the rest.
     fn prune_history(&mut self) {
         let len = self.history.len();
         if len <= 5 {
@@ -338,14 +342,30 @@ impl PawanAgent {
         let end = len - keep_end;
         let pruned_count = end - start;
 
-        // Build summary from middle messages (UTF-8 safe truncation)
+        // Score messages by importance for summary prioritization
+        let mut scored: Vec<(f32, &Message)> = self.history[start..end]
+            .iter()
+            .map(|msg| {
+                let score = Self::message_importance(msg);
+                (score, msg)
+            })
+            .collect();
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Build summary from highest-importance messages first (UTF-8 safe)
         let mut summary = String::with_capacity(2048);
-        for msg in &self.history[start..end] {
+        for (score, msg) in &scored {
+            let prefix = match msg.role {
+                Role::User => "User: ",
+                Role::Assistant => "Assistant: ",
+                Role::Tool => if *score > 0.7 { "Tool error: " } else { "Tool: " },
+                Role::System => "System: ",
+            };
             let chunk: String = msg.content.chars().take(200).collect();
+            summary.push_str(prefix);
             summary.push_str(&chunk);
             summary.push('\n');
             if summary.len() > 2000 {
-                // Truncate at char boundary
                 let safe_end = summary.char_indices()
                     .take_while(|(i, _)| *i <= 2000)
                     .last()
@@ -358,16 +378,36 @@ impl PawanAgent {
 
         let summary_msg = Message {
             role: Role::System,
-            content: format!("Previous conversation summary (pruned): {}", summary),
+            content: format!("Previous conversation summary (pruned {} messages, importance-ranked): {}", pruned_count, summary),
             tool_calls: vec![],
             tool_result: None,
         };
 
-        // Replace middle messages in-place with drain (avoids clone + clear + extend)
         self.history.drain(start..end);
         self.history.insert(start, summary_msg);
 
-        tracing::info!(pruned = pruned_count, context_estimate = self.context_tokens_estimate, "Pruned messages from history");
+        tracing::info!(pruned = pruned_count, context_estimate = self.context_tokens_estimate, "Pruned messages from history (importance-ranked)");
+    }
+
+    /// Score a message's importance for pruning decisions (0.0-1.0).
+    /// Higher = more important = kept in summary.
+    fn message_importance(msg: &Message) -> f32 {
+        match msg.role {
+            Role::User => 0.6,       // User intent is moderately important
+            Role::System => 0.3,     // System messages are usually ephemeral
+            Role::Assistant => {
+                if msg.content.contains("error") || msg.content.contains("Error") { 0.8 }
+                else { 0.4 }
+            }
+            Role::Tool => {
+                if let Some(ref result) = msg.tool_result {
+                    if !result.success { 0.9 }  // Failed tools are very important (learning)
+                    else { 0.2 }                 // Successful tools can be re-derived
+                } else {
+                    0.3
+                }
+            }
+        }
     }
 
     /// Add a message to history
