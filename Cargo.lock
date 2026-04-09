@@ -1847,6 +1847,7 @@ dependencies = [
  "tokio",
  "toml",
  "tui-textarea",
+ "which",
 ]
 
 [[package]]
