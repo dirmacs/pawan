@@ -216,7 +216,11 @@ impl Tool for WriteFileTool {
     }
 
     fn description(&self) -> &str {
-        "Write content to a file. Creates parent directories if needed. Overwrites existing content."
+        "Write content to a file. Creates parent directories automatically. \
+         PREFER edit_file or edit_file_lines for modifying existing files — \
+         write_file overwrites the entire file. Only use for creating new files \
+         or complete rewrites. Writes to .git/, .env, credential files, and \
+         system paths (/etc, /usr) are blocked for safety."
     }
 
     fn parameters_schema(&self) -> Value {
