@@ -50,6 +50,26 @@ pub trait Tool: Send + Sync {
     /// Executes the tool with the given arguments
     async fn execute(&self, args: Value) -> crate::Result<Value>;
 
+    /// Returns a thulp-core ToolDefinition with typed parameters for validation.
+    /// Override in tools that use Parameter::builder() for rich validation.
+    /// Default: parses JSON schema back into thulp Parameters (best-effort).
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        let params = thulp_core::ToolDefinition::parse_mcp_input_schema(&self.parameters_schema())
+            .unwrap_or_default();
+        thulp_core::ToolDefinition::builder(self.name())
+            .description(self.description())
+            .parameters(params)
+            .build()
+    }
+
+    /// Validate arguments using thulp-core typed parameters.
+    /// Returns Ok(()) or an error describing which params are wrong/missing.
+    fn validate_args(&self, args: &Value) -> std::result::Result<(), String> {
+        self.thulp_definition()
+            .validate_args(args)
+            .map_err(|e| e.to_string())
+    }
+
     /// Convert to ToolDefinition
     fn to_definition(&self) -> ToolDefinition {
         ToolDefinition {

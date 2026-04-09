@@ -61,6 +61,21 @@ impl Tool for EditFileTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("edit_file")
+            .description(self.description())
+            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
+                .description("Path to the file to edit").build())
+            .parameter(Parameter::builder("old_string").param_type(ParameterType::String).required(true)
+                .description("The exact string to find and replace").build())
+            .parameter(Parameter::builder("new_string").param_type(ParameterType::String).required(true)
+                .description("The string to replace it with").build())
+            .parameter(Parameter::builder("replace_all").param_type(ParameterType::Boolean).required(false)
+                .description("Replace all occurrences (default: false)").build())
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         let path = args["path"]
             .as_str()
@@ -193,6 +208,25 @@ impl Tool for EditFileLinesTool {
             },
             "required": ["path", "new_content"]
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("edit_file_lines")
+            .description(self.description())
+            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
+                .description("Path to the file to edit").build())
+            .parameter(Parameter::builder("start_line").param_type(ParameterType::Integer).required(false)
+                .description("First line to replace (1-based, inclusive). Optional if anchor_text is provided.").build())
+            .parameter(Parameter::builder("end_line").param_type(ParameterType::Integer).required(false)
+                .description("Last line to replace (1-based, inclusive). Optional if anchor_text is provided.").build())
+            .parameter(Parameter::builder("anchor_text").param_type(ParameterType::String).required(false)
+                .description("PREFERRED: unique text on the first line to replace. No line-number math needed.").build())
+            .parameter(Parameter::builder("anchor_count").param_type(ParameterType::Integer).required(false)
+                .description("Number of lines to replace starting from anchor line (default: 1).").build())
+            .parameter(Parameter::builder("new_content").param_type(ParameterType::String).required(true)
+                .description("Replacement text for the specified lines. Empty string to delete lines.").build())
+            .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
