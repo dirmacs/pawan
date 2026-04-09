@@ -24,6 +24,20 @@ fn config_with_mock_url(_mock_url: &str) -> PawanConfig {
     config
 }
 
+/// Upskill-inspired evaluation helper: check that a tool call result
+/// contains expected strings (like upskill's `expected: {contains: [...]}`).
+fn assert_tool_result_contains(result: &serde_json::Value, expected: &[&str]) {
+    let result_str = serde_json::to_string(result).unwrap_or_default();
+    for keyword in expected {
+        assert!(
+            result_str.to_lowercase().contains(&keyword.to_lowercase()),
+            "Tool result should contain '{}'. Got: {}",
+            keyword,
+            &result_str[..result_str.len().min(500)]
+        );
+    }
+}
+
 // ============================================================================
 // Tool Registry Tests
 // ============================================================================
@@ -938,4 +952,84 @@ fn test_permission_resolve_integration() {
     assert_eq!(ToolPermission::resolve("bash", &perms), ToolPermission::Prompt);
     assert_eq!(ToolPermission::resolve("write_file", &perms), ToolPermission::Deny);
     assert_eq!(ToolPermission::resolve("read_file", &perms), ToolPermission::Allow);
+}
+
+// ============================================================================
+// Upskill-inspired Evaluation Tests
+// ============================================================================
+
+/// Eval: read_file tool returns expected content fields
+#[tokio::test]
+async fn test_eval_read_file_output_quality() {
+    use pawan::tools::file::ReadFileTool;
+    use pawan::tools::Tool;
+
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("test.rs"), "fn main() {\n    println!(\"hello\");\n}\n").unwrap();
+
+    let tool = ReadFileTool::new(tmp.path().into());
+    let result = tool.execute(json!({"path": "test.rs"})).await.unwrap();
+
+    // Upskill-style: verify result contains expected patterns
+    assert_tool_result_contains(&result, &["fn main", "println", "hello"]);
+    assert!(result["total_lines"].as_u64().unwrap() >= 3);
+}
+
+/// Eval: grep_search returns structured results with line numbers
+#[tokio::test]
+async fn test_eval_grep_search_output_quality() {
+    use pawan::tools::search::GrepSearchTool;
+    use pawan::tools::Tool;
+
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("lib.rs"), "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\npub fn sub(a: i32, b: i32) -> i32 {\n    a - b\n}\n").unwrap();
+
+    let tool = GrepSearchTool::new(tmp.path().into());
+    let result = tool.execute(json!({"pattern": "pub fn"})).await.unwrap();
+
+    assert_eq!(result["total_matches"], 2);
+    assert_eq!(result["file_count"], 1);
+    let files = result["files"].as_array().unwrap();
+    let matches = files[0]["matches"].as_array().unwrap();
+    // Each match should have line number and content
+    for m in matches {
+        assert!(m["line"].as_u64().is_some(), "Match should have line number");
+        assert!(m["content"].as_str().is_some(), "Match should have content");
+    }
+}
+
+/// Eval: bash tool result has complete execution metadata
+#[tokio::test]
+async fn test_eval_bash_output_quality() {
+    use pawan::tools::bash::BashTool;
+    use pawan::tools::Tool;
+
+    let tmp = TempDir::new().unwrap();
+    let tool = BashTool::new(tmp.path().into());
+    let result = tool.execute(json!({"command": "echo 'eval test'", "description": "test echo"})).await.unwrap();
+
+    // Upskill-style: verify all expected fields present
+    assert_tool_result_contains(&result, &["eval test", "success"]);
+    assert_eq!(result["success"], true);
+    assert_eq!(result["exit_code"], 0);
+    assert!(result["stdout"].as_str().unwrap().contains("eval test"));
+    assert_eq!(result["description"], "test echo");
+    assert_eq!(result["command"], "echo 'eval test'");
+}
+
+/// Eval: write_file tool returns verification metadata
+#[tokio::test]
+async fn test_eval_write_file_output_quality() {
+    use pawan::tools::file::WriteFileTool;
+    use pawan::tools::Tool;
+
+    let tmp = TempDir::new().unwrap();
+    let tool = WriteFileTool::new(tmp.path().into());
+    let content = "fn main() {}\n";
+    let result = tool.execute(json!({"path": "test.rs", "content": content})).await.unwrap();
+
+    assert_eq!(result["success"], true);
+    assert!(result["bytes_written"].as_u64().unwrap() > 0);
+    assert_eq!(result["size_verified"], true);
+    assert_eq!(result["lines"], 1);
 }
