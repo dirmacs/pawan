@@ -182,7 +182,7 @@ impl ToolRegistry {
     /// Get tool definitions visible to the LLM (Core + Standard + activated Extended).
     /// Extended tools become visible after first use or explicit activation.
     pub fn get_definitions(&self) -> Vec<ToolDefinition> {
-        let activated = self.activated.lock().unwrap();
+        let activated = self.activated.lock().unwrap_or_else(|e| e.into_inner());
         self.tools.iter()
             .filter(|(name, _)| {
                 match self.tiers.get(name.as_str()).copied().unwrap_or(ToolTier::Standard) {
@@ -249,7 +249,7 @@ impl ToolRegistry {
             }
 
             // Activated extended tools get a boost (user has used them before)
-            let activated = self.activated.lock().unwrap();
+            let activated = self.activated.lock().unwrap_or_else(|e| e.into_inner());
             if tier == ToolTier::Extended && activated.contains(name.as_str()) { score += 2; }
 
             if score > 0 || tier == ToolTier::Standard {
@@ -286,7 +286,7 @@ impl ToolRegistry {
     /// Activate an extended tool (makes it visible to the LLM)
     pub fn activate(&self, name: &str) {
         if self.tools.contains_key(name) {
-            self.activated.lock().unwrap().insert(name.to_string());
+            self.activated.lock().unwrap_or_else(|e| e.into_inner()).insert(name.to_string());
         }
     }
 
