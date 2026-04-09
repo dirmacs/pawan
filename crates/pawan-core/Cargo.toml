@@ -8,6 +8,7 @@ authors.workspace = true
 description = "Pawan (पवन) — Core library: agent, tools, config, healing"
 keywords = ["cli", "coding", "agent", "ai", "self-healing"]
 categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
 
 [lib]
 name = "pawan"

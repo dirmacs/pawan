@@ -8,6 +8,7 @@ authors.workspace = true
 description = "Pawan (पवन) — CLI coding agent binary"
 keywords = ["cli", "coding", "agent", "ai", "self-healing"]
 categories = ["command-line-utilities", "development-tools"]
+readme = "README.md"
 
 [[bin]]
 name = "pawan"
