@@ -1277,3 +1277,80 @@ mod file_tool_tests {
         assert!(r.is_err());
     }
 }
+
+#[cfg(test)]
+mod file_write_safety_tests {
+    use crate::tools::file::validate_file_write;
+    use std::path::Path;
+
+    #[test]
+    fn test_blocks_git_directory() {
+        assert!(validate_file_write(Path::new(".git/config")).is_err());
+        assert!(validate_file_write(Path::new(".git/hooks/pre-commit")).is_err());
+        assert!(validate_file_write(Path::new("src/.git/HEAD")).is_err());
+    }
+
+    #[test]
+    fn test_blocks_credential_files() {
+        assert!(validate_file_write(Path::new(".env")).is_err());
+        assert!(validate_file_write(Path::new(".env.local")).is_err());
+        assert!(validate_file_write(Path::new(".env.production")).is_err());
+        assert!(validate_file_write(Path::new("id_rsa")).is_err());
+        assert!(validate_file_write(Path::new("id_ed25519")).is_err());
+        assert!(validate_file_write(Path::new("credentials.json")).is_err());
+        assert!(validate_file_write(Path::new(".npmrc")).is_err());
+    }
+
+    #[test]
+    fn test_blocks_system_paths() {
+        assert!(validate_file_write(Path::new("/etc/passwd")).is_err());
+        assert!(validate_file_write(Path::new("/usr/bin/something")).is_err());
+        assert!(validate_file_write(Path::new("/bin/sh")).is_err());
+        assert!(validate_file_write(Path::new("/boot/grub")).is_err());
+    }
+
+    #[test]
+    fn test_allows_normal_files() {
+        assert!(validate_file_write(Path::new("src/main.rs")).is_ok());
+        assert!(validate_file_write(Path::new("README.md")).is_ok());
+        assert!(validate_file_write(Path::new("Cargo.toml")).is_ok());
+        assert!(validate_file_write(Path::new("tests/integration.rs")).is_ok());
+        assert!(validate_file_write(Path::new("docs/guide.md")).is_ok());
+    }
+
+    #[test]
+    fn test_allows_lock_files_with_warning() {
+        // Lock files are allowed (just warned about)
+        assert!(validate_file_write(Path::new("Cargo.lock")).is_ok());
+        assert!(validate_file_write(Path::new("package-lock.json")).is_ok());
+    }
+
+    #[test]
+    fn test_allows_dotfiles_not_in_blocklist() {
+        assert!(validate_file_write(Path::new(".gitignore")).is_ok());
+        assert!(validate_file_write(Path::new(".cargo/config.toml")).is_ok());
+        assert!(validate_file_write(Path::new(".github/workflows/ci.yml")).is_ok());
+    }
+
+    #[test]
+    fn test_blocks_nested_env_file() {
+        // .env inside a subdirectory should still be blocked
+        assert!(validate_file_write(Path::new("config/.env")).is_err());
+        assert!(validate_file_write(Path::new("deploy/.env.production")).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_write_tool_blocks_env_file() {
+        use crate::tools::file::WriteFileTool;
+        use crate::tools::Tool;
+        use serde_json::json;
+        use tempfile::TempDir;
+
+        let tmp = TempDir::new().unwrap();
+        let tool = WriteFileTool::new(tmp.path().into());
+        let result = tool.execute(json!({"path": ".env", "content": "SECRET=bad"})).await;
+        assert!(result.is_err(), "Writing .env should be blocked");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("blocked") || err.contains("credential"), "Error: {}", err);
+    }
+}
