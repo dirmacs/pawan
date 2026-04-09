@@ -155,3 +155,32 @@ pawan run "add error handling to the config parser"
 # From file
 pawan run -f task.md --timeout 300 --output json
 ```
+
+### Skill distillation
+
+Distill completed sessions into reusable SKILL.md files that capture learned patterns:
+
+```bash
+# Run a task, then distill it
+pawan task "set up CI with GitHub Actions"
+pawan distill
+
+# Distill a specific session
+pawan distill -s abc123 -o ./skills
+```
+
+The generated skill can be loaded by any thulp-compatible agent, creating a learning loop: do the work once, distill it, reuse it.
+
+### Permissions
+
+Control which tools require approval:
+
+```toml
+# In pawan.toml
+[permissions]
+bash = "prompt"       # ask before shell commands
+git_commit = "prompt" # confirm before committing
+write_file = "allow"  # auto-allow (default)
+```
+
+In TUI mode, `prompt` tools show an inline y/n dialog. In headless mode, `prompt` tools are denied for safety. Read-only bash commands are auto-allowed.

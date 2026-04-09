@@ -155,6 +155,51 @@ Show project health (cargo check, clippy, test results).
 
 List saved conversation sessions.
 
+### `pawan distill`
+
+Distill a completed session into a reusable SKILL.md file via thulpoff.
+
+```bash
+pawan distill                     # distill latest session
+pawan distill -s abc123           # distill specific session
+pawan distill -o ./skills         # custom output directory
+```
+
+The distilled skill can be loaded back by pawan (or any thulp-compatible agent) to reuse learned patterns.
+
+### `pawan bench`
+
+Run model latency benchmarks via nimakai.
+
+### `pawan notify`
+
+Send notifications via relay service.
+
+```bash
+pawan notify "build failed" --channel whatsapp
+pawan notify "deploy done" --channel telegram
+```
+
+### `pawan fmt`
+
+Format code with cargo fmt and cargo clippy --fix.
+
+```bash
+pawan fmt          # format and fix
+pawan fmt --check  # check only, no changes
+```
+
+### `pawan tasks`
+
+Beads-style task tracking with dependencies and ready detection.
+
+```bash
+pawan tasks list              # list all tasks
+pawan tasks add "description" # add a new task
+pawan tasks done <id>         # mark task complete
+pawan tasks ready             # show tasks ready to start
+```
+
 ## Configuration
 
 ### `pawan config show`
