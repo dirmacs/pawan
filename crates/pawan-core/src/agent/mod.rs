@@ -673,9 +673,22 @@ impl PawanAgent {
                 let denied = match perm {
                     crate::config::ToolPermission::Deny => Some("Tool denied by permission policy"),
                     crate::config::ToolPermission::Prompt => {
-                        // In headless mode (no TUI), Prompt = deny for safety.
-                        // TUI mode overrides this via the callback.
-                        Some("Tool requires user approval (set permission to 'allow' or use TUI mode)")
+                        // For bash: auto-allow read-only commands even under Prompt
+                        if tool_call.name == "bash" {
+                            if let Some(cmd) = tool_call.arguments.get("command").and_then(|v| v.as_str()) {
+                                if crate::tools::bash::is_read_only(cmd) {
+                                    tracing::debug!(command = cmd, "Auto-allowing read-only bash command under Prompt permission");
+                                    None
+                                } else {
+                                    Some("Bash command requires user approval (read-only commands auto-allowed)")
+                                }
+                            } else {
+                                Some("Tool requires user approval")
+                            }
+                        } else {
+                            // Non-bash tools: headless = deny for safety
+                            Some("Tool requires user approval (set permission to 'allow' or use TUI mode)")
+                        }
                     }
                     crate::config::ToolPermission::Allow => None,
                 };
