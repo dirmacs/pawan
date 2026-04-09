@@ -624,8 +624,6 @@ async fn test_agent_tool_denied_by_permission() {
 }
 
 /// Test that context pruning triggers when context estimate exceeds max_context_tokens
-
-/// Test that context pruning triggers when context estimate exceeds max_context_tokens
 #[tokio::test]
 async fn test_context_pruning() {
     use pawan::agent::backend::mock::{MockBackend, MockResponse};
