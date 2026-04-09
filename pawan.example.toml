@@ -32,11 +32,16 @@ fix_warnings = true
 fix_tests = true
 auto_commit = false
 
-# Tool permission overrides
+# Tool permission overrides (allow / deny / prompt)
+# "allow"  — always execute (default for all tools)
+# "deny"   — never execute, returns error to LLM
+# "prompt" — ask before executing; read-only bash commands auto-allowed
 # [permissions]
-# write_file = "deny"    # Disable file writing
-# bash = "deny"          # Disable shell execution
-# git_commit = "deny"    # Disable committing
+# bash = "prompt"         # Prompt before write commands, auto-allow reads (ls, cat, grep, git status)
+# write_file = "prompt"   # Prompt before writing files
+# edit_file_lines = "prompt"
+# git_commit = "deny"     # Disable committing entirely
+# read_file = "allow"     # Always allow (default)
 
 # TUI settings
 [tui]
