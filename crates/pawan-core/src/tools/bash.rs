@@ -194,6 +194,41 @@ impl Tool for BashTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder(self.name())
+            .description(self.description())
+            .parameter(
+                Parameter::builder("command")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("The bash command to execute")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("workdir")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Working directory (optional, defaults to workspace root)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("timeout_secs")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Timeout in seconds (default: 120)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("description")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Brief description of what this command does")
+                    .build(),
+            )
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         let command = args["command"]
             .as_str()
