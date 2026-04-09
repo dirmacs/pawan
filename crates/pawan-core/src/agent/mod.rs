@@ -768,19 +768,7 @@ impl PawanAgent {
 
                 // Truncate tool results that exceed max chars to prevent context bloat
                 let max_result_chars = self.config.max_result_chars;
-                let result_value = {
-                    let result_str = serde_json::to_string(&result_value).unwrap_or_default();
-                    if result_str.len() > max_result_chars {
-                        // UTF-8 safe truncation
-                        let truncated: String = result_str.chars().take(max_result_chars).collect();
-                        let truncated = truncated.as_str();
-                        serde_json::from_str(truncated).unwrap_or_else(|_| {
-                            json!({"content": format!("{}...[truncated from {} chars]", truncated, result_str.len())})
-                        })
-                    } else {
-                        result_value
-                    }
-                };
+                let result_value = truncate_tool_result(result_value, max_result_chars);
 
 
                 let record = ToolCallRecord {
@@ -958,6 +946,59 @@ Only output the suggested commit message, nothing else."#;
     }
 }
 
+/// Truncate a tool result JSON value to fit within max_chars.
+/// Unlike naive string truncation (which breaks JSON), this truncates string
+/// *values* within the JSON structure, preserving valid JSON output.
+fn truncate_tool_result(value: Value, max_chars: usize) -> Value {
+    let serialized = serde_json::to_string(&value).unwrap_or_default();
+    if serialized.len() <= max_chars {
+        return value;
+    }
+
+    // Strategy: find the largest string values and truncate them
+    match value {
+        Value::Object(map) => {
+            let mut result = serde_json::Map::new();
+            let total = serialized.len();
+            for (k, v) in map {
+                if let Value::String(s) = &v {
+                    if s.len() > 500 {
+                        // Proportional truncation: shrink large strings
+                        let target = s.len() * max_chars / total;
+                        let target = target.max(200); // Keep at least 200 chars
+                        let truncated: String = s.chars().take(target).collect();
+                        result.insert(k, json!(format!("{}...[truncated from {} chars]", truncated, s.len())));
+                        continue;
+                    }
+                }
+                // Recursively truncate nested structures
+                result.insert(k, truncate_tool_result(v, max_chars));
+            }
+            Value::Object(result)
+        }
+        Value::String(s) if s.len() > max_chars => {
+            let truncated: String = s.chars().take(max_chars).collect();
+            json!(format!("{}...[truncated from {} chars]", truncated, s.len()))
+        }
+        Value::Array(arr) if serialized.len() > max_chars => {
+            // Truncate array: keep first N items that fit
+            let mut result = Vec::new();
+            let mut running_len = 2; // "[]"
+            for item in arr {
+                let item_str = serde_json::to_string(&item).unwrap_or_default();
+                running_len += item_str.len() + 1; // +1 for comma
+                if running_len > max_chars {
+                    result.push(json!(format!("...[{} more items truncated]", 0)));
+                    break;
+                }
+                result.push(item);
+            }
+            Value::Array(result)
+        }
+        other => other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1109,5 +1150,54 @@ mod tests {
         assert!(resp.content.is_empty());
         assert!(resp.tool_calls.is_empty());
         assert_eq!(resp.iterations, 3);
+    }
+
+    // --- truncate_tool_result tests ---
+
+    #[test]
+    fn test_truncate_small_result_unchanged() {
+        let val = json!({"success": true, "output": "hello"});
+        let result = truncate_tool_result(val.clone(), 8000);
+        assert_eq!(result, val);
+    }
+
+    #[test]
+    fn test_truncate_large_string_value() {
+        let big = "x".repeat(10000);
+        let val = json!({"stdout": big, "success": true});
+        let result = truncate_tool_result(val, 2000);
+        let stdout = result["stdout"].as_str().unwrap();
+        assert!(stdout.len() < 10000, "Should be truncated");
+        assert!(stdout.contains("truncated"), "Should indicate truncation");
+    }
+
+    #[test]
+    fn test_truncate_preserves_valid_json() {
+        let big = "x".repeat(20000);
+        let val = json!({"data": big, "meta": "keep"});
+        let result = truncate_tool_result(val, 5000);
+        // Result should be valid JSON (no broken strings)
+        let serialized = serde_json::to_string(&result).unwrap();
+        let _reparsed: Value = serde_json::from_str(&serialized).unwrap();
+        // meta should be preserved (it's small)
+        assert_eq!(result["meta"], "keep");
+    }
+
+    #[test]
+    fn test_truncate_bare_string() {
+        let big = json!("x".repeat(10000));
+        let result = truncate_tool_result(big, 500);
+        let s = result.as_str().unwrap();
+        assert!(s.len() <= 600); // 500 + truncation notice
+        assert!(s.contains("truncated"));
+    }
+
+    #[test]
+    fn test_truncate_array() {
+        let items: Vec<Value> = (0..1000).map(|i| json!(format!("item_{}", i))).collect();
+        let val = Value::Array(items);
+        let result = truncate_tool_result(val, 500);
+        let arr = result.as_array().unwrap();
+        assert!(arr.len() < 1000, "Array should be truncated");
     }
 }
