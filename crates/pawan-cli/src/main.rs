@@ -1981,9 +1981,55 @@ async fn setup_mcp_tools(agent: &mut PawanAgent, config: &PawanConfig) {
 
 /// Show resolved configuration
 fn run_config_show(config: PawanConfig) -> Result<()> {
-    let toml_str = toml::to_string_pretty(&config)
-        .map_err(|e| PawanError::Config(format!("Failed to serialize config: {}", e)))?;
-    println!("{}", toml_str);
+    use colored::Colorize;
+    println!("{}", "Pawan Configuration (resolved)".cyan().bold());
+    println!("{}\n", "─".repeat(40).dimmed());
+
+    println!("  {} {}", "Provider:".bold(), format!("{:?}", config.provider).cyan());
+    println!("  {} {}", "Model:".bold(), config.model.cyan());
+    println!("  {} {}", "Temperature:".bold(), config.temperature);
+    println!("  {} {}", "Max tokens:".bold(), config.max_tokens);
+    println!("  {} {}", "Max iterations:".bold(), config.max_tool_iterations);
+    println!("  {} {}", "Thinking mode:".bold(), if config.use_thinking_mode() { "enabled".green().to_string() } else { "disabled".dimmed().to_string() });
+
+    if let Some(ref cloud) = config.cloud {
+        println!("\n{}", "  Cloud fallback:".bold());
+        println!("    Model: {}", cloud.model.cyan());
+    }
+
+    if !config.fallback_models.is_empty() {
+        println!("  {} {}", "Fallbacks:".bold(), config.fallback_models.join(", "));
+    }
+
+    println!("\n{}", "  Healing:".bold());
+    println!("    Errors: {}", if config.healing.fix_errors { "fix" } else { "skip" });
+    println!("    Warnings: {}", if config.healing.fix_warnings { "fix" } else { "skip" });
+    println!("    Tests: {}", if config.healing.fix_tests { "fix" } else { "skip" });
+
+    if !config.permissions.is_empty() {
+        println!("\n{}", "  Permissions:".bold());
+        for (tool, perm) in &config.permissions {
+            println!("    {}: {:?}", tool, perm);
+        }
+    }
+
+    if !config.mcp.is_empty() {
+        println!("\n{}", "  MCP servers:".bold());
+        for (name, entry) in &config.mcp {
+            let status = if entry.enabled { "enabled".green().to_string() } else { "disabled".dimmed().to_string() };
+            println!("    {}: {} ({})", name, entry.command.cyan(), status);
+        }
+    }
+
+    println!("\n{}", "  Context files:".bold());
+    for path in &["PAWAN.md", "AGENTS.md", "CLAUDE.md", "SKILL.md", ".pawan/context.md"] {
+        if std::path::Path::new(path).exists() {
+            println!("    {} {}", "✓".green(), path);
+        }
+    }
+
+    println!("\n{}", "─".repeat(40).dimmed());
+    println!("{}", "  Use `pawan config init` to generate pawan.toml".dimmed());
     Ok(())
 }
 
@@ -2003,7 +2049,7 @@ fn run_config_init() -> Result<()> {
 # provider = "nvidia"
 
 # Model to use (provider-specific ID)
-model = "mistralai/devstral-2-123b-instruct-2512"
+model = "qwen/qwen3.5-122b-a10b"
 
 # Generation parameters
 temperature = 0.6
