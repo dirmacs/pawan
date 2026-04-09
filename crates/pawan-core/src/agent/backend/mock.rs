@@ -36,6 +36,8 @@ pub enum MockResponse {
         name: String,
         args: Value,
     },
+    /// Multiple tool calls in a single turn (concurrent execution)
+    ToolSequence(Vec<ToolCallRequest>),
 }
 
 impl MockResponse {
@@ -50,6 +52,96 @@ impl MockResponse {
             args,
         }
     }
+
+    pub fn tool_sequence(calls: Vec<(&str, Value)>) -> Self {
+        Self::ToolSequence(
+            calls
+                .into_iter()
+                .map(|(name, args)| ToolCallRequest {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    name: name.to_string(),
+                    arguments: args,
+                })
+                .collect(),
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Scenario-in-prompt detection (ported from claw-code parity harness)
+// ---------------------------------------------------------------------------
+
+/// Named test scenarios that the mock backend can detect from prompt content.
+/// Embed `PARITY_SCENARIO: <name>` in user messages to trigger deterministic behavior.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MockScenario {
+    /// Simple text response, no tool calls
+    TextOnly,
+    /// Single read_file tool call, then text completion
+    ReadFileRoundtrip,
+    /// Bash command execution, then text completion
+    BashRoundtrip,
+    /// Multiple tools in one turn (read_file + grep_search)
+    MultiToolTurn,
+    /// Three-step: read → edit → verify
+    EditRoundtrip,
+}
+
+impl MockScenario {
+    /// Detect scenario from message content. Looks for `PARITY_SCENARIO: <name>`.
+    pub fn detect(messages: &[Message]) -> Option<Self> {
+        for msg in messages {
+            if let Some(pos) = msg.content.find("PARITY_SCENARIO:") {
+                let rest = msg.content[pos + 16..].trim();
+                let name = rest.split_whitespace().next().unwrap_or("");
+                return match name {
+                    "text_only" => Some(Self::TextOnly),
+                    "read_file_roundtrip" => Some(Self::ReadFileRoundtrip),
+                    "bash_roundtrip" => Some(Self::BashRoundtrip),
+                    "multi_tool_turn" => Some(Self::MultiToolTurn),
+                    "edit_roundtrip" => Some(Self::EditRoundtrip),
+                    _ => None,
+                };
+            }
+        }
+        None
+    }
+
+    /// Get the pre-configured response sequence for this scenario.
+    pub fn responses(&self) -> Vec<MockResponse> {
+        match self {
+            Self::TextOnly => vec![MockResponse::text("Scenario complete: text only")],
+            Self::ReadFileRoundtrip => vec![
+                MockResponse::tool_call("read_file", serde_json::json!({"path": "src/lib.rs"})),
+                MockResponse::text("I read the file successfully."),
+            ],
+            Self::BashRoundtrip => vec![
+                MockResponse::tool_call("bash", serde_json::json!({"command": "echo hello"})),
+                MockResponse::text("Command executed successfully."),
+            ],
+            Self::MultiToolTurn => vec![
+                MockResponse::tool_sequence(vec![
+                    ("read_file", serde_json::json!({"path": "Cargo.toml"})),
+                    ("grep_search", serde_json::json!({"pattern": "version"})),
+                ]),
+                MockResponse::text("Found version info in both files."),
+            ],
+            Self::EditRoundtrip => vec![
+                MockResponse::tool_call("read_file", serde_json::json!({"path": "test.rs"})),
+                MockResponse::tool_call("edit_file", serde_json::json!({
+                    "path": "test.rs",
+                    "old_string": "old",
+                    "new_string": "new"
+                })),
+                MockResponse::text("Edit complete."),
+            ],
+        }
+    }
+}
+
+/// Create a MockBackend pre-loaded with responses for a detected scenario.
+pub fn mock_from_scenario(scenario: MockScenario) -> MockBackend {
+    MockBackend::new(scenario.responses())
 }
 
 /// Mock LLM backend — returns pre-configured responses in sequence.
@@ -109,6 +201,147 @@ impl LlmBackend for MockBackend {
                 finish_reason: "tool_calls".to_string(),
                 usage: None,
             },
+            MockResponse::ToolSequence(calls) => LLMResponse {
+                content: String::new(),
+                reasoning: None,
+                tool_calls: calls,
+                finish_reason: "tool_calls".to_string(),
+                usage: None,
+            },
         })
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_scenario_detect_text_only() {
+        let messages = vec![Message {
+            role: crate::agent::Role::User,
+            content: "PARITY_SCENARIO: text_only\nDo something".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        }];
+        assert_eq!(MockScenario::detect(&messages), Some(MockScenario::TextOnly));
+    }
+
+    #[test]
+    fn test_scenario_detect_read_file() {
+        let messages = vec![Message {
+            role: crate::agent::Role::User,
+            content: "Please PARITY_SCENARIO: read_file_roundtrip".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        }];
+        assert_eq!(MockScenario::detect(&messages), Some(MockScenario::ReadFileRoundtrip));
+    }
+
+    #[test]
+    fn test_scenario_detect_none() {
+        let messages = vec![Message {
+            role: crate::agent::Role::User,
+            content: "Just a normal message".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        }];
+        assert_eq!(MockScenario::detect(&messages), None);
+    }
+
+    #[test]
+    fn test_scenario_detect_unknown() {
+        let messages = vec![Message {
+            role: crate::agent::Role::User,
+            content: "PARITY_SCENARIO: nonexistent_scenario".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        }];
+        assert_eq!(MockScenario::detect(&messages), None);
+    }
+
+    #[test]
+    fn test_scenario_responses_text_only() {
+        let responses = MockScenario::TextOnly.responses();
+        assert_eq!(responses.len(), 1);
+        assert!(matches!(&responses[0], MockResponse::Text(_)));
+    }
+
+    #[test]
+    fn test_scenario_responses_read_file() {
+        let responses = MockScenario::ReadFileRoundtrip.responses();
+        assert_eq!(responses.len(), 2);
+        assert!(matches!(&responses[0], MockResponse::ToolCall { name, .. } if name == "read_file"));
+        assert!(matches!(&responses[1], MockResponse::Text(_)));
+    }
+
+    #[test]
+    fn test_scenario_responses_multi_tool() {
+        let responses = MockScenario::MultiToolTurn.responses();
+        assert_eq!(responses.len(), 2);
+        assert!(matches!(&responses[0], MockResponse::ToolSequence(calls) if calls.len() == 2));
+    }
+
+    #[test]
+    fn test_scenario_responses_edit_roundtrip() {
+        let responses = MockScenario::EditRoundtrip.responses();
+        assert_eq!(responses.len(), 3);
+        assert!(matches!(&responses[0], MockResponse::ToolCall { name, .. } if name == "read_file"));
+        assert!(matches!(&responses[1], MockResponse::ToolCall { name, .. } if name == "edit_file"));
+        assert!(matches!(&responses[2], MockResponse::Text(_)));
+    }
+
+    #[test]
+    fn test_mock_from_scenario() {
+        let backend = mock_from_scenario(MockScenario::TextOnly);
+        assert_eq!(backend.responses.len(), 1);
+    }
+
+    #[test]
+    fn test_tool_sequence_constructor() {
+        let resp = MockResponse::tool_sequence(vec![
+            ("read_file", serde_json::json!({"path": "a.rs"})),
+            ("bash", serde_json::json!({"command": "ls"})),
+        ]);
+        if let MockResponse::ToolSequence(calls) = resp {
+            assert_eq!(calls.len(), 2);
+            assert_eq!(calls[0].name, "read_file");
+            assert_eq!(calls[1].name, "bash");
+        } else {
+            panic!("Expected ToolSequence");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mock_backend_tool_sequence() {
+        let backend = MockBackend::new(vec![
+            MockResponse::tool_sequence(vec![
+                ("read_file", serde_json::json!({"path": "a.rs"})),
+                ("grep_search", serde_json::json!({"pattern": "fn"})),
+            ]),
+            MockResponse::text("Done"),
+        ]);
+
+        let resp = backend.generate(&[], &[], None).await.unwrap();
+        assert_eq!(resp.tool_calls.len(), 2);
+        assert_eq!(resp.finish_reason, "tool_calls");
+
+        let resp2 = backend.generate(&[], &[], None).await.unwrap();
+        assert_eq!(resp2.content, "Done");
+        assert!(resp2.tool_calls.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_mock_backend_exhausted() {
+        let backend = MockBackend::new(vec![MockResponse::text("first")]);
+        let r1 = backend.generate(&[], &[], None).await.unwrap();
+        assert_eq!(r1.content, "first");
+
+        let r2 = backend.generate(&[], &[], None).await.unwrap();
+        assert_eq!(r2.content, ""); // exhausted, returns empty
     }
 }
