@@ -738,6 +738,25 @@ impl PawanAgent {
                         .collect::<String>()
                 );
 
+                // Validate tool arguments using thulp-core (DRY: reuse thulp's validation)
+                if let Some(tool) = self.tools.get(&tool_call.name) {
+                    let schema = tool.parameters_schema();
+                    if let Ok(params) = thulp_core::ToolDefinition::parse_mcp_input_schema(&schema) {
+                        let thulp_def = thulp_core::ToolDefinition {
+                            name: tool_call.name.clone(),
+                            description: String::new(),
+                            parameters: params,
+                        };
+                        if let Err(e) = thulp_def.validate_args(&tool_call.arguments) {
+                            tracing::warn!(
+                                tool = tool_call.name.as_str(),
+                                error = %e,
+                                "Tool argument validation failed (continuing anyway)"
+                            );
+                        }
+                    }
+                }
+
                 let start = std::time::Instant::now();
 
                 // Resilient tool execution: catch panics + errors
