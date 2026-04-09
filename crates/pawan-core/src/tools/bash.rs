@@ -158,8 +158,15 @@ impl Tool for BashTool {
     }
 
     fn description(&self) -> &str {
-        "Execute a bash command. Use for git, cargo, and other shell operations. \
-         Commands run in the workspace root directory."
+        "Execute a bash command. Commands run in the workspace root directory. \
+         IMPORTANT: Prefer dedicated tools over bash when possible — use read_file \
+         instead of cat/head/tail, write_file instead of echo/cat heredoc, edit_file \
+         instead of sed/awk, grep_search instead of grep/rg, glob_search instead of find/ls. \
+         Reserve bash for: git operations, cargo commands, system commands, and tasks \
+         that require shell features (pipes, redirects, env vars). \
+         Dangerous commands (rm -rf /, mkfs, curl|sh) are blocked. \
+         Destructive commands (rm -rf, git push --force, git reset --hard) trigger warnings. \
+         Include a 'description' parameter explaining what the command does."
     }
 
     fn parameters_schema(&self) -> Value {
