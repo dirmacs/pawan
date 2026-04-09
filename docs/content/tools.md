@@ -2,7 +2,7 @@
 title = "Tools"
 +++
 
-Pawan ships 29 built-in tools with tiered visibility, auto-install, and dynamic MCP discovery.
+Pawan ships 31 built-in tools with tiered visibility, auto-install, typed parameter validation, and dynamic MCP discovery.
 
 ## Tool Tiers
 
@@ -184,11 +184,36 @@ new_content: "fn main() -> Result<()>"
 ### Block-Aware Insert
 `insert_after` detects if the anchor line ends with `{` and skips to the matching `}` before inserting.
 
+## Permissions
+
+Tools support 3-tier permissions configured in `pawan.toml`:
+
+| Level | Behavior |
+|-------|----------|
+| `allow` | Execute without asking (default for most tools) |
+| `deny` | Tool is disabled — LLM gets an error response |
+| `prompt` | TUI shows a y/n confirmation dialog; headless mode denies for safety |
+
+```toml
+[permissions]
+bash = "prompt"       # ask before running shell commands
+write_file = "allow"  # auto-allow file writes
+git_commit = "prompt" # confirm before committing
+```
+
+Read-only bash commands (`ls`, `cat`, `grep`, `cargo check`) are auto-allowed even under `prompt` permission.
+
+## Parameter Validation
+
+All 31 tools have typed parameter definitions via thulp-core. Before execution, the agent validates arguments against the tool's parameter schema — catching missing required params, wrong types, and unknown fields before the tool runs.
+
 ## Safety & Intelligence
 
 - **Auto-install**: Missing CLI tools (ast-grep, rg, fd, sd) are auto-installed via mise on first use
 - **Tiered visibility**: Only core tools in LLM prompt by default — extended tools activate on first use
 - **Path normalization**: All file tools detect and correct double workspace prefix
+- **Write safety**: Writes to `.git/`, `.env`, credential files, and system paths (`/etc`, `/usr`) are blocked
+- **Bash safety**: Dangerous commands (`rm -rf /`, `mkfs`, `curl|sh`) are blocked; destructive commands trigger warnings
 - **Compile-gated confidence**: After writing `.rs` files, `cargo check` runs automatically
 - **Iteration budget awareness**: Model warned at 3 remaining iterations
 - **Token budget tracking**: Thinking vs action tokens tracked per call, visible in TUI
