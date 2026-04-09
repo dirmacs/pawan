@@ -80,6 +80,23 @@ impl Tool for SpawnAgentTool {
         })
     }
 
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("spawn_agent")
+            .description(self.description())
+            .parameter(Parameter::builder("prompt").param_type(ParameterType::String).required(true)
+                .description("The task/prompt for the sub-agent").build())
+            .parameter(Parameter::builder("model").param_type(ParameterType::String).required(false)
+                .description("Model to use (optional, defaults to parent's model)").build())
+            .parameter(Parameter::builder("timeout").param_type(ParameterType::Integer).required(false)
+                .description("Timeout in seconds (default: 120)").build())
+            .parameter(Parameter::builder("workspace").param_type(ParameterType::String).required(false)
+                .description("Workspace directory for the sub-agent (default: same as parent)").build())
+            .parameter(Parameter::builder("retries").param_type(ParameterType::Integer).required(false)
+                .description("Number of retry attempts on failure (default: 0, max: 2)").build())
+            .build()
+    }
+
     async fn execute(&self, args: Value) -> Result<Value> {
         let prompt = args["prompt"]
             .as_str()
@@ -222,6 +239,15 @@ impl Tool for SpawnAgentsTool {
             },
             "required": ["tasks"]
         })
+    }
+
+    fn thulp_definition(&self) -> thulp_core::ToolDefinition {
+        use thulp_core::{Parameter, ParameterType};
+        thulp_core::ToolDefinition::builder("spawn_agents")
+            .description(self.description())
+            .parameter(Parameter::builder("tasks").param_type(ParameterType::Array).required(true)
+                .description("Array of task objects, each with prompt (required), model, timeout, workspace").build())
+            .build()
     }
 
     async fn execute(&self, args: Value) -> Result<Value> {
