@@ -121,7 +121,11 @@ async fn agents_handler(State(state): State<AppState>) -> Json<serde_json::Value
 }
 
 fn read_aegis_peers() -> Vec<serde_json::Value> {
-    let path = std::path::Path::new("/opt/aegis/aegis-net.toml");
+    let path = dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("/etc"))
+        .join("aegis")
+        .join("aegis-net.toml");
+    let path = path.as_path();
     if !path.exists() {
         return vec![];
     }

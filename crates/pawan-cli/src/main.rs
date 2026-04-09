@@ -2538,9 +2538,15 @@ async fn run_fmt(workspace: PathBuf, check: bool) -> Result<()> {
 
 async fn run_bench() -> Result<()> {
     println!("{}", "Pawan Bench".green().bold());
-    let nimakai = "/opt/nimakai/nimakai";
-    if !std::path::Path::new(nimakai).exists() {
-        println!("nimakai not found at {}", nimakai);
+    let nimakai = std::process::Command::new("which")
+        .arg("nimakai")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "nimakai".to_string());
+    if !std::path::Path::new(&nimakai).exists() {
+        println!("nimakai not found in PATH. Install: nimble install nimakai");
         return Ok(());
     }
     let out = std::process::Command::new(nimakai).args(["bench", "--json"]).output();

@@ -20,7 +20,7 @@ path = "src/lib.rs"
 # and src/tools/ares_bridge.rs but is gated behind #[cfg(feature = "ares")].
 # To enable, add to this Cargo.toml:
 #   [features] ares = ["dep:ares-server"]
-#   [dependencies] ares-server = { path = "/opt/ares", optional = true, ... }
+#   [dependencies] ares-server = { path = "../ares", optional = true, ... }
 # This is intentionally not declared here because ares-server is a local
 # path dependency that doesn't exist in CI or on crates.io.
 
