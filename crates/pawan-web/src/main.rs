@@ -42,6 +42,7 @@ pub struct AppState {
     config: Arc<PawanConfig>,
     workspace: PathBuf,
     agent_id: String,
+    start_time: std::time::Instant,
 }
 // Request / Response types
 #[derive(Debug, Deserialize)]
@@ -105,7 +106,7 @@ async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
     Json(HealthResponse {
         status: "ok",
         version: env!("CARGO_PKG_VERSION"),
-        uptime_secs: 0, // TODO: track real uptime
+        uptime_secs: state.start_time.elapsed().as_secs(),
         agent_id: state.agent_id.clone(),
     })
 }
@@ -329,6 +330,7 @@ async fn main() {
         config: Arc::new(config),
         workspace,
         agent_id: agent_id.clone(),
+        start_time: std::time::Instant::now(),
     };
 
     tracing::info!("Agent identity: {}", agent_id);
@@ -384,6 +386,7 @@ mod tests {
             config: Arc::new(PawanConfig::default()),
             workspace: std::path::PathBuf::from("/tmp"),
             agent_id: "pawan@test".to_string(),
+            start_time: std::time::Instant::now(),
         }
     }
 
