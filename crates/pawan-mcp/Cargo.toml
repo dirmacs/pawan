@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 description = "Pawan MCP client integration — connect to MCP servers and bridge tools"
+readme = "README.md"
 keywords = ["mcp", "tools", "ai", "agent"]
 
 [dependencies]
