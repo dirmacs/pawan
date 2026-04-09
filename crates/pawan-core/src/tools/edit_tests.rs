@@ -1179,6 +1179,49 @@ mod permission_tests {
         config.permissions.insert("bash".into(), ToolPermission::Deny);
         assert_eq!(config.permissions.get("bash"), Some(&ToolPermission::Deny));
     }
+
+    #[test]
+    fn test_permission_prompt() {
+        let mut config = PawanConfig::default();
+        config.permissions.insert("bash".into(), ToolPermission::Prompt);
+        assert_eq!(config.permissions.get("bash"), Some(&ToolPermission::Prompt));
+    }
+
+    #[test]
+    fn test_resolve_explicit_override() {
+        use std::collections::HashMap;
+        let mut perms = HashMap::new();
+        perms.insert("bash".into(), ToolPermission::Deny);
+        assert_eq!(ToolPermission::resolve("bash", &perms), ToolPermission::Deny);
+
+        perms.insert("bash".into(), ToolPermission::Prompt);
+        assert_eq!(ToolPermission::resolve("bash", &perms), ToolPermission::Prompt);
+    }
+
+    #[test]
+    fn test_resolve_default_allow() {
+        use std::collections::HashMap;
+        let perms = HashMap::new();
+        // All tools default to Allow when not configured
+        assert_eq!(ToolPermission::resolve("bash", &perms), ToolPermission::Allow);
+        assert_eq!(ToolPermission::resolve("read_file", &perms), ToolPermission::Allow);
+        assert_eq!(ToolPermission::resolve("glob_search", &perms), ToolPermission::Allow);
+    }
+
+    #[test]
+    fn test_permission_toml_parsing() {
+        let toml = r#"
+model = "test"
+[permissions]
+bash = "deny"
+write_file = "prompt"
+read_file = "allow"
+"#;
+        let config: PawanConfig = toml::from_str(toml).expect("should parse");
+        assert_eq!(config.permissions.get("bash"), Some(&ToolPermission::Deny));
+        assert_eq!(config.permissions.get("write_file"), Some(&ToolPermission::Prompt));
+        assert_eq!(config.permissions.get("read_file"), Some(&ToolPermission::Allow));
+    }
 }
 
 #[cfg(test)]

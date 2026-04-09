@@ -666,15 +666,25 @@ impl PawanAgent {
                 // Auto-activate extended tools on first use (makes them visible in next iteration)
                 self.tools.activate(&tool_call.name);
 
-                // Check permission
-                if let Some(crate::config::ToolPermission::Deny) =
-                    self.config.permissions.get(&tool_call.name)
-                {
+                // Check permission (Deny and Prompt-in-headless both block)
+                let perm = crate::config::ToolPermission::resolve(
+                    &tool_call.name, &self.config.permissions
+                );
+                let denied = match perm {
+                    crate::config::ToolPermission::Deny => Some("Tool denied by permission policy"),
+                    crate::config::ToolPermission::Prompt => {
+                        // In headless mode (no TUI), Prompt = deny for safety.
+                        // TUI mode overrides this via the callback.
+                        Some("Tool requires user approval (set permission to 'allow' or use TUI mode)")
+                    }
+                    crate::config::ToolPermission::Allow => None,
+                };
+                if let Some(reason) = denied {
                     let record = ToolCallRecord {
                         id: tool_call.id.clone(),
                         name: tool_call.name.clone(),
                         arguments: tool_call.arguments.clone(),
-                        result: json!({"error": "Tool denied by permission policy"}),
+                        result: json!({"error": reason}),
                         success: false,
                         duration_ms: 0,
                     };
@@ -686,11 +696,11 @@ impl PawanAgent {
 
                     self.history.push(Message {
                         role: Role::Tool,
-                        content: "{\"error\": \"Tool denied by permission policy\"}".to_string(),
+                        content: format!("{{\"error\": \"{}\"}}", reason),
                         tool_calls: vec![],
                         tool_result: Some(ToolResultMessage {
                             tool_call_id: tool_call.id.clone(),
-                            content: json!({"error": "Tool denied by permission policy"}),
+                            content: json!({"error": reason}),
                             success: false,
                         }),
                     });
