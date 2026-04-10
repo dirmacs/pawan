@@ -68,8 +68,8 @@ fn test_tool_registry_definitions() {
 
     let definitions = registry.get_all_definitions();
 
-    // 29 total tools (7 core + 15 standard + 7 extended)
-    assert_eq!(definitions.len(), 29);
+    // 34 total tools (7 core + 15 standard + 7 extended + 5 deagle extended)
+    assert_eq!(definitions.len(), 34);
 
     // get_definitions should only return core + standard (22 tools, not extended)
     let visible = registry.get_definitions();
@@ -158,9 +158,9 @@ fn test_tool_tier_core_count() {
     let visible = registry.get_definitions();
     let all = registry.get_all_definitions();
 
-    // Extended = all - visible
+    // Extended = all - visible (7 native + 5 deagle)
     let extended_count = all.len() - visible.len();
-    assert_eq!(extended_count, 7, "Should have 7 extended tools");
+    assert_eq!(extended_count, 12, "Should have 12 extended tools");
 }
 
 #[tokio::test]

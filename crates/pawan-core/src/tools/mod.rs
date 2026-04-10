@@ -8,6 +8,7 @@
 
 pub mod agent;
 pub mod bash;
+pub mod deagle;
 pub mod edit;
 #[cfg(test)]
 mod edit_tests;
@@ -159,7 +160,14 @@ impl ToolRegistry {
         registry.register_with_tier(Arc::new(native::ErdTool::new(workspace_root.clone())), Extended);
         registry.register_with_tier(Arc::new(native::MiseTool::new(workspace_root.clone())), Extended);
         registry.register_with_tier(Arc::new(native::ZoxideTool::new(workspace_root.clone())), Extended);
-        registry.register_with_tier(Arc::new(native::LspTool::new(workspace_root)), Extended);
+        registry.register_with_tier(Arc::new(native::LspTool::new(workspace_root.clone())), Extended);
+
+        // ── Deagle code intelligence (Extended) ──
+        registry.register_with_tier(Arc::new(deagle::DeagleSearchTool::new(workspace_root.clone())), Extended);
+        registry.register_with_tier(Arc::new(deagle::DeagleKeywordTool::new(workspace_root.clone())), Extended);
+        registry.register_with_tier(Arc::new(deagle::DeagleSgTool::new(workspace_root.clone())), Extended);
+        registry.register_with_tier(Arc::new(deagle::DeagleStatsTool::new(workspace_root.clone())), Extended);
+        registry.register_with_tier(Arc::new(deagle::DeagleMapTool::new(workspace_root)), Extended);
 
         registry
     }
