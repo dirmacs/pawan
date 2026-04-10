@@ -1587,7 +1587,7 @@ mod tests {
     #[test]
     fn test_truncate_numeric_values_pass_through() {
         // Numbers and booleans can't be truncated — the fn must leave them intact
-        let val = json!({"count": 42, "ratio": 3.14, "enabled": true});
+        let val = json!({"count": 42, "ratio": 2.5, "enabled": true});
         let result = truncate_tool_result(val.clone(), 8000);
         assert_eq!(result, val);
     }
