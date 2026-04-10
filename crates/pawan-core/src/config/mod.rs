@@ -1137,4 +1137,152 @@ fix_tests = true
             assert!(prompt.contains("from "), "Injection should include source filename");
         }
     }
+
+    // --- resolve_skills_repo tests ---
+
+    #[test]
+    fn test_resolve_skills_repo_env_var_takes_priority() {
+        // PAWAN_SKILLS_REPO pointing at a real tempdir must win over the
+        // config.skills_repo field (priority 1 in the resolution chain).
+        let env_dir = tempfile::TempDir::new().expect("tempdir");
+        let cfg_dir = tempfile::TempDir::new().expect("tempdir");
+
+        let config = PawanConfig {
+            skills_repo: Some(cfg_dir.path().to_path_buf()),
+            ..Default::default()
+        };
+
+        std::env::set_var("PAWAN_SKILLS_REPO", env_dir.path());
+        let resolved = config.resolve_skills_repo();
+        std::env::remove_var("PAWAN_SKILLS_REPO");
+
+        let resolved = resolved.expect("env var path should resolve to Some");
+        assert_eq!(
+            resolved.canonicalize().unwrap(),
+            env_dir.path().canonicalize().unwrap(),
+            "env var should take priority over config.skills_repo"
+        );
+    }
+
+    #[test]
+    fn test_resolve_skills_repo_env_var_nonexistent_falls_through() {
+        // PAWAN_SKILLS_REPO pointing at a nonexistent path must be ignored
+        // (warning logged) and the function continues to the next priority.
+        // Here config.skills_repo is also nonexistent, and we cannot control
+        // ~/.config/pawan/skills from a test, so we only assert that the
+        // function does NOT panic and returns either None or the default dir
+        // — crucially it does NOT return the bogus env var path.
+        let bogus = PathBuf::from("/tmp/pawan-nonexistent-skills-repo-for-test-xyz123");
+        assert!(!bogus.exists(), "precondition: bogus path must not exist");
+
+        let config = PawanConfig {
+            skills_repo: Some(PathBuf::from("/tmp/pawan-also-nonexistent-abc789")),
+            ..Default::default()
+        };
+
+        std::env::set_var("PAWAN_SKILLS_REPO", &bogus);
+        let resolved = config.resolve_skills_repo();
+        std::env::remove_var("PAWAN_SKILLS_REPO");
+
+        // Must never return the bogus path
+        if let Some(ref p) = resolved {
+            assert_ne!(p, &bogus, "nonexistent env var path must not be returned");
+            assert!(p.is_dir(), "any returned path must be an existing directory");
+        }
+    }
+
+    // --- auto_discover_mcp_servers tests ---
+
+    #[test]
+    fn test_auto_discover_mcp_is_idempotent() {
+        // Two consecutive calls: first may discover some servers, second must
+        // return an empty Vec (because all are already registered). The mcp
+        // hashmap length must be identical between the two calls.
+        let mut config = PawanConfig::default();
+
+        let first = config.auto_discover_mcp_servers();
+        let len_after_first = config.mcp.len();
+
+        let second = config.auto_discover_mcp_servers();
+        let len_after_second = config.mcp.len();
+
+        assert!(
+            second.is_empty(),
+            "second call must discover nothing (got {:?})",
+            second
+        );
+        assert_eq!(
+            len_after_first, len_after_second,
+            "mcp map length must not change between calls (first discovered {:?})",
+            first
+        );
+    }
+
+    #[test]
+    fn test_auto_discover_mcp_preserves_existing_entries() {
+        // Pre-populate config.mcp with a custom "eruka" entry. Even if
+        // which::which("eruka-mcp") would find a binary on the test machine,
+        // the existing entry MUST NOT be overwritten.
+        let mut config = PawanConfig::default();
+        let custom = McpServerEntry {
+            command: "custom-eruka".to_string(),
+            args: vec!["--custom-flag".to_string()],
+            env: HashMap::new(),
+            enabled: true,
+        };
+        config.mcp.insert("eruka".to_string(), custom);
+
+        let discovered = config.auto_discover_mcp_servers();
+
+        // "eruka" must not appear in the discovered list
+        assert!(
+            !discovered.contains(&"eruka".to_string()),
+            "pre-existing 'eruka' entry must not be rediscovered, got {:?}",
+            discovered
+        );
+
+        // Custom entry must be intact
+        let entry = config.mcp.get("eruka").expect("eruka entry must still exist");
+        assert_eq!(entry.command, "custom-eruka", "custom command must be preserved");
+        assert_eq!(entry.args, vec!["--custom-flag".to_string()]);
+    }
+
+    // --- discover_skills_from_repo tests ---
+
+    #[test]
+    fn test_discover_skills_from_repo_returns_parsed_skills() {
+        // Build a skills repo with one valid SKILL.md and verify that
+        // discover_skills_from_repo parses it via thulp_skill_files::SkillFile.
+        let repo = tempfile::TempDir::new().expect("tempdir");
+
+        // Each skill lives in its own subdirectory containing a SKILL.md
+        let skill_dir = repo.path().join("example-skill");
+        std::fs::create_dir(&skill_dir).expect("mkdir example-skill");
+        let skill_md = skill_dir.join("SKILL.md");
+        std::fs::write(
+            &skill_md,
+            "---\nname: example-skill\ndescription: A test skill used in pawan unit tests\n---\n# Instructions\n\nDo the thing.\n",
+        )
+        .expect("write SKILL.md");
+
+        // Also drop an empty subdirectory with no SKILL.md — should be skipped
+        let empty_dir = repo.path().join("not-a-skill");
+        std::fs::create_dir(&empty_dir).expect("mkdir not-a-skill");
+
+        let config = PawanConfig {
+            skills_repo: Some(repo.path().to_path_buf()),
+            ..Default::default()
+        };
+
+        // Ensure env var does not interfere
+        std::env::remove_var("PAWAN_SKILLS_REPO");
+
+        let skills = config.discover_skills_from_repo();
+        assert_eq!(skills.len(), 1, "expected exactly 1 skill, got {:?}", skills);
+
+        let (name, desc, path) = &skills[0];
+        assert_eq!(name, "example-skill");
+        assert_eq!(desc, "A test skill used in pawan unit tests");
+        assert_eq!(path, &skill_md);
+    }
 }
