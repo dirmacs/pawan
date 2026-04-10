@@ -14,11 +14,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use thulpoff_core::{
-    CompletionRequest, CompletionResponse, GeneratedSkill, LlmProvider as ThulpoffProvider,
-    Message as ToffMessage, MessageRole, TeacherSession, TokenUsage as ToffUsage,
-    ToolCall as ToffToolCall,
+    CompletionRequest, CompletionResponse, EvaluationResult, GeneratedSkill,
+    LlmProvider as ThulpoffProvider, Message as ToffMessage, MessageRole, TeacherSession,
+    TokenUsage as ToffUsage, ToolCall as ToffToolCall,
 };
-use thulpoff_engine::GenerationEngine;
+use thulpoff_engine::{EvaluationEngine, GenerationEngine, RefinementEngine};
 
 // ---------------------------------------------------------------------------
 // Type conversions: pawan → thulpoff
@@ -287,6 +287,88 @@ pub async fn distill_and_save(
 ) -> Result<PathBuf> {
     let skill = distill_session(session, usage, config).await?;
     save_skill(&skill, output_dir)
+}
+
+/// Evaluate a distilled skill against a student model using thulpoff's
+/// EvaluationEngine. Runs each test case through the student model with
+/// the skill in context and scores how well the skill's pass_criteria
+/// are met.
+///
+/// Returns an `EvaluationResult` with per-test scores and an `overall_score`
+/// between 0.0 and 1.0. A perfect score means every pass_criterion was met
+/// in every test case.
+pub async fn evaluate_skill(
+    skill: &GeneratedSkill,
+    student_model: &str,
+    config: &PawanConfig,
+) -> Result<EvaluationResult> {
+    let adapter = PawanProviderAdapter::from_config(config)?;
+    let engine = EvaluationEngine::new(Arc::new(adapter));
+
+    engine
+        .evaluate(skill, student_model)
+        .await
+        .map_err(|e| PawanError::Agent(format!("Skill evaluation failed: {}", e)))
+}
+
+/// Refine a skill based on its evaluation results using thulpoff's
+/// RefinementEngine. If the skill scored less than 1.0, the refinement
+/// engine calls the teacher model with the skill + failing test details
+/// and generates an improved version of the skill content.
+///
+/// The refined skill keeps the original name, frontmatter, and test_cases
+/// — only description and content are updated based on failure analysis.
+pub async fn refine_skill(
+    skill: &GeneratedSkill,
+    eval_result: &EvaluationResult,
+    config: &PawanConfig,
+) -> Result<GeneratedSkill> {
+    let adapter = PawanProviderAdapter::from_config(config)?;
+    let engine = RefinementEngine::new(Arc::new(adapter));
+
+    engine
+        .refine(skill, eval_result, &config.model)
+        .await
+        .map_err(|e| PawanError::Agent(format!("Skill refinement failed: {}", e)))
+}
+
+/// Full distill → evaluate → refine → save loop.
+///
+/// 1. Distills the session into a skill
+/// 2. Evaluates against the student model (or primary model if None)
+/// 3. If score < 1.0, refines once using the teacher model
+/// 4. Saves the final skill to disk
+///
+/// Returns a tuple of `(saved_path, initial_score, final_score)`.
+pub async fn distill_eval_refine_save(
+    session: &Session,
+    usage: &PawanUsage,
+    config: &PawanConfig,
+    output_dir: &Path,
+    student_model: Option<&str>,
+) -> Result<(PathBuf, f64, f64)> {
+    let skill = distill_session(session, usage, config).await?;
+    let student = student_model.unwrap_or(&config.model);
+
+    let eval = evaluate_skill(&skill, student, config).await?;
+    let initial_score = eval.overall_score;
+
+    let final_skill = if initial_score < 1.0 {
+        refine_skill(&skill, &eval, config).await?
+    } else {
+        skill
+    };
+
+    // Re-evaluate the refined skill to get the final score
+    let final_score = if initial_score < 1.0 {
+        let eval2 = evaluate_skill(&final_skill, student, config).await?;
+        eval2.overall_score
+    } else {
+        initial_score
+    };
+
+    let path = save_skill(&final_skill, output_dir)?;
+    Ok((path, initial_score, final_score))
 }
 
 /// Save a GeneratedSkill as a SKILL.md file in a named subdirectory.
