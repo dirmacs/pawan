@@ -80,16 +80,45 @@ pub fn validate_bash_command(command: &str) -> (BashSafety, &'static str) {
 /// Inspired by claw-code's readOnlyValidation.
 pub fn is_read_only(command: &str) -> bool {
     let cmd = command.trim();
+    if cmd.is_empty() {
+        return false;
+    }
 
-    // Extract the first command (before any pipe, &&, ||, ;)
-    let first_cmd = cmd
-        .split(&['|', '&', ';'][..])
-        .next()
-        .unwrap_or(cmd)
-        .trim();
+    // Split on compound operators. A compound command is only read-only if
+    // EVERY sub-command is individually read-only. Previously we only
+    // checked the first sub-command, so `ls && rm file.txt` was wrongly
+    // classified as read-only (SECURITY bug — auto-allow could fire on
+    // destructive tails).
+    //
+    // Normalize multi-char operators (&&, ||) to a single delimiter before
+    // splitting on single-char ones (|, ;) so we don't double-split.
+    // NOTE: quoted strings containing `|`, `;`, or `&` will be mis-split and
+    // conservatively classified as NOT read-only. That's the safer side.
+    let normalized = cmd
+        .replace("&&", "\x01")
+        .replace("||", "\x01")
+        .replace(';', "\x01")
+        .replace('|', "\x01");
+    let sub_commands: Vec<&str> = normalized
+        .split('\x01')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect();
 
+    // Every sub-command must be read-only for the whole to be read-only.
+    sub_commands
+        .iter()
+        .all(|sub| is_single_command_read_only(sub))
+}
+
+/// Check whether a single (non-compound) shell command is read-only.
+///
+/// Separated from [`is_read_only`] so the compound-command fix can iterate
+/// over sub-commands. Do not call this with input that still contains `|`,
+/// `&&`, `||`, or `;` — the caller must split first.
+fn is_single_command_read_only(cmd: &str) -> bool {
     // Get the binary name (first token)
-    let binary = first_cmd.split_whitespace().next().unwrap_or("");
+    let binary = cmd.split_whitespace().next().unwrap_or("");
 
     // Known read-only commands
     let read_only_binaries = [
@@ -117,8 +146,8 @@ pub fn is_read_only(command: &str) -> bool {
     // Check multi-word commands first (e.g. "git log")
     for ro in &read_only_binaries {
         if ro.contains(' ') && cmd.starts_with(ro) {
-            // Ensure no output redirection
-            if !cmd.contains('>') && !cmd.contains(">>") {
+            // Ensure no output redirection in this sub-command
+            if !cmd.contains('>') {
                 return true;
             }
         }
@@ -668,24 +697,73 @@ mod tests {
     }
 
     #[test]
-    fn test_read_only_compound_command_documents_current_behavior() {
-        // CURRENT BEHAVIOR: is_read_only only checks the FIRST command in a
-        // compound (split on &, |, ;). This means "ls && rm file.txt" is
-        // classified as read-only even though the second command writes.
-        //
-        // This is a known limitation — auto-allow should NOT fire for
-        // compound commands whose tail is destructive. Tracked separately;
-        // this test documents the current behavior so a future fix is noticed.
+    fn test_read_only_compound_commands_require_all_parts_read_only() {
+        // SECURITY FIX (task #70): is_read_only now verifies EVERY sub-command
+        // in a compound is individually read-only. Previously it only checked
+        // the first, so auto-allow could fire on destructive tails.
+
+        // Destructive tail after && must NOT be auto-allowed
         assert!(
-            is_read_only("ls && rm file.txt"),
-            "current is_read_only splits on '&' and only checks 'ls'. \
-             If this assertion fails, the compound-command gap was fixed — \
-             update this test to assert !is_read_only(...)"
+            !is_read_only("ls && rm file.txt"),
+            "compound with destructive tail must not be read-only"
         );
-        // Semicolon-separated also only checks first (as long as there's no
-        // redirect in the full command — the ' > ' / ' >> ' check DOES catch
-        // those, so the gap is specifically compound commands without redirect).
-        assert!(is_read_only("pwd ; rm tmpfile"));
+        assert!(
+            !is_read_only("pwd ; rm tmpfile"),
+            "semicolon-separated with destructive tail must not be read-only"
+        );
+        assert!(
+            !is_read_only("pwd || rm -rf /tmp/x"),
+            "|| with destructive alt must not be read-only"
+        );
+        assert!(
+            !is_read_only("cat a && mv a b"),
+            "compound with mv (not in read-only list) must not be read-only"
+        );
+
+        // Positive: every sub-command IS read-only → whole is read-only
+        assert!(
+            is_read_only("ls ; cat file.txt"),
+            "both sub-commands read-only ⇒ whole read-only"
+        );
+        assert!(
+            is_read_only("pwd && whoami"),
+            "all sub-commands in read-only list ⇒ whole read-only"
+        );
+        assert!(
+            is_read_only("git status ; git log --oneline"),
+            "two read-only git commands ⇒ whole read-only"
+        );
+
+        // Pipes still work for benign chains (pre-existing behavior preserved)
+        assert!(
+            is_read_only("cat file.txt | grep foo | wc -l"),
+            "benign pipe chain ⇒ read-only"
+        );
+
+        // Redirect in ANY sub-command kills read-only status
+        assert!(
+            !is_read_only("ls ; echo hi > out.txt"),
+            "redirect in second sub-command ⇒ not read-only"
+        );
+    }
+
+    #[test]
+    fn test_is_read_only_empty_input() {
+        // Regression: empty command must return false, not crash or default
+        // to true via some vacuous "all zero sub-commands" logic.
+        assert!(!is_read_only(""));
+        assert!(!is_read_only("   "));
+    }
+
+    #[test]
+    fn test_is_read_only_single_destructive_unchanged() {
+        // Verify the fix did not regress single-command detection for the
+        // destructive cases that were already correctly rejected.
+        assert!(!is_read_only("rm file.txt"));
+        assert!(!is_read_only("rm -rf /tmp/foo"));
+        assert!(!is_read_only("mv a b"));
+        assert!(!is_read_only("cp source dest"));
+        assert!(!is_read_only("sed -i 's/a/b/' file.txt"));
     }
 }
 
