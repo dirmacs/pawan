@@ -1871,5 +1871,181 @@ mod tests {
             regex_debug, fixed_debug
         );
     }
+
+    // ─── Execution + parameter validation tests (task #22/native) ────────
+
+    #[tokio::test]
+    async fn test_fd_finds_files_by_extension_filter() {
+        if !binary_exists("fd") {
+            eprintln!("skipping fd test — fd binary not on PATH");
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("keep.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("keep_too.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("skip.txt"), "").unwrap();
+        std::fs::write(tmp.path().join("skip.md"), "").unwrap();
+
+        let tool = FdTool::new(tmp.path().into());
+        // Match everything, but restrict by extension
+        let result = tool
+            .execute(json!({
+                "pattern": ".",
+                "extension": "rs"
+            }))
+            .await
+            .unwrap();
+
+        let files = result["files"].as_array().unwrap();
+        let file_list: Vec<&str> = files.iter().filter_map(|v| v.as_str()).collect();
+        // All matched files must end in .rs
+        for f in &file_list {
+            assert!(
+                f.ends_with(".rs"),
+                "extension filter leaked non-.rs file: {}",
+                f
+            );
+        }
+        // Must find at least the two .rs files we created
+        assert!(
+            file_list.iter().any(|f| f.contains("keep")),
+            "expected to find keep.rs, got: {:?}",
+            file_list
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fd_max_results_truncation() {
+        if !binary_exists("fd") {
+            eprintln!("skipping fd test — fd binary not on PATH");
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        // Create 15 files
+        for i in 0..15 {
+            std::fs::write(tmp.path().join(format!("file{i:02}.log")), "").unwrap();
+        }
+
+        let tool = FdTool::new(tmp.path().into());
+        let result = tool
+            .execute(json!({
+                "pattern": ".",
+                "extension": "log",
+                "max_results": 5,
+            }))
+            .await
+            .unwrap();
+
+        let count = result["count"].as_u64().unwrap();
+        let total = result["total_found"].as_u64().unwrap();
+        let truncated = result["truncated"].as_bool().unwrap();
+        assert_eq!(count, 5, "max_results=5 must cap returned files");
+        assert_eq!(total, 15, "total_found must reflect all 15 matches");
+        assert!(truncated, "truncated flag must be true when total > max");
+    }
+
+    #[tokio::test]
+    async fn test_fd_empty_result_has_correct_shape() {
+        if !binary_exists("fd") {
+            eprintln!("skipping fd test — fd binary not on PATH");
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("only.txt"), "").unwrap();
+
+        let tool = FdTool::new(tmp.path().into());
+        let result = tool
+            .execute(json!({
+                "pattern": "definitely_nothing_matches_xyz_abc_9999"
+            }))
+            .await
+            .unwrap();
+
+        assert_eq!(result["count"].as_u64().unwrap(), 0);
+        assert_eq!(result["total_found"].as_u64().unwrap(), 0);
+        assert_eq!(result["truncated"].as_bool().unwrap(), false);
+        assert!(result["files"].as_array().unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_rg_missing_pattern_returns_error() {
+        if !binary_exists("rg") {
+            eprintln!("skipping rg test — rg binary not on PATH");
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        let tool = RipgrepTool::new(tmp.path().into());
+        // Omit the required "pattern" parameter
+        let result = tool.execute(json!({})).await;
+        assert!(
+            result.is_err(),
+            "missing pattern must return Err, got: {:?}",
+            result
+        );
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.contains("pattern"),
+            "error must mention 'pattern', got: {}",
+            err_msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_sd_missing_required_params_returns_error() {
+        if !binary_exists("sd") {
+            eprintln!("skipping sd test — sd binary not on PATH");
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        let tool = SdTool::new(tmp.path().into());
+
+        // Missing find
+        let r1 = tool.execute(json!({"replace": "new", "path": "f"})).await;
+        assert!(r1.is_err(), "missing find must return Err");
+        assert!(format!("{}", r1.unwrap_err()).contains("find"));
+
+        // Missing replace
+        let r2 = tool.execute(json!({"find": "old", "path": "f"})).await;
+        assert!(r2.is_err(), "missing replace must return Err");
+        assert!(format!("{}", r2.unwrap_err()).contains("replace"));
+
+        // Missing path
+        let r3 = tool.execute(json!({"find": "old", "replace": "new"})).await;
+        assert!(r3.is_err(), "missing path must return Err");
+        assert!(format!("{}", r3.unwrap_err()).contains("path"));
+    }
+
+    #[tokio::test]
+    async fn test_ripgrep_max_count_caps_matches() {
+        if !binary_exists("rg") {
+            eprintln!("skipping rg test — rg binary not on PATH");
+            return;
+        }
+        let tmp = TempDir::new().unwrap();
+        // A file with 10 matches of the same pattern
+        let mut content = String::new();
+        for _ in 0..10 {
+            content.push_str("MATCH_TOKEN\n");
+        }
+        std::fs::write(tmp.path().join("many.txt"), content).unwrap();
+
+        let tool = RipgrepTool::new(tmp.path().into());
+        let result = tool
+            .execute(json!({
+                "pattern": "MATCH_TOKEN",
+                "max_count": 3,
+            }))
+            .await
+            .unwrap();
+
+        let match_count = result["match_count"].as_u64().unwrap();
+        // max_count caps per-file matches in ripgrep, so match_count <= 3
+        assert!(
+            match_count <= 3,
+            "max_count=3 must limit results, got {}",
+            match_count
+        );
+        assert!(match_count >= 1, "should find at least one match");
+    }
 }
 
