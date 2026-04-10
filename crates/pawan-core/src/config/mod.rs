@@ -1285,4 +1285,116 @@ fix_tests = true
         assert_eq!(desc, "A test skill used in pawan unit tests");
         assert_eq!(path, &skill_md);
     }
+
+    // ─── PawanConfig::load() edge cases (task #24) ──────────────────────
+
+    #[test]
+    fn test_load_with_explicit_pawan_toml_path() {
+        // Happy path: explicit path to a valid pawan.toml
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let path = tmp.path().join("pawan.toml");
+        std::fs::write(
+            &path,
+            r#"
+provider = "nvidia"
+model = "meta/llama-3.1-405b-instruct"
+"#,
+        )
+        .expect("write pawan.toml");
+
+        let config = PawanConfig::load(Some(&path)).expect("load should succeed");
+        assert_eq!(config.model, "meta/llama-3.1-405b-instruct");
+    }
+
+    #[test]
+    fn test_load_with_invalid_toml_returns_error() {
+        // Malformed TOML should return a Config error, not panic
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let path = tmp.path().join("pawan.toml");
+        std::fs::write(&path, "this is not [[valid] toml @@").expect("write bad toml");
+
+        let result = PawanConfig::load(Some(&path));
+        assert!(result.is_err(), "malformed TOML must return Err");
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(
+            err_msg.to_lowercase().contains("parse")
+                || err_msg.to_lowercase().contains("failed"),
+            "error should mention parse/failed, got: {}",
+            err_msg
+        );
+    }
+
+    #[test]
+    fn test_load_with_nonexistent_path_returns_error() {
+        // An explicit path to a file that doesn't exist must return Err,
+        // not silently fall through to defaults (defaults only apply when
+        // path=None and no auto-discovered config exists).
+        let bogus = PathBuf::from("/tmp/definitely-does-not-exist-abc123-xyz.toml");
+        let result = PawanConfig::load(Some(&bogus));
+        assert!(
+            result.is_err(),
+            "non-existent explicit path must return Err"
+        );
+    }
+
+    #[test]
+    fn test_load_ares_toml_with_pawan_section() {
+        // ares.toml loading must extract the [pawan] section specifically
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let path = tmp.path().join("ares.toml");
+        std::fs::write(
+            &path,
+            r#"
+# ares config (unrelated to pawan)
+[server]
+port = 3000
+
+[pawan]
+provider = "ollama"
+model = "qwen3-coder:30b"
+"#,
+        )
+        .expect("write ares.toml");
+
+        let config = PawanConfig::load(Some(&path)).expect("ares.toml load should succeed");
+        assert_eq!(config.provider, LlmProvider::Ollama);
+        assert_eq!(config.model, "qwen3-coder:30b");
+    }
+
+    #[test]
+    fn test_load_ares_toml_without_pawan_section_returns_defaults() {
+        // ares.toml with no [pawan] section must fall back to defaults,
+        // not error out. This is the common case on VPS where ares runs
+        // alongside pawan but pawan has its own config elsewhere.
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let path = tmp.path().join("ares.toml");
+        std::fs::write(
+            &path,
+            r#"
+[server]
+port = 3000
+workers = 4
+"#,
+        )
+        .expect("write ares.toml without pawan section");
+
+        let config = PawanConfig::load(Some(&path)).expect("load should succeed");
+        // Should match defaults
+        let defaults = PawanConfig::default();
+        assert_eq!(config.provider, defaults.provider);
+        assert_eq!(config.model, defaults.model);
+    }
+
+    #[test]
+    fn test_load_empty_toml_file_returns_defaults() {
+        // A completely empty pawan.toml is valid TOML and must parse as
+        // all-defaults via serde(default). This is a common first-run case.
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let path = tmp.path().join("pawan.toml");
+        std::fs::write(&path, "").expect("write empty toml");
+
+        let config = PawanConfig::load(Some(&path)).expect("empty toml should load");
+        let defaults = PawanConfig::default();
+        assert_eq!(config.provider, defaults.provider);
+    }
 }
