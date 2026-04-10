@@ -610,4 +610,120 @@ mod tests {
             .unwrap();
         assert!(summary.contains("Old task"));
     }
+
+    #[test]
+    fn bead_id_generate_is_deterministic() {
+        // Same title + timestamp must hash to the same id. This is the
+        // content-addressable guarantee the "bd-" namespace relies on.
+        let a = BeadId::generate("fix auth", "2026-04-10T12:00:00Z");
+        let b = BeadId::generate("fix auth", "2026-04-10T12:00:00Z");
+        assert_eq!(a.0, b.0, "same inputs must produce same BeadId");
+        assert_eq!(a.0.len(), 8, "BeadId hash must always be 8 hex chars");
+        // Different inputs must differ
+        let c = BeadId::generate("fix auth", "2026-04-10T12:00:01Z");
+        assert_ne!(a.0, c.0, "different timestamps must produce different ids");
+    }
+
+    #[test]
+    fn bead_id_parse_strips_bd_prefix() {
+        // Both "bd-XXXXXXXX" and bare "XXXXXXXX" must round-trip to the
+        // same stored id, so users can type either form in tools.
+        let with_prefix = BeadId::parse("bd-deadbeef");
+        let without = BeadId::parse("deadbeef");
+        assert_eq!(with_prefix.0, "deadbeef");
+        assert_eq!(without.0, "deadbeef");
+        // Display always adds the prefix back
+        assert_eq!(with_prefix.display(), "bd-deadbeef");
+        assert_eq!(format!("{}", without), "bd-deadbeef");
+    }
+
+    #[test]
+    fn bead_status_parse_unknown_falls_back_to_open() {
+        use std::str::FromStr;
+        // Known variants round-trip
+        assert_eq!(BeadStatus::from_str("in_progress").unwrap(), BeadStatus::InProgress);
+        assert_eq!(BeadStatus::from_str("closed").unwrap(), BeadStatus::Closed);
+        assert_eq!(BeadStatus::from_str("open").unwrap(), BeadStatus::Open);
+        // Unknown string defaults to Open (permissive parse per impl)
+        assert_eq!(BeadStatus::from_str("garbage").unwrap(), BeadStatus::Open);
+        assert_eq!(BeadStatus::from_str("").unwrap(), BeadStatus::Open);
+        // to_str() / from_str() round trip
+        for variant in [BeadStatus::Open, BeadStatus::InProgress, BeadStatus::Closed] {
+            let s = variant.to_str();
+            assert_eq!(BeadStatus::from_str(s).unwrap(), variant);
+        }
+    }
+
+    #[test]
+    fn update_each_field_independently() {
+        let store = test_store();
+        let bead = store.create("original", Some("desc"), 3).unwrap();
+
+        // Update title only
+        store.update(&bead.id, Some("renamed"), None, None).unwrap();
+        let loaded = store.get(&bead.id).unwrap();
+        assert_eq!(loaded.title, "renamed");
+        assert_eq!(loaded.status, BeadStatus::Open, "status must be unchanged");
+        assert_eq!(loaded.priority, 3, "priority must be unchanged");
+
+        // Update status only
+        store.update(&bead.id, None, Some(BeadStatus::InProgress), None).unwrap();
+        let loaded = store.get(&bead.id).unwrap();
+        assert_eq!(loaded.title, "renamed", "title must be unchanged");
+        assert_eq!(loaded.status, BeadStatus::InProgress);
+        assert_eq!(loaded.priority, 3, "priority must be unchanged");
+
+        // Update priority only
+        store.update(&bead.id, None, None, Some(0)).unwrap();
+        let loaded = store.get(&bead.id).unwrap();
+        assert_eq!(loaded.priority, 0);
+        assert_eq!(loaded.status, BeadStatus::InProgress, "status must be unchanged");
+    }
+
+    #[test]
+    fn dep_remove_leaves_other_deps_intact() {
+        let store = test_store();
+        let a = store.create("A", None, 1).unwrap();
+        let b = store.create("B", None, 1).unwrap();
+        let c = store.create("C", None, 1).unwrap();
+
+        // C depends on A and B
+        store.dep_add(&c.id, &a.id).unwrap();
+        store.dep_add(&c.id, &b.id).unwrap();
+        assert_eq!(store.deps(&c.id).unwrap().len(), 2);
+
+        // Remove only the dep on A — dep on B must remain
+        store.dep_remove(&c.id, &a.id).unwrap();
+        let remaining = store.deps(&c.id).unwrap();
+        assert_eq!(remaining.len(), 1, "after removing one dep, one must remain");
+        assert_eq!(remaining[0], b.id, "the surviving dep must be B");
+
+        // C is still blocked by B
+        let ready = store.ready().unwrap();
+        assert!(
+            !ready.iter().any(|bead| bead.id == c.id),
+            "C should still be blocked by B"
+        );
+    }
+
+    #[test]
+    fn memory_decay_with_no_old_beads_returns_zero() {
+        let store = test_store();
+        // Only recent beads — nothing should be decayed
+        let a = store.create("recent A", None, 1).unwrap();
+        store.close(&a.id, Some("done")).unwrap();
+        store.create("still open", None, 2).unwrap();
+
+        let decayed = store.memory_decay(30).unwrap();
+        assert_eq!(decayed, 0, "no beads older than 30d should decay");
+
+        // Both beads must still exist
+        assert!(store.get(&a.id).is_ok(), "recent closed bead must survive");
+
+        // No archive row should have been inserted
+        let archive_count: i64 = store.conn
+            .query_row("SELECT COUNT(*) FROM archives", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(archive_count, 0, "no archive row should be created when nothing decayed");
+    }
 }
