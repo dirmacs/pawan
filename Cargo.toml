@@ -23,6 +23,10 @@ thulp-skill-files = "0.3"
 thulpoff-core = { version = "0.1", path = "/opt/thulpoff/crates/thulpoff-core" }
 thulpoff-engine = { version = "0.1", path = "/opt/thulpoff/crates/thulpoff-engine" }
 
+# Ares — composable LLM backends, tool coordination, agent primitives
+# Use lean feature set (no postgres/web server) for pawan library consumption.
+ares-server = { version = "0.7", path = "/opt/ares", default-features = false, features = ["openai", "ollama"] }
+
 # Async runtime
 tokio = { version = "1.48", features = ["full"] }
 
