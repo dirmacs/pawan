@@ -1270,3 +1270,23 @@ fn test_auto_discover_mcp_returns_empty_without_binaries() {
         assert!(config.mcp.contains_key(name));
     }
 }
+
+// ─── Phase 6: thulpoff eval + refine API ───────────────────────────────────
+
+/// Verify that evaluate_skill, refine_skill, and distill_eval_refine_save
+/// are publicly accessible from the skill_distillation module. Compile-time
+/// smoke test — if these functions aren't exported, the test won't compile.
+#[allow(unused_imports, dead_code)]
+#[test]
+fn test_eval_refine_api_surface_exists() {
+    // Importing confirms the API names exist at the expected path.
+    use pawan::skill_distillation::{
+        distill_eval_refine_save, distill_session, evaluate_skill, refine_skill,
+    };
+
+    // Silence unused warnings with a dummy reference each
+    let _ = distill_session as *const ();
+    let _ = evaluate_skill as *const ();
+    let _ = refine_skill as *const ();
+    let _ = distill_eval_refine_save as *const ();
+}
