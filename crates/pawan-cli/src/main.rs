@@ -232,6 +232,22 @@ enum Commands {
         /// Output directory for generated skill (default: ~/.pawan/skills/)
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Evaluate the distilled skill against a student model and print
+        /// the overall score (uses thulpoff EvaluationEngine).
+        /// If a model name is provided, evaluates against that model;
+        /// otherwise evaluates against the currently configured model.
+        #[arg(long)]
+        eval: bool,
+
+        /// Evaluate and refine the skill if initial score is less than 1.0.
+        /// Runs distill → eval → refine → eval → save. Implies --eval.
+        #[arg(long)]
+        refine: bool,
+
+        /// Student model to evaluate against (default: currently configured model)
+        #[arg(long)]
+        student_model: Option<String>,
     },
 
     /// Headless single-prompt execution (for scripting and orchestration)
@@ -481,8 +497,8 @@ async fn run() -> Result<()> {
             run_review(config, workspace, staged, file).await
         }
         Some(Commands::Explain { query }) => run_explain(config, workspace, &query).await,
-        Some(Commands::Distill { session, output }) => {
-            run_distill(config, session, output).await
+        Some(Commands::Distill { session, output, eval, refine, student_model }) => {
+            run_distill(config, session, output, eval, refine, student_model).await
         }
         Some(Commands::Status) => run_status(config, workspace).await,
         Some(Commands::Watch { interval, commit, notify }) => {
@@ -1929,6 +1945,9 @@ async fn run_distill(
     config: PawanConfig,
     session_id: Option<String>,
     output_dir: Option<PathBuf>,
+    eval: bool,
+    refine: bool,
+    student_model: Option<String>,
 ) -> Result<()> {
     use pawan::agent::session::Session;
     use pawan::agent::TokenUsage;
@@ -1974,14 +1993,85 @@ async fn run_distill(
         session.messages.iter().flat_map(|m| m.tool_calls.iter()).count()
     );
 
-    match skill_distillation::distill_and_save(&session, &usage, &config, &output).await {
-        Ok(path) => {
-            println!("Skill distilled to: {}", path.display());
-            Ok(())
+    // Refine implies eval
+    let do_eval = eval || refine;
+
+    if refine {
+        // Full distill → eval → refine → eval → save loop
+        match skill_distillation::distill_eval_refine_save(
+            &session,
+            &usage,
+            &config,
+            &output,
+            student_model.as_deref(),
+        )
+        .await
+        {
+            Ok((path, initial, final_score)) => {
+                println!("Skill distilled to: {}", path.display());
+                println!(
+                    "Eval: initial score {:.2}, refined score {:.2} ({})",
+                    initial,
+                    final_score,
+                    if final_score > initial {
+                        "improved"
+                    } else if final_score == initial {
+                        "unchanged"
+                    } else {
+                        "regressed"
+                    }
+                );
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Distill-refine pipeline failed: {}", e);
+                Err(e)
+            }
         }
-        Err(e) => {
-            eprintln!("Distillation failed: {}", e);
-            Err(e)
+    } else if do_eval {
+        // Distill then eval without refinement
+        let skill = match skill_distillation::distill_session(&session, &usage, &config).await {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("Distillation failed: {}", e);
+                return Err(e);
+            }
+        };
+
+        let student = student_model.as_deref().unwrap_or(&config.model);
+        eprintln!("Evaluating against student model: {}", student);
+
+        match skill_distillation::evaluate_skill(&skill, student, &config).await {
+            Ok(result) => {
+                println!("Overall score: {:.2} ({}/{} tests passed)",
+                    result.overall_score,
+                    result.test_results.iter().filter(|r| r.passed).count(),
+                    result.test_results.len());
+            }
+            Err(e) => eprintln!("Evaluation failed: {}", e),
+        }
+
+        match skill_distillation::save_skill(&skill, &output) {
+            Ok(path) => {
+                println!("Skill distilled to: {}", path.display());
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Save failed: {}", e);
+                Err(e)
+            }
+        }
+    } else {
+        // Default: distill only
+        match skill_distillation::distill_and_save(&session, &usage, &config, &output).await {
+            Ok(path) => {
+                println!("Skill distilled to: {}", path.display());
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Distillation failed: {}", e);
+                Err(e)
+            }
         }
     }
 }
