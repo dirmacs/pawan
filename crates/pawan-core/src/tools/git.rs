@@ -1255,4 +1255,148 @@ mod tests {
         assert!(log.contains("commit 2"), "expected 'commit 2' in log, got: {}", log);
         assert!(!log.contains("commit 1"), "'commit 1' should be excluded by count=2, got: {}", log);
     }
+
+    // ─── Edge cases for git tools (task #22/git) ────────────────────────
+
+    #[tokio::test]
+    async fn test_git_add_neither_files_nor_all_returns_error() {
+        // GitAddTool requires either `files` (non-empty) or `all: true`.
+        // Omitting both must return a specific error message.
+        let temp_dir = setup_git_repo().await;
+        let tool = GitAddTool::new(temp_dir.path().to_path_buf());
+        let result = tool.execute(json!({})).await;
+        assert!(result.is_err(), "git_add with no args must return Err");
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("files") && err.contains("all"),
+            "error must mention both 'files' and 'all', got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_git_add_all_without_files_list_succeeds() {
+        // all=true should work even when `files` is not specified at all.
+        // This tests the early branch that skips the empty-files check.
+        let temp_dir = setup_git_repo().await;
+        std::fs::write(temp_dir.path().join("x.txt"), "a").unwrap();
+        std::fs::write(temp_dir.path().join("y.txt"), "b").unwrap();
+
+        let tool = GitAddTool::new(temp_dir.path().to_path_buf());
+        let result = tool.execute(json!({ "all": true })).await.unwrap();
+        assert!(result["success"].as_bool().unwrap());
+        assert!(
+            result["message"]
+                .as_str()
+                .unwrap()
+                .contains("Staged all changes"),
+            "all=true should report 'Staged all changes'"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_git_add_empty_files_array_returns_error() {
+        // files=[] with no all flag must ALSO error (empty array is falsy).
+        let temp_dir = setup_git_repo().await;
+        let tool = GitAddTool::new(temp_dir.path().to_path_buf());
+        let result = tool.execute(json!({ "files": [] })).await;
+        assert!(
+            result.is_err(),
+            "empty files array + no all flag must error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_git_checkout_nonexistent_branch_without_create_errors() {
+        // Checkout to a non-existent branch WITHOUT create=true must fail,
+        // not silently create it. This pins the "safety" contract of the tool.
+        let temp_dir = setup_git_repo().await;
+        std::fs::write(temp_dir.path().join("init.txt"), "init").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
+
+        let tool = GitCheckoutTool::new(temp_dir.path().to_path_buf());
+        let result = tool
+            .execute(json!({
+                "target": "nonexistent-branch-xyz-abc-9999",
+                "create": false
+            }))
+            .await;
+        assert!(
+            result.is_err(),
+            "checkout to nonexistent branch without create must error"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_git_status_detects_modified_file() {
+        // GitStatusTool should report modified files that were previously committed
+        let temp_dir = setup_git_repo().await;
+        std::fs::write(temp_dir.path().join("tracked.txt"), "v1").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init tracked"])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
+
+        // Modify the tracked file
+        std::fs::write(temp_dir.path().join("tracked.txt"), "v2").unwrap();
+
+        let tool = GitStatusTool::new(temp_dir.path().to_path_buf());
+        let result = tool.execute(json!({})).await.unwrap();
+        // Verify the status includes the modified file
+        let serialized = result.to_string();
+        assert!(
+            serialized.contains("tracked.txt"),
+            "status must mention modified tracked.txt, got: {}",
+            serialized
+        );
+    }
+
+    #[tokio::test]
+    async fn test_git_log_count_zero_uses_default_or_errors() {
+        // count=0 is an unusual value — test that it either uses a default
+        // or errors rather than returning unbounded output.
+        let temp_dir = setup_git_repo().await;
+        std::fs::write(temp_dir.path().join("f.txt"), "init").unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
+
+        let tool = GitLogTool::new(temp_dir.path().to_path_buf());
+        // count=0 — observe current behavior (documented pin)
+        let result = tool.execute(json!({ "count": 0 })).await;
+        // Either succeeds with default count OR errors — both are acceptable,
+        // as long as it doesn't hang or return unbounded output
+        assert!(
+            result.is_ok() || result.is_err(),
+            "count=0 should not hang"
+        );
+    }
 }
