@@ -398,6 +398,13 @@ async fn run() -> Result<()> {
     // Apply environment variable overrides (PAWAN_MODEL, PAWAN_PROVIDER, etc.)
     config.apply_env_overrides();
 
+    // Auto-discover MCP servers (eruka-mcp, daedra, deagle-mcp) in PATH.
+    // Idempotent: never overwrites explicit pawan.toml entries.
+    let discovered = config.auto_discover_mcp_servers();
+    if !discovered.is_empty() && cli.verbose {
+        eprintln!("Auto-discovered MCP servers: {}", discovered.join(", "));
+    }
+
     // Apply CLI overrides (highest priority)
     if let Some(model) = cli.model {
         config.model = model;
