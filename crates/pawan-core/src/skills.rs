@@ -217,6 +217,87 @@ mod tests {
         assert_eq!(skill.name, "deagle_explore");
     }
 
+    #[tokio::test]
+    async fn test_pawan_transport_call_unknown_tool_returns_failure() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let registry = Arc::new(ToolRegistry::with_defaults(tmp.path().to_path_buf()));
+        let transport = PawanTransport::new(registry);
+
+        let call = ToolCall {
+            tool: "nonexistent_tool_xyz".to_string(),
+            arguments: serde_json::json!({}),
+        };
+        // call() always returns Ok(ToolResult) — failures are encoded in the
+        // ToolResult, not as Err (so skill executors can decide policy).
+        let result = transport.call(&call).await.unwrap();
+        assert!(!result.success, "unknown tool should produce a failure result");
+    }
+
+    #[tokio::test]
+    async fn test_pawan_transport_call_dispatches_to_read_file() {
+        // Integration: write a tempfile, call read_file via transport, verify
+        // the round-trip works end-to-end through the registry.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let file_path = tmp.path().join("hello.txt");
+        std::fs::write(&file_path, "hello from transport test\n").unwrap();
+
+        let registry = Arc::new(ToolRegistry::with_defaults(tmp.path().to_path_buf()));
+        let transport = PawanTransport::new(registry);
+
+        let call = ToolCall {
+            tool: "read_file".to_string(),
+            arguments: serde_json::json!({ "path": "hello.txt" }),
+        };
+        let result = transport.call(&call).await.unwrap();
+        assert!(result.success, "read_file via transport should succeed");
+        // The result content should contain the file body somewhere
+        let result_str = format!("{:?}", result);
+        assert!(
+            result_str.contains("hello from transport test"),
+            "result should include file contents, got: {}",
+            result_str
+        );
+    }
+
+    #[tokio::test]
+    async fn test_pawan_transport_list_tools_names_match_registry() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let registry = Arc::new(ToolRegistry::with_defaults(tmp.path().to_path_buf()));
+        let transport = PawanTransport::new(Arc::clone(&registry));
+
+        let transport_names: std::collections::HashSet<String> = transport
+            .list_tools()
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        let registry_names: std::collections::HashSet<String> = registry
+            .get_all_definitions()
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+
+        assert_eq!(
+            transport_names, registry_names,
+            "transport.list_tools() must match registry.get_all_definitions() 1:1"
+        );
+    }
+
+    #[test]
+    fn test_built_in_skills_are_distinct() {
+        // Pin the invariant that the 3 built-in skills have unique names
+        // so accidentally renaming one to an existing name fails the test.
+        let names: std::collections::HashSet<String> = [
+            built_in_skills::format_and_commit().name,
+            built_in_skills::test_and_report().name,
+            built_in_skills::deagle_explore().name,
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(names.len(), 3, "all 3 built-in skills must have unique names");
+    }
+
     // Suppress unused imports warning for PathBuf when tests compile but
     // don't exercise it directly.
     #[allow(dead_code)]
