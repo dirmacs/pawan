@@ -884,4 +884,171 @@ mod tests {
         let content = std::fs::read_to_string(&file_path).unwrap();
         assert_eq!(content, "replaced\nline2");
     }
+
+    // --- EditFileLinesTool anchor mode tests ---
+
+    #[tokio::test]
+    async fn test_edit_file_lines_anchor_mode_finds_and_replaces() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.rs");
+        std::fs::write(
+            &file_path,
+            "fn alpha() {}\nfn beta() {}\nfn gamma() {}\n",
+        )
+        .unwrap();
+
+        let tool = EditFileLinesTool::new(temp_dir.path().to_path_buf());
+        let result = tool
+            .execute(json!({
+                "path": "test.rs",
+                "anchor_text": "fn beta",
+                "anchor_count": 1,
+                "new_content": "fn beta_renamed() {}"
+            }))
+            .await
+            .unwrap();
+
+        assert!(result["success"].as_bool().unwrap());
+        assert_eq!(result["lines_replaced"], 1);
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert!(content.contains("fn beta_renamed() {}"));
+        assert!(content.contains("fn alpha() {}"));
+        assert!(content.contains("fn gamma() {}"));
+        assert!(!content.contains("fn beta() {}"));
+    }
+
+    #[tokio::test]
+    async fn test_edit_file_lines_anchor_not_found_errors() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.rs");
+        std::fs::write(&file_path, "fn alpha() {}\n").unwrap();
+
+        let tool = EditFileLinesTool::new(temp_dir.path().to_path_buf());
+        let result = tool
+            .execute(json!({
+                "path": "test.rs",
+                "anchor_text": "nonexistent_function_xyz",
+                "new_content": "replacement"
+            }))
+            .await;
+
+        assert!(result.is_err());
+        let err_msg = format!("{}", result.unwrap_err());
+        assert!(err_msg.contains("not found"), "got: {}", err_msg);
+    }
+
+    // --- InsertAfterTool tests (previously ZERO coverage) ---
+
+    #[tokio::test]
+    async fn test_insert_after_simple_line() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.rs");
+        std::fs::write(&file_path, "// header\nfn existing() {}\n").unwrap();
+
+        let tool = InsertAfterTool::new(temp_dir.path().to_path_buf());
+        let result = tool
+            .execute(json!({
+                "path": "test.rs",
+                "anchor_text": "// header",
+                "content": "// new comment"
+            }))
+            .await
+            .unwrap();
+
+        assert!(result["success"].as_bool().unwrap());
+        assert_eq!(result["lines_inserted"], 1);
+        assert_eq!(result["block_skipped"], false);
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content, "// header\n// new comment\nfn existing() {}\n");
+    }
+
+    #[tokio::test]
+    async fn test_insert_after_block_skip() {
+        // Anchor line ends with '{' — insert should jump past the closing '}'
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.rs");
+        std::fs::write(
+            &file_path,
+            "fn first() {\n    println!(\"a\");\n}\nfn third() {}\n",
+        )
+        .unwrap();
+
+        let tool = InsertAfterTool::new(temp_dir.path().to_path_buf());
+        let result = tool
+            .execute(json!({
+                "path": "test.rs",
+                "anchor_text": "fn first()",
+                "content": "fn second() {}"
+            }))
+            .await
+            .unwrap();
+
+        assert!(result["success"].as_bool().unwrap());
+        assert_eq!(result["block_skipped"], true);
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        // fn second() must appear AFTER the closing brace of fn first()
+        let first_close = content.find("}\nfn second()").expect("second should be inserted after first's '}'");
+        assert!(first_close > content.find("println!").unwrap());
+        // And before fn third()
+        assert!(content.find("fn second()").unwrap() < content.find("fn third()").unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_insert_after_anchor_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("test.rs");
+        std::fs::write(&file_path, "fn alpha() {}\n").unwrap();
+
+        let tool = InsertAfterTool::new(temp_dir.path().to_path_buf());
+        let result = tool
+            .execute(json!({
+                "path": "test.rs",
+                "anchor_text": "completely_missing_marker",
+                "content": "new"
+            }))
+            .await;
+
+        assert!(result.is_err());
+    }
+
+    // --- AppendFileTool tests (previously ZERO coverage) ---
+
+    #[tokio::test]
+    async fn test_append_file_creates_new_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = AppendFileTool::new(temp_dir.path().to_path_buf());
+
+        let result = tool
+            .execute(json!({
+                "path": "new_file.md",
+                "content": "# Hello\n\nFirst line"
+            }))
+            .await
+            .unwrap();
+
+        assert!(result["success"].as_bool().unwrap());
+        assert_eq!(result["lines_appended"], 3);
+        let created = temp_dir.path().join("new_file.md");
+        assert!(created.exists());
+        let content = std::fs::read_to_string(&created).unwrap();
+        assert_eq!(content, "# Hello\n\nFirst line\n");
+    }
+
+    #[tokio::test]
+    async fn test_append_file_adds_to_existing() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("log.txt");
+        std::fs::write(&file_path, "entry one\n").unwrap();
+
+        let tool = AppendFileTool::new(temp_dir.path().to_path_buf());
+        tool.execute(json!({
+            "path": "log.txt",
+            "content": "entry two"
+        }))
+        .await
+        .unwrap();
+
+        let content = std::fs::read_to_string(&file_path).unwrap();
+        assert_eq!(content, "entry one\nentry two\n");
+    }
 }
