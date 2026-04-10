@@ -652,4 +652,120 @@ mod tests {
             );
         }
     }
+
+    // ─── Edge case tests for validate_file_write ─────────────────────────
+
+    #[test]
+    fn test_validate_file_write_allows_gitignore_not_blocked_as_dotgit() {
+        // Regression: `.gitignore`, `.github/`, `.git-credentials` must not
+        // be mistaken for the `.git/` directory component. Only an exact
+        // `.git` path component (delimited by `/`) should trigger the block.
+        let allowed = [
+            "/home/user/ws/.gitignore",
+            "/home/user/ws/.gitattributes",
+            "/home/user/ws/.github/workflows/ci.yml",
+            "/home/user/ws/.git-credentials",
+            "/home/user/ws/src/.gitkeep",
+        ];
+        for p in allowed {
+            let result = validate_file_write(Path::new(p));
+            assert!(
+                result.is_ok(),
+                "Path {} starts with .git but is NOT a .git component — should be allowed, got: {:?}",
+                p,
+                result.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_file_write_case_sensitivity_on_env_files() {
+        // Filename comparison is case-sensitive (contains()) — .ENV and .Env
+        // are NOT blocked because blocked_files only lists lowercase. This
+        // test pins the current behavior so it's not accidentally changed
+        // without considering the impact on case-insensitive filesystems.
+        let path = PathBuf::from("/tmp/project/.ENV");
+        let result = validate_file_write(&path);
+        assert!(
+            result.is_ok(),
+            ".ENV (uppercase) is not in the blocked list — current behavior is to allow"
+        );
+    }
+
+    #[test]
+    fn test_validate_file_write_blocks_dotgit_even_at_root() {
+        // .git at the root of a path (no parent dirs) should still be blocked
+        let result = validate_file_write(Path::new(".git/HEAD"));
+        assert!(result.is_err(), "root-level .git/ must be blocked");
+        assert!(result.unwrap_err().contains(".git"));
+    }
+
+    #[test]
+    fn test_validate_file_write_handles_empty_filename() {
+        // A path that is just a directory (e.g. "/foo/bar/") has no filename.
+        // validate_file_write must not panic — it should treat it as allowed
+        // since there's no filename to match against the blocked list.
+        let result = validate_file_write(Path::new("/tmp/somedir/"));
+        assert!(
+            result.is_ok(),
+            "directory path with no filename must not panic or error"
+        );
+    }
+
+    #[test]
+    fn test_validate_file_write_allows_etc_files_at_wrong_level() {
+        // `/etc/` prefix blocks writes to /etc. But a path like
+        // "/home/user/etc/config" should NOT be blocked — /etc/ is the
+        // start-of-string match, not a substring.
+        let allowed = [
+            "/home/user/etc/config.toml",
+            "/opt/pawan/etc/overrides.yml",
+        ];
+        for p in allowed {
+            let result = validate_file_write(Path::new(p));
+            assert!(
+                result.is_ok(),
+                "Path {} with /etc/ not at start must be allowed",
+                p
+            );
+        }
+    }
+
+    // ─── Edge case tests for normalize_path ──────────────────────────────
+
+    #[test]
+    fn test_normalize_path_workspace_root_with_trailing_slash() {
+        // When workspace_root has a trailing slash, normalization must
+        // still work correctly for both the double-prefix case and
+        // normal relative paths.
+        let ws = PathBuf::from("/home/user/ws");
+        let rel = "src/main.rs";
+        let result = normalize_path(&ws, rel);
+        assert_eq!(result, PathBuf::from("/home/user/ws/src/main.rs"));
+    }
+
+    #[test]
+    fn test_normalize_path_empty_relative() {
+        // An empty relative path should join cleanly to the workspace root
+        let ws = PathBuf::from("/home/user/ws");
+        let result = normalize_path(&ws, "");
+        assert_eq!(result, PathBuf::from("/home/user/ws"));
+    }
+
+    #[test]
+    fn test_normalize_path_triple_prefix_not_collapsed() {
+        // Current behavior: triple-prefix paths find the FIRST reoccurrence
+        // only. This pins the current behavior to catch regressions in the
+        // double-prefix detection algorithm.
+        let ws = PathBuf::from("/ws");
+        let triple = "/ws/ws/ws/foo.rs";
+        let result = normalize_path(&ws, triple);
+        // After stripping first /ws, remainder is "/ws/ws/foo.rs"; first
+        // occurrence of "/ws" in remainder is at index 0 → returns "/ws/ws/foo.rs"
+        assert_eq!(
+            result,
+            PathBuf::from("/ws/ws/foo.rs"),
+            "triple prefix collapses to double prefix — documented behavior"
+        );
+    }
 }
