@@ -14,19 +14,16 @@ readme = "README.md"
 name = "pawan"
 path = "src/lib.rs"
 
-# [features]
-# ares = ["dep:ares-server"]
+[features]
+default = []
+# Enable ares-server integration: LLM backends, tool registry bridge,
+# agent primitives (ToolCoordinator, ConfigurableAgent, loop detection,
+# crash recovery). Adds ~20% compile time but unlocks major code reuse.
 #
-# Ares integration: the backend code exists at src/agent/backend/ares_backend.rs
-# and src/tools/ares_bridge.rs but is gated behind #[cfg(feature = "ares")].
-# To enable, add to this Cargo.toml:
-#   [features] ares = ["dep:ares-server"]
-#   [dependencies] ares-server = { path = "../ares", optional = true, ... }
-# This is intentionally not declared here because ares-server is a local
-# path dependency that doesn't exist in CI or on crates.io.
-
-[lints.rust]
-unexpected_cfgs = { level = "allow", check-cfg = ['cfg(feature, values("ares"))'] }
+# NOTE: ares-server is not yet published on crates.io. To use this feature,
+# pawan must be built from a workspace where /opt/ares exists (path dep).
+# Once ares-server is published, this feature will work from `cargo install`.
+ares = ["dep:ares-server"]
 
 [dependencies]
 # Core from workspace
@@ -71,6 +68,11 @@ thulp-skill-files = { workspace = true }
 # Thulpoff — skill distillation from agent sessions
 thulpoff-core = { workspace = true }
 thulpoff-engine = { workspace = true }
+
+# Ares — composable LLM backends + tool coordination (optional, feature-gated)
+# Renamed to `ares` so existing bridge code (ares_backend.rs, ares_bridge.rs)
+# can use `ares::llm::...` etc. without changes.
+ares-server = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3.23"

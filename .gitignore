@@ -5,3 +5,9 @@
 .DS_Store
 .env
 docs/public/
+
+# deagle code intelligence graph (local cache)
+.deagle/
+
+# Scheduled tasks lock file (session-local)
+.claude/scheduled_tasks.lock
