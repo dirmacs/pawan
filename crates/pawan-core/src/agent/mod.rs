@@ -1478,4 +1478,91 @@ mod tests {
         let s = PawanAgent::message_importance(&ok_tool);
         assert!(f > u && u > s, "Ordering should be: failed({}) > user({}) > success({})", f, u, s);
     }
+
+    // --- State management tests ---
+
+    #[test]
+    fn test_agent_clear_history_removes_all() {
+        let mut agent = agent_with_messages(8);
+        assert_eq!(agent.history().len(), 8);
+        agent.clear_history();
+        assert_eq!(agent.history().len(), 0, "clear_history should drop every message");
+    }
+
+    #[test]
+    fn test_agent_add_message_appends_in_order() {
+        let config = PawanConfig::default();
+        let mut agent = PawanAgent::new(config, PathBuf::from("."));
+        assert_eq!(agent.history().len(), 0);
+
+        let first = Message {
+            role: Role::User,
+            content: "first".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        };
+        let second = Message {
+            role: Role::Assistant,
+            content: "second".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        };
+        agent.add_message(first);
+        agent.add_message(second);
+
+        assert_eq!(agent.history().len(), 2);
+        assert_eq!(agent.history()[0].content, "first");
+        assert_eq!(agent.history()[1].content, "second");
+        assert_eq!(agent.history()[0].role, Role::User);
+        assert_eq!(agent.history()[1].role, Role::Assistant);
+    }
+
+    #[test]
+    fn test_agent_switch_model_updates_name() {
+        let config = PawanConfig::default();
+        let mut agent = PawanAgent::new(config, PathBuf::from("."));
+        let original = agent.model_name().to_string();
+
+        agent.switch_model("gpt-oss-120b");
+        assert_eq!(agent.model_name(), "gpt-oss-120b");
+        assert_ne!(
+            agent.model_name(),
+            original,
+            "switch_model should change model_name"
+        );
+    }
+
+    #[test]
+    fn test_agent_with_tools_replaces_registry() {
+        let config = PawanConfig::default();
+        let agent = PawanAgent::new(config, PathBuf::from("."));
+        let original_tool_count = agent.get_tool_definitions().len();
+
+        // Build a fresh empty registry
+        let empty = ToolRegistry::new();
+        let agent = agent.with_tools(empty);
+        assert_eq!(
+            agent.get_tool_definitions().len(),
+            0,
+            "with_tools(empty) should drop default registry (had {} tools)",
+            original_tool_count
+        );
+    }
+
+    #[test]
+    fn test_agent_get_tool_definitions_returns_deterministic_set() {
+        // Fresh agent should expose a stable, non-empty default tool set
+        let config = PawanConfig::default();
+        let agent_a = PawanAgent::new(config.clone(), PathBuf::from("."));
+        let agent_b = PawanAgent::new(config, PathBuf::from("."));
+        let defs_a: Vec<String> = agent_a.get_tool_definitions().iter().map(|d| d.name.clone()).collect();
+        let defs_b: Vec<String> = agent_b.get_tool_definitions().iter().map(|d| d.name.clone()).collect();
+
+        assert!(!defs_a.is_empty(), "default agent should have tools");
+        assert_eq!(defs_a.len(), defs_b.len(), "two default agents must have same tool count");
+        // Spot-check a few core tools we know exist
+        let names: Vec<&str> = defs_a.iter().map(|s| s.as_str()).collect();
+        assert!(names.contains(&"read_file"), "should have read_file in defaults");
+        assert!(names.contains(&"bash"), "should have bash in defaults");
+    }
 }
