@@ -420,4 +420,88 @@ core_max_tokens = 1000
         });
         assert!(already, "Should detect existing injection");
     }
+
+    #[test]
+    fn default_config_has_no_api_key() {
+        // Regression: default ErukaConfig must have api_key = None so
+        // unconfigured pawan never sends bogus auth headers.
+        let config = ErukaConfig::default();
+        assert_eq!(config.api_key, None, "default api_key must be None");
+    }
+
+    #[test]
+    fn config_partial_override_keeps_defaults() {
+        // Providing only `enabled = true` must keep url/api_key/core_max_tokens
+        // at their default values via serde defaults. This guards against
+        // removing the #[serde(default)] attributes by accident.
+        let toml = "enabled = true\n";
+        let config: ErukaConfig = toml::from_str(toml).expect("should parse");
+        assert!(config.enabled);
+        assert_eq!(config.url, "http://localhost:8081", "url default must apply");
+        assert_eq!(config.core_max_tokens, 500, "core_max_tokens default must apply");
+        assert_eq!(config.api_key, None, "api_key default must apply");
+    }
+
+    #[test]
+    fn search_result_deserialize_with_all_null_fields() {
+        // Eruka can return entries with every optional field null — the
+        // SearchResult struct must survive without erroring so archive
+        // traversal is robust to partial data.
+        let json = r#"[{"content":null,"field_name":null,"score":null}]"#;
+        let results: Vec<SearchResult> = serde_json::from_str(json).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].content.is_none());
+        assert!(results[0].field_name.is_none());
+        assert!(results[0].score.is_none());
+    }
+
+    #[test]
+    fn context_field_deserialize_without_category() {
+        // A field with only name+value (no category) must still deserialize —
+        // category is optional because Eruka doesn't always return it.
+        let json = r#"{"name":"model","value":"qwen3.5-122b"}"#;
+        let field: ContextField = serde_json::from_str(json).unwrap();
+        assert_eq!(field.name.as_deref(), Some("model"));
+        assert_eq!(field.value.as_deref(), Some("qwen3.5-122b"));
+        assert!(field.category.is_none(), "category must default to None");
+    }
+
+    #[tokio::test]
+    async fn archive_enabled_with_no_user_messages_short_circuits() {
+        // When archive_session() is called on an enabled client with a
+        // session that has no user messages, it must early-return Ok(())
+        // BEFORE attempting any HTTP call. Use an unreachable URL so the
+        // test fails if it actually tries to hit the network.
+        let config = ErukaConfig {
+            enabled: true,
+            url: "http://127.0.0.1:1".into(), // unreachable port
+            api_key: None,
+            core_max_tokens: 500,
+        };
+        let client = ErukaClient::new(config);
+        let session = Session {
+            id: "assistant-only".into(),
+            model: "m".into(),
+            messages: vec![Message {
+                role: Role::Assistant,
+                content: "hi".into(),
+                tool_calls: vec![],
+                tool_result: None,
+            }],
+            created_at: "2026-04-10T00:00:00Z".into(),
+            updated_at: "2026-04-10T00:00:00Z".into(),
+            total_tokens: 0,
+            iteration_count: 0,
+        };
+        // If this ever tries to connect to 127.0.0.1:1 it'll take >50ms and
+        // likely Err — we expect it to return Ok instantly via the early
+        // return on empty user_messages.
+        let result = tokio::time::timeout(
+            std::time::Duration::from_millis(500),
+            client.archive_session(&session),
+        )
+        .await
+        .expect("archive must not hang — empty user messages should short-circuit");
+        assert!(result.is_ok());
+    }
 }
