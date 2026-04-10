@@ -1084,3 +1084,133 @@ fn test_agent_with_ares_backend_flag_fallback() {
     let defs = agent.get_tool_definitions();
     assert_eq!(defs.len(), 22);
 }
+
+// ─── Phase 7: dstack-style skill discovery ─────────────────────────────────
+
+/// Config field `skills_repo` defaults to None
+#[test]
+fn test_skills_repo_default_none() {
+    let config = PawanConfig::default();
+    assert!(config.skills_repo.is_none());
+}
+
+/// Config field `skills_repo` round-trips through TOML
+#[test]
+fn test_skills_repo_toml_roundtrip() {
+    let mut config = PawanConfig::default();
+    config.skills_repo = Some(PathBuf::from("/opt/dirmacs-skills"));
+
+    let serialized = toml::to_string(&config).unwrap();
+    assert!(serialized.contains("skills_repo"));
+    assert!(serialized.contains("/opt/dirmacs-skills"));
+
+    let parsed: PawanConfig = toml::from_str(&serialized).unwrap();
+    assert_eq!(parsed.skills_repo, Some(PathBuf::from("/opt/dirmacs-skills")));
+}
+
+/// resolve_skills_repo returns None when nothing is configured
+#[test]
+fn test_resolve_skills_repo_none_when_unconfigured() {
+    // Ensure env var is not set
+    std::env::remove_var("PAWAN_SKILLS_REPO");
+    let config = PawanConfig::default();
+    // If ~/.config/pawan/skills doesn't exist, resolve returns None
+    // We can't reliably test the default case without polluting HOME,
+    // so this test only verifies the "no config, no env" path doesn't panic.
+    let _ = config.resolve_skills_repo();
+}
+
+/// resolve_skills_repo returns the configured path when it's a real directory
+#[test]
+fn test_resolve_skills_repo_uses_config() {
+    let tmp = TempDir::new().unwrap();
+    std::env::remove_var("PAWAN_SKILLS_REPO");
+    let mut config = PawanConfig::default();
+    config.skills_repo = Some(tmp.path().to_path_buf());
+
+    let resolved = config.resolve_skills_repo();
+    assert_eq!(resolved.as_deref(), Some(tmp.path()));
+}
+
+/// resolve_skills_repo returns None when config path doesn't exist
+#[test]
+fn test_resolve_skills_repo_rejects_nonexistent() {
+    std::env::remove_var("PAWAN_SKILLS_REPO");
+    let mut config = PawanConfig::default();
+    config.skills_repo = Some(PathBuf::from("/nonexistent/path/that/does/not/exist"));
+    // Must not return the nonexistent path
+    let resolved = config.resolve_skills_repo();
+    assert_ne!(
+        resolved,
+        Some(PathBuf::from("/nonexistent/path/that/does/not/exist"))
+    );
+}
+
+/// discover_skills_from_repo returns empty when no repo is configured
+#[test]
+fn test_discover_skills_empty_when_no_repo() {
+    std::env::remove_var("PAWAN_SKILLS_REPO");
+    let config = PawanConfig::default();
+    let skills = config.discover_skills_from_repo();
+    // May or may not find ~/.config/pawan/skills, just verify no panic
+    // and the return is a Vec
+    let _: Vec<(String, String, PathBuf)> = skills;
+}
+
+/// discover_skills_from_repo parses real SKILL.md files from a fake repo
+#[test]
+fn test_discover_skills_finds_real_skill_files() {
+    let tmp = TempDir::new().unwrap();
+    std::env::remove_var("PAWAN_SKILLS_REPO");
+
+    // Create a fake skills repo with 2 skills
+    let skill_a_dir = tmp.path().join("skill-a");
+    let skill_b_dir = tmp.path().join("skill-b");
+    std::fs::create_dir_all(&skill_a_dir).unwrap();
+    std::fs::create_dir_all(&skill_b_dir).unwrap();
+
+    std::fs::write(
+        skill_a_dir.join("SKILL.md"),
+        "---\nname: skill-a\ndescription: First skill\n---\n\n# Skill A\n\nDoes stuff.\n",
+    )
+    .unwrap();
+    std::fs::write(
+        skill_b_dir.join("SKILL.md"),
+        "---\nname: skill-b\ndescription: Second skill\n---\n\n# Skill B\n\nDoes other stuff.\n",
+    )
+    .unwrap();
+
+    // Create a non-skill subdirectory that should be ignored
+    std::fs::create_dir_all(tmp.path().join("not-a-skill")).unwrap();
+    std::fs::write(tmp.path().join("not-a-skill").join("README.md"), "not a skill").unwrap();
+
+    let mut config = PawanConfig::default();
+    config.skills_repo = Some(tmp.path().to_path_buf());
+
+    let skills = config.discover_skills_from_repo();
+    assert_eq!(skills.len(), 2, "Should find 2 skills, got {:?}", skills);
+
+    // Sorted by name: skill-a comes first
+    assert_eq!(skills[0].0, "skill-a");
+    assert_eq!(skills[0].1, "First skill");
+    assert_eq!(skills[1].0, "skill-b");
+    assert_eq!(skills[1].1, "Second skill");
+}
+
+/// Environment variable PAWAN_SKILLS_REPO overrides config field
+#[test]
+fn test_env_var_overrides_config_skills_repo() {
+    let tmp = TempDir::new().unwrap();
+    let env_tmp = TempDir::new().unwrap();
+
+    std::env::set_var("PAWAN_SKILLS_REPO", env_tmp.path());
+
+    let mut config = PawanConfig::default();
+    config.skills_repo = Some(tmp.path().to_path_buf());
+
+    let resolved = config.resolve_skills_repo();
+    assert_eq!(resolved.as_deref(), Some(env_tmp.path()),
+        "env var should take priority over config");
+
+    std::env::remove_var("PAWAN_SKILLS_REPO");
+}
