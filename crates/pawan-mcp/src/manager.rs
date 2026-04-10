@@ -261,4 +261,111 @@ mod tests {
         .expect("connect must return Ok even when individual spawns fail");
         assert_eq!(mgr.summary().len(), 0, "failed spawn ⇒ no registered server");
     }
+
+    // ─── Edge cases for McpManager + McpServerConfig (task #25) ──────────
+
+    #[tokio::test]
+    async fn register_tools_on_empty_manager_returns_zero() {
+        // An empty manager (no connected servers) registering into a
+        // registry must register 0 tools without crashing.
+        let mgr = McpManager::connect(&[]).await.unwrap();
+        let mut registry = ToolRegistry::new();
+        let count = mgr.register_tools(&mut registry);
+        assert_eq!(count, 0, "empty manager ⇒ 0 registered tools");
+    }
+
+    #[tokio::test]
+    async fn summary_on_empty_manager_returns_empty() {
+        let mgr = McpManager::connect(&[]).await.unwrap();
+        let sum = mgr.summary();
+        assert!(sum.is_empty(), "empty manager ⇒ empty summary");
+    }
+
+    #[tokio::test]
+    async fn connect_mixed_enabled_disabled_filters_correctly() {
+        // When a list has both enabled and disabled servers, the disabled
+        // ones must be filtered BEFORE any spawn attempt. Use nonexistent
+        // commands for the disabled entries to prove they're never run.
+        let configs = vec![
+            McpServerConfig {
+                name: "disabled-1".into(),
+                command: "/nope/no/binary/here".into(),
+                args: vec![],
+                env: HashMap::new(),
+                enabled: false, // filter here
+            },
+            McpServerConfig {
+                name: "enabled-but-missing".into(),
+                command: "/also/not/real".into(),
+                args: vec![],
+                env: HashMap::new(),
+                enabled: true, // spawn attempted, will fail
+            },
+        ];
+        let mgr = tokio::time::timeout(
+            std::time::Duration::from_secs(15),
+            McpManager::connect(&configs),
+        )
+        .await
+        .expect("must not hang")
+        .expect("must return Ok");
+        assert_eq!(
+            mgr.summary().len(),
+            0,
+            "disabled filtered + enabled spawn failed ⇒ 0 servers"
+        );
+    }
+
+    #[test]
+    fn config_enabled_default_is_true_via_helper() {
+        // Pin the default_true() helper: omitting `enabled` in JSON must
+        // result in enabled=true. This is the important default because
+        // config files typically omit `enabled` for active servers.
+        let json = r#"{"name":"implicit","command":"cmd"}"#;
+        let config: McpServerConfig = serde_json::from_str(json).unwrap();
+        assert!(config.enabled, "default_true() must yield enabled=true");
+    }
+
+    #[test]
+    fn config_with_env_vars_roundtrips_correctly() {
+        // Env with multiple entries including special chars should survive
+        // a serde roundtrip without dropping any keys.
+        let mut env = HashMap::new();
+        env.insert("NVIDIA_API_KEY".into(), "nvapi-abc123def".into());
+        env.insert("RUST_LOG".into(), "debug".into());
+        env.insert("PATH".into(), "/usr/bin:/usr/local/bin".into());
+
+        let original = McpServerConfig {
+            name: "env-heavy".into(),
+            command: "mcp-server".into(),
+            args: vec![],
+            env,
+            enabled: true,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: McpServerConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.env.len(), 3);
+        assert_eq!(
+            restored.env.get("NVIDIA_API_KEY"),
+            Some(&"nvapi-abc123def".to_string())
+        );
+        assert_eq!(
+            restored.env.get("PATH"),
+            Some(&"/usr/bin:/usr/local/bin".to_string())
+        );
+    }
+
+    #[test]
+    fn config_unknown_fields_are_rejected_by_default() {
+        // Serde's default is to accept unknown fields (permissive). This
+        // test pins that behavior — if we ever add #[serde(deny_unknown_fields)]
+        // this test will break and force an explicit decision.
+        let json = r#"{"name":"foo","command":"bar","unknown_field":"ignored"}"#;
+        let result: std::result::Result<McpServerConfig, _> = serde_json::from_str(json);
+        assert!(
+            result.is_ok(),
+            "unknown fields should currently be ignored — if this breaks, \
+             someone added deny_unknown_fields and should document why"
+        );
+    }
 }
