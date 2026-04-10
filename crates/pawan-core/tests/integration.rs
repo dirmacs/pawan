@@ -1271,6 +1271,66 @@ fn test_auto_discover_mcp_returns_empty_without_binaries() {
     }
 }
 
+// ─── Phase 10: thulp-query DSL for tool filtering ─────────────────────────
+
+/// Query tools by name substring
+#[test]
+fn test_query_tools_by_name() {
+    let tmp = TempDir::new().unwrap();
+    let registry = ToolRegistry::with_defaults(tmp.path().to_path_buf());
+
+    let git_tools = registry.query_tools("name:git");
+    // Should match all git_* tools (status, diff, add, commit, log, blame, branch, checkout, stash)
+    assert!(
+        git_tools.len() >= 8,
+        "expected at least 8 git tools, got {}",
+        git_tools.len()
+    );
+    for def in &git_tools {
+        assert!(
+            def.name.contains("git"),
+            "non-git tool returned: {}",
+            def.name
+        );
+    }
+}
+
+/// Query tools by parameter name
+#[test]
+fn test_query_tools_by_parameter() {
+    let tmp = TempDir::new().unwrap();
+    let registry = ToolRegistry::with_defaults(tmp.path().to_path_buf());
+
+    let path_tools = registry.query_tools("has:path");
+    // Many tools have a path parameter: read_file, write_file, edit_file, etc.
+    assert!(path_tools.len() >= 5, "expected tools with path param");
+}
+
+/// Empty query returns no results (matches nothing)
+#[test]
+fn test_query_tools_invalid_query_returns_empty() {
+    let tmp = TempDir::new().unwrap();
+    let registry = ToolRegistry::with_defaults(tmp.path().to_path_buf());
+
+    // Query for a tool name that doesn't exist
+    let results = registry.query_tools("name:nonexistent_tool_xyz_123");
+    assert_eq!(results.len(), 0);
+}
+
+/// Query by description keyword
+#[test]
+fn test_query_tools_by_description() {
+    let tmp = TempDir::new().unwrap();
+    let registry = ToolRegistry::with_defaults(tmp.path().to_path_buf());
+
+    let search_tools = registry.query_tools("desc:search");
+    assert!(
+        search_tools.len() >= 3,
+        "expected search-related tools, got {}",
+        search_tools.len()
+    );
+}
+
 // ─── Phase 6: thulpoff eval + refine API ───────────────────────────────────
 
 /// Verify that evaluate_skill, refine_skill, and distill_eval_refine_save
