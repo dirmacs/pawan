@@ -97,8 +97,7 @@ pub fn is_read_only(command: &str) -> bool {
     let normalized = cmd
         .replace("&&", "\x01")
         .replace("||", "\x01")
-        .replace(';', "\x01")
-        .replace('|', "\x01");
+        .replace([';', '|'], "\x01");
     let sub_commands: Vec<&str> = normalized
         .split('\x01')
         .map(str::trim)
