@@ -199,4 +199,134 @@ key = "value"
         let wrapper: Wrapper = toml::from_str(toml_str).unwrap();
         assert!(wrapper.pawan.is_none());
     }
+
+    #[test]
+    fn test_generate_with_non_default_provider_is_emitted() {
+        // When provider != "nvidia", it MUST appear in the generated TOML so
+        // pawan-cli picks the right backend.
+        let input = PawanInput {
+            provider: "ollama".into(),
+            model: Some("llama3:8b".into()),
+            temperature: None,
+            top_p: None,
+            max_tokens: None,
+            mcp: HashMap::new(),
+            healing: None,
+        };
+        let out = input.generate().unwrap();
+        assert!(
+            out.contains("provider"),
+            "non-nvidia provider must be emitted, got:\n{}",
+            out
+        );
+        assert!(out.contains("ollama"));
+        assert!(out.contains("llama3:8b"));
+    }
+
+    #[test]
+    fn test_generate_with_no_model_falls_back_to_default() {
+        // When model = None, generate() must fall back to the hardcoded
+        // devstral default. Regression guard on the fallback path.
+        let input = PawanInput {
+            provider: "nvidia".into(),
+            model: None,
+            temperature: None,
+            top_p: None,
+            max_tokens: None,
+            mcp: HashMap::new(),
+            healing: None,
+        };
+        let out = input.generate().unwrap();
+        assert!(
+            out.contains("mistralai/devstral-2-123b-instruct-2512"),
+            "default model should be devstral fallback, got:\n{}",
+            out
+        );
+    }
+
+    #[test]
+    fn test_generate_with_healing_section_emits_fields() {
+        let input = PawanInput {
+            provider: "nvidia".into(),
+            model: Some("m".into()),
+            temperature: None,
+            top_p: None,
+            max_tokens: None,
+            mcp: HashMap::new(),
+            healing: Some(HealingInput {
+                fix_errors: Some(true),
+                fix_warnings: Some(false),
+                fix_tests: Some(true),
+                auto_commit: Some(false),
+            }),
+        };
+        let out = input.generate().unwrap();
+        assert!(out.contains("[healing]") || out.contains("healing"));
+        assert!(out.contains("fix_errors"));
+        assert!(out.contains("fix_tests"));
+    }
+
+    #[test]
+    fn test_load_then_generate_roundtrip() {
+        // Write a TOML manifest with a [pawan] section to a temp file,
+        // load it via PawanInput::load, then generate and verify the
+        // loaded model/provider/mcp all survive. Uses std::env::temp_dir
+        // + unique filename to avoid a dev-dep on tempfile.
+        let mut path = std::env::temp_dir();
+        path.push(format!(
+            "pawan-aegis-roundtrip-{}.toml",
+            std::process::id()
+        ));
+        let manifest = r#"
+[pawan]
+provider = "nvidia"
+model = "roundtrip/model"
+temperature = 0.42
+
+[pawan.mcp.daedra]
+command = "daedra"
+args = ["serve"]
+enabled = true
+"#;
+        std::fs::write(&path, manifest).unwrap();
+
+        let loaded = PawanInput::load(&path)
+            .unwrap()
+            .expect("pawan section present");
+        assert_eq!(loaded.provider, "nvidia");
+        assert_eq!(loaded.model.as_deref(), Some("roundtrip/model"));
+        assert_eq!(loaded.temperature, Some(0.42));
+        assert!(loaded.mcp.contains_key("daedra"));
+        assert!(loaded.mcp["daedra"].enabled);
+
+        // Regenerating should include the model, though nvidia-default
+        // provider is omitted.
+        let generated = loaded.generate().unwrap();
+        assert!(generated.contains("roundtrip/model"));
+        assert!(generated.contains("daedra"));
+
+        // Cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_mcp_input_enabled_defaults_to_true_when_omitted() {
+        // An MCP entry without explicit `enabled` must default to true
+        // (via default_true helper). Regression guard.
+        let toml_str = r#"
+[pawan]
+provider = "nvidia"
+
+[pawan.mcp.svc]
+command = "svc"
+"#;
+        let wrapper: Wrapper = toml::from_str(toml_str).unwrap();
+        let input = wrapper.pawan.unwrap();
+        assert!(
+            input.mcp["svc"].enabled,
+            "mcp.svc.enabled should default to true"
+        );
+        assert!(input.mcp["svc"].args.is_empty(), "args default is empty");
+        assert!(input.mcp["svc"].env.is_empty(), "env default is empty");
+    }
 }
