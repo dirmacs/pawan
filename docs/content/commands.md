@@ -160,12 +160,19 @@ List saved conversation sessions.
 Distill a completed session into a reusable SKILL.md file via thulpoff.
 
 ```bash
-pawan distill                     # distill latest session
-pawan distill -s abc123           # distill specific session
-pawan distill -o ./skills         # custom output directory
+pawan distill                          # distill latest session
+pawan distill -s abc123                # distill specific session
+pawan distill -o ./skills              # custom output directory
+pawan distill --eval                   # distill then evaluate against primary model
+pawan distill --refine                 # full distill → eval → refine → eval loop
+pawan distill --refine --student-model mistral-small-24b
 ```
 
 The distilled skill can be loaded back by pawan (or any thulp-compatible agent) to reuse learned patterns.
+
+With `--eval`, pawan runs each test case from the distilled skill through the configured model (or `--student-model`) and reports a pass rate.
+
+With `--refine`, pawan automatically improves the skill content based on failing test cases using thulpoff's RefinementEngine, then re-evaluates and reports the improvement delta.
 
 ### `pawan bench`
 
