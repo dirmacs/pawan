@@ -306,4 +306,94 @@ mod tests {
         assert!(schema["properties"]["prompt"].is_object());
         assert!(schema["required"].as_array().unwrap().iter().any(|v| v == "prompt"));
     }
+
+    #[test]
+    fn test_find_pawan_binary_prefers_release_over_debug() {
+        let tmp = TempDir::new().unwrap();
+        // Create both release and debug pawan binaries
+        std::fs::create_dir_all(tmp.path().join("target/release")).unwrap();
+        std::fs::create_dir_all(tmp.path().join("target/debug")).unwrap();
+        let release = tmp.path().join("target/release/pawan");
+        let debug = tmp.path().join("target/debug/pawan");
+        std::fs::write(&release, "#!/bin/sh\necho release").unwrap();
+        std::fs::write(&debug, "#!/bin/sh\necho debug").unwrap();
+
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let binary = tool.find_pawan_binary();
+        assert_eq!(
+            binary,
+            release.to_string_lossy().to_string(),
+            "release binary must win over debug"
+        );
+    }
+
+    #[test]
+    fn test_find_pawan_binary_falls_back_to_debug_when_no_release() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("target/debug")).unwrap();
+        let debug = tmp.path().join("target/debug/pawan");
+        std::fs::write(&debug, "#!/bin/sh\necho debug").unwrap();
+
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let binary = tool.find_pawan_binary();
+        assert_eq!(binary, debug.to_string_lossy().to_string());
+    }
+
+    #[test]
+    fn test_find_pawan_binary_falls_through_to_path_when_nothing_in_workspace() {
+        let tmp = TempDir::new().unwrap();
+        // No target/ at all
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let binary = tool.find_pawan_binary();
+        // Falls back to bare "pawan" name (will be resolved via PATH at exec time)
+        assert_eq!(binary, "pawan");
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agent_missing_prompt_errors() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        // No "prompt" field in args
+        let result = tool.execute(json!({ "model": "test-model" })).await;
+        assert!(result.is_err(), "missing prompt must error");
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("prompt"),
+            "error message should mention prompt, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_spawn_agents_schema_requires_tasks_array() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
+        let schema = tool.parameters_schema();
+        let required = schema["required"].as_array().unwrap();
+        assert!(required.iter().any(|v| v == "tasks"), "tasks must be required");
+        // tasks should be declared as an array type with an items.required = [prompt]
+        let tasks_type = schema["properties"]["tasks"]["type"].as_str();
+        assert_eq!(tasks_type, Some("array"));
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agents_empty_tasks_succeeds_with_zero_results() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
+        let result = tool.execute(json!({ "tasks": [] })).await.unwrap();
+        assert_eq!(result["success"], true);
+        assert_eq!(result["total_tasks"], 0);
+        assert_eq!(result["results"].as_array().unwrap().len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agents_missing_tasks_errors() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
+        // tasks field absent entirely
+        let result = tool.execute(json!({})).await;
+        assert!(result.is_err());
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("tasks"));
+    }
 }
