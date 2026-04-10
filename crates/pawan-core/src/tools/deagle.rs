@@ -505,4 +505,67 @@ mod tests {
             assert!(!def.description.is_empty());
         }
     }
+
+    #[test]
+    fn test_deagle_tool_names_are_unique() {
+        // Guards against accidentally giving two tools the same name — would
+        // cause silent overwrites in ToolRegistry::register_with_tier.
+        let tools: Vec<Box<dyn Tool>> = vec![
+            Box::new(DeagleSearchTool::new(PathBuf::from("."))),
+            Box::new(DeagleKeywordTool::new(PathBuf::from("."))),
+            Box::new(DeagleSgTool::new(PathBuf::from("."))),
+            Box::new(DeagleStatsTool::new(PathBuf::from("."))),
+            Box::new(DeagleMapTool::new(PathBuf::from("."))),
+        ];
+        let names: std::collections::HashSet<String> =
+            tools.iter().map(|t| t.name().to_string()).collect();
+        assert_eq!(names.len(), 5, "all 5 deagle tools must have unique names");
+        // Explicit name pinning — prevents accidental renames
+        assert!(names.contains("deagle_search"));
+        assert!(names.contains("deagle_keyword"));
+        assert!(names.contains("deagle_sg"));
+        assert!(names.contains("deagle_stats"));
+        assert!(names.contains("deagle_map"));
+    }
+
+    #[test]
+    fn test_deagle_search_schema_required_query() {
+        let tool = DeagleSearchTool::new(PathBuf::from("."));
+        let schema = tool.parameters_schema();
+        let required = schema["required"].as_array().unwrap();
+        assert!(required.iter().any(|v| v == "query"));
+        // query/kind/fuzzy/limit should all be declared as properties
+        let props = schema["properties"].as_object().unwrap();
+        assert!(props.contains_key("query"));
+        assert!(props.contains_key("kind"));
+        assert!(props.contains_key("fuzzy"));
+        assert!(props.contains_key("limit"));
+    }
+
+    #[test]
+    fn test_deagle_sg_schema_required_pattern() {
+        let tool = DeagleSgTool::new(PathBuf::from("."));
+        let schema = tool.parameters_schema();
+        let required = schema["required"].as_array().unwrap();
+        assert!(required.iter().any(|v| v == "pattern"));
+        // lang and path are optional
+        let props = schema["properties"].as_object().unwrap();
+        assert!(props.contains_key("pattern"));
+        assert!(props.contains_key("lang"));
+        assert!(props.contains_key("path"));
+    }
+
+    #[tokio::test]
+    async fn test_deagle_search_missing_query_errors() {
+        let tool = DeagleSearchTool::new(PathBuf::from("."));
+        // No "query" field at all
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err(), "missing query must error");
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("query"),
+            "error should mention 'query', got: {}",
+            err
+        );
+    }
 }
