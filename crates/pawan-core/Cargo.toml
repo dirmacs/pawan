@@ -65,6 +65,7 @@ rusqlite = { version = "0.34", features = ["bundled"] }
 thulp-core = { workspace = true }
 thulp-skill-files = { workspace = true }
 thulp-skills = { workspace = true }
+thulp-query = { workspace = true }
 
 # Thulpoff — skill distillation from agent sessions
 thulpoff-core = { workspace = true }

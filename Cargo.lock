@@ -3042,6 +3042,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "thulp-core",
+ "thulp-query",
  "thulp-skill-files",
  "thulp-skills",
  "thulpoff-core",

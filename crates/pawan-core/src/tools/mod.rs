@@ -322,6 +322,38 @@ impl ToolRegistry {
     pub fn tool_names(&self) -> Vec<&str> {
         self.tools.keys().map(|s| s.as_str()).collect()
     }
+
+    /// Query tools using thulp-query's DSL.
+    ///
+    /// Supports criteria like:
+    /// - `"name:git"` — tools whose name contains "git"
+    /// - `"has:path"` — tools with a "path" parameter
+    /// - `"desc:file"` — tools whose description contains "file"
+    /// - `"min:2"` — tools with ≥2 parameters
+    /// - `"max:5"` — tools with ≤5 parameters
+    /// - `"name:git and has:message"` — combine criteria with `and`
+    /// - `"name:read or name:write"` — combine with `or`
+    ///
+    /// Returns matching tool definitions (thulp_core format, not pawan's).
+    /// Use this for dynamic tool filtering in agent prompts — e.g. select
+    /// only git-related tools for a commit task.
+    ///
+    /// Returns an empty vec if the query fails to parse.
+    pub fn query_tools(&self, query: &str) -> Vec<thulp_core::ToolDefinition> {
+        let criteria = match thulp_query::parse_query(query) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(query = %query, error = %e, "failed to parse tool query");
+                return Vec::new();
+            }
+        };
+
+        self.tools
+            .values()
+            .map(|tool| tool.thulp_definition())
+            .filter(|def| criteria.matches(def))
+            .collect()
+    }
 }
 
 impl Default for ToolRegistry {

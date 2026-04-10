@@ -20,6 +20,8 @@ thulp-core = "0.3"
 thulp-skill-files = "0.3"
 # thulp-skills: multi-step skill execution framework (timeout, retry, context)
 thulp-skills = "0.3"
+# thulp-query: DSL for filtering/searching tools by criteria
+thulp-query = "0.3"
 
 # Thulpoff — skill distillation from agent sessions
 thulpoff-core = { version = "0.1", path = "/opt/thulpoff/crates/thulpoff-core" }
