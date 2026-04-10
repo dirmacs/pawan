@@ -1033,3 +1033,54 @@ async fn test_eval_write_file_output_quality() {
     assert_eq!(result["size_verified"], true);
     assert_eq!(result["lines"], 1);
 }
+
+// ─── Phase 2: Ares backend integration ──────────────────────────────────────
+
+/// Config field `use_ares_backend` defaults to false for backwards compat
+#[test]
+fn test_use_ares_backend_default_false() {
+    let config = PawanConfig::default();
+    assert_eq!(config.use_ares_backend, false,
+        "use_ares_backend must default to false to preserve existing behavior");
+}
+
+/// Config field `use_ares_backend` round-trips through TOML serialization
+#[test]
+fn test_use_ares_backend_toml_roundtrip() {
+    let mut config = PawanConfig::default();
+    config.use_ares_backend = true;
+
+    let serialized = toml::to_string(&config).unwrap();
+    assert!(serialized.contains("use_ares_backend = true"),
+        "serialized TOML should contain the flag");
+
+    let parsed: PawanConfig = toml::from_str(&serialized).unwrap();
+    assert_eq!(parsed.use_ares_backend, true);
+}
+
+/// Config field `use_ares_backend` defaults to false when omitted from TOML
+#[test]
+fn test_use_ares_backend_toml_missing_defaults_false() {
+    let toml_str = r#"
+provider = "nvidia"
+model = "test-model"
+"#;
+    let parsed: PawanConfig = toml::from_str(toml_str).unwrap();
+    assert_eq!(parsed.use_ares_backend, false);
+}
+
+/// Agent constructs successfully even when use_ares_backend is requested
+/// without the ares feature being compiled in. Falls back silently to
+/// native backend with a warning log.
+#[test]
+fn test_agent_with_ares_backend_flag_fallback() {
+    let temp_dir = TempDir::new().unwrap();
+    let mut config = PawanConfig::default();
+    config.use_ares_backend = true;
+
+    // Should construct without panicking regardless of feature flag state
+    let agent = PawanAgent::new(config, temp_dir.path().to_path_buf());
+    // Agent has 22 visible tools (core + standard)
+    let defs = agent.get_tool_definitions();
+    assert_eq!(defs.len(), 22);
+}

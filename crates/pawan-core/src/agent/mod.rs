@@ -198,8 +198,25 @@ impl PawanAgent {
         }
     }
 
-    /// Create the appropriate backend based on config
+    /// Create the appropriate backend based on config.
+    ///
+    /// If `use_ares_backend` is true and the `ares` feature is compiled in,
+    /// delegates to ares-server's LLMClient (unified provider abstraction with
+    /// connection pooling). Otherwise uses pawan's built-in OpenAI-compatible
+    /// backend (the original path).
     fn create_backend(config: &PawanConfig, system_prompt: &str) -> Box<dyn LlmBackend> {
+        // Try ares backend first if requested and feature is available
+        #[cfg(feature = "ares")]
+        if config.use_ares_backend {
+            if let Some(backend) = Self::try_create_ares_backend(config, system_prompt) {
+                return backend;
+            }
+            tracing::warn!(
+                "use_ares_backend=true but ares backend creation failed; \
+                 falling back to pawan's native backend"
+            );
+        }
+
         match config.provider {
             LlmProvider::Nvidia | LlmProvider::OpenAI | LlmProvider::Mlx => {
                 let (api_url, api_key) = match config.provider {
@@ -288,6 +305,102 @@ impl PawanAgent {
                 ))
             }
         }
+    }
+
+    /// Try to construct an ares-backed LLM backend from pawan config.
+    /// Returns `None` if the provider isn't supported by ares or required
+    /// credentials are missing — the caller should fall back to pawan's
+    /// native backend.
+    #[cfg(feature = "ares")]
+    fn try_create_ares_backend(
+        config: &PawanConfig,
+        system_prompt: &str,
+    ) -> Option<Box<dyn LlmBackend>> {
+        use ares::llm::client::{ModelParams, Provider};
+
+        // Map pawan LlmProvider → ares Provider variants.
+        // ares supports: OpenAI (with custom base_url), Ollama, LlamaCpp, Anthropic.
+        // Pawan's Nvidia/OpenAI/Mlx all use OpenAI-compatible endpoints, so they
+        // all map to ares Provider::OpenAI with different base URLs.
+        let params = ModelParams {
+            temperature: Some(config.temperature),
+            max_tokens: Some(config.max_tokens as u32),
+            top_p: Some(config.top_p),
+            frequency_penalty: None,
+            presence_penalty: None,
+        };
+
+        let provider = match config.provider {
+            LlmProvider::Nvidia => {
+                let api_base = std::env::var("NVIDIA_API_URL")
+                    .unwrap_or_else(|_| crate::DEFAULT_NVIDIA_API_URL.to_string());
+                let api_key = std::env::var("NVIDIA_API_KEY").ok()?;
+                Provider::OpenAI {
+                    api_key,
+                    api_base,
+                    model: config.model.clone(),
+                    params,
+                }
+            }
+            LlmProvider::OpenAI => {
+                let api_base = config
+                    .base_url
+                    .clone()
+                    .or_else(|| std::env::var("OPENAI_API_URL").ok())
+                    .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+                let api_key = std::env::var("OPENAI_API_KEY").unwrap_or_default();
+                Provider::OpenAI {
+                    api_key,
+                    api_base,
+                    model: config.model.clone(),
+                    params,
+                }
+            }
+            LlmProvider::Mlx => {
+                // MLX LM server is OpenAI-compatible, no API key needed
+                let api_base = config
+                    .base_url
+                    .clone()
+                    .unwrap_or_else(|| "http://localhost:8080/v1".to_string());
+                Provider::OpenAI {
+                    api_key: String::new(),
+                    api_base,
+                    model: config.model.clone(),
+                    params,
+                }
+            }
+            LlmProvider::Ollama => {
+                // Ares Ollama client is async-constructed (async with_params),
+                // which doesn't fit pawan's sync PawanAgent::new path.
+                // Fall back to pawan's native OllamaBackend for now.
+                return None;
+            }
+        };
+
+        // OpenAI variants construct synchronously — we skip the async
+        // Provider::create_client() entirely for sync construction.
+        let client: Box<dyn ares::llm::LLMClient> = match provider {
+            Provider::OpenAI {
+                api_key,
+                api_base,
+                model,
+                params,
+            } => Box::new(ares::llm::openai::OpenAIClient::with_params(
+                api_key, api_base, model, params,
+            )),
+            _ => return None,
+        };
+
+        tracing::info!(
+            provider = ?config.provider,
+            model = %config.model,
+            "Using ares-backed LLM backend"
+        );
+
+        Some(Box::new(backend::ares_backend::AresBackend::new(
+            client,
+            system_prompt.to_string(),
+        )))
     }
 
     /// Create with a specific tool registry
