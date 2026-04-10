@@ -841,4 +841,99 @@ mod tests {
         );
         assert_eq!(diagnostics[0].message, "real error");
     }
+
+    // ─── Edge cases for text parser (task #23 extension) ─────────────────
+
+    #[test]
+    fn test_parse_text_error_without_code_bracket() {
+        // Some cargo errors don't have [E0xxx] codes — e.g. "error: cannot
+        // find crate" or the io::Error reported by rustc. The parser must
+        // still produce a diagnostic with code=None and the message intact.
+        let output = "error: cannot find crate `missing`\n   --> src/lib.rs:1:5\n";
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_text_diagnostics(output);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].kind, DiagnosticKind::Error);
+        assert_eq!(diagnostics[0].code, None, "no [Exxxx] → code is None");
+        assert!(
+            diagnostics[0].message.contains("cannot find crate"),
+            "message must be extracted after 'error: '"
+        );
+    }
+
+    #[test]
+    fn test_parse_text_help_before_any_error_is_dropped() {
+        // A `help:` line appearing before any error/warning has no current
+        // diagnostic to attach to — it must be silently dropped, not crash.
+        let output = "help: this is orphaned\nhelp: also orphaned\n";
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_text_diagnostics(output);
+        assert!(
+            diagnostics.is_empty(),
+            "orphan help: must not create a diagnostic"
+        );
+    }
+
+    #[test]
+    fn test_parse_text_arrow_with_only_filename_no_colons() {
+        // An unusual --> with just a filename (no :line:column) must not
+        // panic — the rsplitn(3, ':') yields 1 part which falls through the
+        // match with `_ => {}`, leaving file/line/column unset.
+        let output = "error[E0999]: malformed error\n   --> weird_filename\n";
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_text_diagnostics(output);
+        assert_eq!(diagnostics.len(), 1);
+        // Parser leaves all three None because parts.len() is 1 (no colons)
+        assert_eq!(diagnostics[0].file, None);
+        assert_eq!(diagnostics[0].line, None);
+        assert_eq!(diagnostics[0].column, None);
+    }
+
+    #[test]
+    fn test_format_diagnostics_empty_vec_produces_empty_output() {
+        // Regression: format_diagnostics_for_prompt on an empty vec must
+        // return an empty/minimal string, not panic or iterate a None.
+        let healer = Healer::new(PathBuf::from("."), HealingConfig::default());
+        let out = healer.format_diagnostics_for_prompt(&[]);
+        // No diagnostic markers should appear
+        assert!(
+            !out.contains("Issue 1"),
+            "empty diagnostics should not render any Issue lines, got: {out}"
+        );
+    }
+
+    #[test]
+    fn test_extract_module_with_deeply_nested_path() {
+        // rfind("::") correctly extracts everything before the last `::`
+        let fixer = TestFixer::new(PathBuf::from("."));
+        assert_eq!(
+            fixer.extract_module("a::b::c::d::test_foo"),
+            "a::b::c::d",
+            "deeply nested paths strip only the last segment"
+        );
+        assert_eq!(
+            fixer.extract_module("single::test"),
+            "single",
+            "single-level path strips to top module"
+        );
+        assert_eq!(
+            fixer.extract_module(""),
+            "",
+            "empty string stays empty (no panic)"
+        );
+    }
+
+    #[test]
+    fn test_parse_text_diagnostic_with_no_content_at_all() {
+        // Running parser on lines that don't look like errors at all (build
+        // progress, linker notes) must return 0 diagnostics.
+        let output = "   Compiling pawan-core v0.3.1\n    Building [====>    ] 42/100\n   Finished dev [unoptimized] in 2.3s\n";
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_text_diagnostics(output);
+        assert!(
+            diagnostics.is_empty(),
+            "build progress lines should not produce diagnostics, got {}",
+            diagnostics.len()
+        );
+    }
 }
