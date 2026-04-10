@@ -759,4 +759,86 @@ mod tests {
         assert!(output.contains("tests::test_foo"));
         assert!(output.contains("assertion failed"));
     }
+
+    #[test]
+    fn test_parse_json_note_and_help_levels() {
+        // Note and Help are valid diagnostic kinds — should not be filtered out.
+        let note_line = r#"{"reason":"compiler-message","message":{"level":"note","message":"for more info, see E0001","spans":[],"children":[]}}"#;
+        let help_line = r#"{"reason":"compiler-message","message":{"level":"help","message":"consider borrowing","spans":[],"children":[]}}"#;
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let combined = format!("{}\n{}", note_line, help_line);
+        let diagnostics = fixer.parse_diagnostics(&combined);
+        assert_eq!(diagnostics.len(), 2);
+        assert_eq!(diagnostics[0].kind, DiagnosticKind::Note);
+        assert_eq!(diagnostics[1].kind, DiagnosticKind::Help);
+        assert_eq!(diagnostics[0].file, None);
+        assert_eq!(diagnostics[0].line, None);
+    }
+
+    #[test]
+    fn test_parse_json_unknown_level_is_filtered() {
+        // An unrecognized level like "trace" or "debug" should be skipped entirely.
+        let line = r#"{"reason":"compiler-message","message":{"level":"trace","message":"verbose info","spans":[],"children":[]}}"#;
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_diagnostics(line);
+        assert!(
+            diagnostics.is_empty(),
+            "unknown level should be filtered, got {} diagnostics",
+            diagnostics.len()
+        );
+    }
+
+    #[test]
+    fn test_parse_json_suggestion_with_replacement() {
+        // children[].spans[].suggested_replacement should be combined into the
+        // suggestion field as "help_msg: replacement_text".
+        let json = r#"{"reason":"compiler-message","message":{"level":"error","message":"missing semicolon","code":{"code":"E0001"},"spans":[{"file_name":"src/foo.rs","line_start":3,"column_start":10,"is_primary":true}],"children":[{"level":"help","message":"add semicolon","spans":[{"suggested_replacement":";"}]}]}}"#;
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_diagnostics(json);
+        assert_eq!(diagnostics.len(), 1);
+        let d = &diagnostics[0];
+        assert!(d.suggestion.is_some(), "suggestion should be populated");
+        let suggestion = d.suggestion.as_ref().unwrap();
+        assert!(
+            suggestion.contains("add semicolon"),
+            "suggestion missing help text: {}",
+            suggestion
+        );
+        assert!(
+            suggestion.contains(";"),
+            "suggestion missing replacement: {}",
+            suggestion
+        );
+    }
+
+    #[test]
+    fn test_parse_json_no_primary_span() {
+        // When no span has is_primary=true, file/line/column should all be None.
+        let json = r#"{"reason":"compiler-message","message":{"level":"error","message":"no primary span","code":null,"spans":[{"file_name":"src/x.rs","line_start":1,"is_primary":false}],"children":[]}}"#;
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_diagnostics(json);
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].file, None);
+        assert_eq!(diagnostics[0].line, None);
+        assert_eq!(diagnostics[0].column, None);
+    }
+
+    #[test]
+    fn test_parse_mixed_json_and_text_prefers_json() {
+        // When JSON parsing succeeds on at least one line, text fallback must NOT
+        // fire — otherwise a single good JSON line would be augmented with
+        // potentially wrong text-parsed versions of surrounding lines.
+        let mixed = format!(
+            "{}\nerror[E0999]: should not be double-parsed\n",
+            r#"{"reason":"compiler-message","message":{"level":"error","message":"real error","code":{"code":"E0001"},"spans":[{"file_name":"src/a.rs","line_start":1,"column_start":1,"is_primary":true}],"children":[]}}"#
+        );
+        let fixer = CompilerFixer::new(PathBuf::from("."));
+        let diagnostics = fixer.parse_diagnostics(&mixed);
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "text fallback must be suppressed when JSON parsing yielded any diagnostics"
+        );
+        assert_eq!(diagnostics[0].message, "real error");
+    }
 }
