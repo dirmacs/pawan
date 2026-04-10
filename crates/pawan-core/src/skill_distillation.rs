@@ -845,4 +845,163 @@ mod tests {
         assert!(content.contains("v2 body"), "file should contain v2 content");
         assert!(!content.contains("v1 body"), "v1 content should be overwritten");
     }
+
+    // ─── Edge cases for skill distillation helpers ──────────────────────
+
+    #[test]
+    fn test_is_distillable_empty_session() {
+        // An empty session (0 messages) must fail all 3 checks: no user,
+        // no tool calls, not enough messages
+        let session = Session {
+            id: "empty".into(),
+            model: "m".into(),
+            created_at: "t".into(),
+            updated_at: "t".into(),
+            messages: vec![],
+            total_tokens: 0,
+            iteration_count: 0,
+        };
+        assert!(
+            !is_distillable(&session),
+            "empty session must not be distillable"
+        );
+    }
+
+    #[test]
+    fn test_is_distillable_with_tool_calls_but_no_user_message() {
+        // Regression: is_distillable must check ALL three conditions, not
+        // just the tool_calls + message count. Missing user intent means
+        // there's nothing meaningful to distill even if tools ran.
+        let session = Session {
+            id: "no-user".into(),
+            model: "m".into(),
+            created_at: "t".into(),
+            updated_at: "t".into(),
+            messages: vec![
+                Message {
+                    role: Role::System,
+                    content: "sys".into(),
+                    tool_calls: vec![],
+                    tool_result: None,
+                },
+                Message {
+                    role: Role::Assistant,
+                    content: "running".into(),
+                    tool_calls: vec![ToolCallRequest {
+                        id: "tc-1".into(),
+                        name: "read_file".into(),
+                        arguments: serde_json::json!({}),
+                    }],
+                    tool_result: None,
+                },
+                Message {
+                    role: Role::Tool,
+                    content: "result".into(),
+                    tool_calls: vec![],
+                    tool_result: None,
+                },
+                Message {
+                    role: Role::Assistant,
+                    content: "done".into(),
+                    tool_calls: vec![],
+                    tool_result: None,
+                },
+            ],
+            total_tokens: 0,
+            iteration_count: 0,
+        };
+        assert!(
+            !is_distillable(&session),
+            "session without user message must not be distillable"
+        );
+    }
+
+    #[test]
+    fn test_session_to_teacher_collects_all_tool_calls_across_messages() {
+        // Multiple assistant messages with tool calls — session_to_teacher
+        // must flatten them all into a single Vec<ToffToolCall>.
+        let session = Session {
+            id: "multi".into(),
+            model: "test-model".into(),
+            created_at: "t".into(),
+            updated_at: "t".into(),
+            messages: vec![
+                Message {
+                    role: Role::User,
+                    content: "do stuff".into(),
+                    tool_calls: vec![],
+                    tool_result: None,
+                },
+                Message {
+                    role: Role::Assistant,
+                    content: "step 1".into(),
+                    tool_calls: vec![ToolCallRequest {
+                        id: "a".into(),
+                        name: "read_file".into(),
+                        arguments: serde_json::json!({}),
+                    }],
+                    tool_result: None,
+                },
+                Message {
+                    role: Role::Assistant,
+                    content: "step 2".into(),
+                    tool_calls: vec![
+                        ToolCallRequest {
+                            id: "b".into(),
+                            name: "write_file".into(),
+                            arguments: serde_json::json!({}),
+                        },
+                        ToolCallRequest {
+                            id: "c".into(),
+                            name: "bash".into(),
+                            arguments: serde_json::json!({}),
+                        },
+                    ],
+                    tool_result: None,
+                },
+            ],
+            total_tokens: 100,
+            iteration_count: 2,
+        };
+        let usage = PawanUsage {
+            prompt_tokens: 50,
+            completion_tokens: 50,
+            total_tokens: 100,
+            reasoning_tokens: 0,
+            action_tokens: 50,
+        };
+        let teacher = session_to_teacher(&session, &usage);
+        assert_eq!(
+            teacher.tool_calls.len(),
+            3,
+            "session_to_teacher must collect all 3 tool calls across 2 assistant messages"
+        );
+        let names: Vec<&str> = teacher.tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+        assert!(names.contains(&"read_file"));
+        assert!(names.contains(&"write_file"));
+        assert!(names.contains(&"bash"));
+    }
+
+    #[test]
+    fn test_session_to_teacher_preserves_model_name() {
+        // The teacher session must carry the source model forward so the
+        // distiller can log which model produced the trajectory.
+        let session = Session {
+            id: "m".into(),
+            model: "qwen3.5-122b-exotic-variant".into(),
+            created_at: "t".into(),
+            updated_at: "t".into(),
+            messages: vec![Message {
+                role: Role::User,
+                content: "q".into(),
+                tool_calls: vec![],
+                tool_result: None,
+            }],
+            total_tokens: 0,
+            iteration_count: 0,
+        };
+        let usage = PawanUsage::default();
+        let teacher = session_to_teacher(&session, &usage);
+        assert_eq!(teacher.model, "qwen3.5-122b-exotic-variant");
+    }
 }
