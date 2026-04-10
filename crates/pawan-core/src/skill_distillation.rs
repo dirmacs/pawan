@@ -702,4 +702,147 @@ mod tests {
         assert!(dir.exists());
         assert!(dir.ends_with("skills"));
     }
+
+    #[test]
+    fn test_is_distillable_too_few_messages() {
+        // Even with a tool call, a session with <4 messages is not worth
+        // distilling — you can't learn a pattern from one round trip.
+        let session = Session {
+            id: "short".into(),
+            model: "m".into(),
+            created_at: "now".into(),
+            updated_at: "now".into(),
+            messages: vec![
+                Message {
+                    role: Role::User,
+                    content: "do stuff".into(),
+                    tool_calls: vec![],
+                    tool_result: None,
+                },
+                Message {
+                    role: Role::Assistant,
+                    content: "running tool".into(),
+                    tool_calls: vec![ToolCallRequest {
+                        id: "tc-1".into(),
+                        name: "ls".into(),
+                        arguments: serde_json::json!({}),
+                    }],
+                    tool_result: None,
+                },
+                Message {
+                    role: Role::Tool,
+                    content: "output".into(),
+                    tool_calls: vec![],
+                    tool_result: Some(ToolResultMessage {
+                        tool_call_id: "tc-1".into(),
+                        content: serde_json::json!("ok"),
+                        success: true,
+                    }),
+                },
+            ],
+            total_tokens: 100,
+            iteration_count: 1,
+        };
+        // Has user + tools but only 3 messages < min_messages (4)
+        assert!(!is_distillable(&session), "sessions with <4 messages must not be distillable");
+    }
+
+    #[test]
+    fn test_session_to_teacher_without_user_falls_back_to_unknown() {
+        // A session that somehow has no user message (system-only prompt)
+        // must still produce a TeacherSession — just with a placeholder task.
+        let session = Session {
+            id: "no-user".into(),
+            model: "m".into(),
+            created_at: "now".into(),
+            updated_at: "now".into(),
+            messages: vec![Message {
+                role: Role::System,
+                content: "you are a bot".into(),
+                tool_calls: vec![],
+                tool_result: None,
+            }],
+            total_tokens: 0,
+            iteration_count: 0,
+        };
+        let teacher = session_to_teacher(&session, &make_usage());
+        assert_eq!(teacher.task_description, "Unknown task");
+        assert_eq!(teacher.messages.len(), 1);
+        assert_eq!(teacher.tool_calls.len(), 0);
+    }
+
+    #[test]
+    fn test_format_skill_md_without_test_cases_omits_test_section() {
+        // When test_cases is empty, the "## Test Cases" section must be
+        // omitted entirely — not left dangling with empty code fences.
+        let skill = GeneratedSkill {
+            name: "just-steps".into(),
+            description: "No tests attached".into(),
+            frontmatter: serde_json::json!({}),
+            content: "## Do this\nThen do that".into(),
+            test_cases: vec![],
+            source_session: None,
+        };
+        let md = format_skill_md(&skill);
+        assert!(md.contains("## Do this"), "content must be present");
+        assert!(!md.contains("## Test Cases"), "no test cases ⇒ no test section");
+        assert!(!md.contains("```json"), "no test cases ⇒ no json fence");
+    }
+
+    #[test]
+    fn test_format_skill_md_preserves_extra_frontmatter_fields() {
+        // Frontmatter fields beyond name/description must be emitted after
+        // the standard two — regression test for the object iteration
+        // branch in format_skill_md.
+        let skill = GeneratedSkill {
+            name: "skill-with-meta".into(),
+            description: "Has extra metadata".into(),
+            frontmatter: serde_json::json!({
+                "name": "skill-with-meta",
+                "description": "Has extra metadata",
+                "version": "1.2.3",
+                "tags": ["rust", "test"]
+            }),
+            content: "body".into(),
+            test_cases: vec![],
+            source_session: None,
+        };
+        let md = format_skill_md(&skill);
+        assert!(md.contains("name: skill-with-meta"));
+        assert!(md.contains("description: Has extra metadata"));
+        assert!(md.contains("version:"), "extra 'version' field must be emitted");
+        assert!(md.contains("tags:"), "extra 'tags' field must be emitted");
+    }
+
+    #[test]
+    fn test_save_skill_on_existing_dir_overwrites() {
+        // Calling save_skill twice with the same name must succeed —
+        // create_dir_all + write overwrites, and we don't want the second
+        // call to fail because the first already ran.
+        let skill_v1 = GeneratedSkill {
+            name: "iter-skill".into(),
+            description: "v1 description".into(),
+            frontmatter: serde_json::json!({}),
+            content: "v1 body".into(),
+            test_cases: vec![],
+            source_session: None,
+        };
+        let skill_v2 = GeneratedSkill {
+            name: "iter-skill".into(),
+            description: "v2 description".into(),
+            frontmatter: serde_json::json!({}),
+            content: "v2 body".into(),
+            test_cases: vec![],
+            source_session: None,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let p1 = save_skill(&skill_v1, dir.path()).unwrap();
+        let p2 = save_skill(&skill_v2, dir.path()).unwrap();
+        assert_eq!(p1, p2, "second save should write to the same path");
+
+        let content = std::fs::read_to_string(&p2).unwrap();
+        assert!(content.contains("v2 body"), "file should contain v2 content");
+        assert!(!content.contains("v1 body"), "v1 content should be overwritten");
+    }
 }
