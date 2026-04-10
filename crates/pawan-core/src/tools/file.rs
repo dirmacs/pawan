@@ -531,4 +531,125 @@ mod tests {
         let result = normalize_path(&ws, other);
         assert_eq!(result, PathBuf::from("/tmp/foo/bar.rs"));
     }
+
+    // --- validate_file_write security tests (previously ZERO coverage) ---
+
+    #[test]
+    fn test_validate_file_write_blocks_dotgit_writes() {
+        // .git anywhere in path should be blocked — would corrupt repo state
+        let cases = [
+            "/home/user/repo/.git/HEAD",
+            "/opt/pawan/.git/config",
+            ".git/index",
+            "./.git/hooks/pre-commit",
+            "/tmp/foo/.git/something",
+        ];
+        for p in cases {
+            let result = validate_file_write(Path::new(p));
+            assert!(
+                result.is_err(),
+                "Expected .git write to be blocked: {}",
+                p
+            );
+            assert!(result.unwrap_err().contains(".git"));
+        }
+    }
+
+    #[test]
+    fn test_validate_file_write_blocks_credential_files() {
+        let blocked = [
+            ".env",
+            ".env.local",
+            ".env.production",
+            "id_rsa",
+            "id_ed25519",
+            "id_ecdsa",
+            "credentials.json",
+            "service-account.json",
+            ".npmrc",
+            ".pypirc",
+        ];
+        for name in blocked {
+            let path = PathBuf::from(format!("/tmp/test-dir/{}", name));
+            let result = validate_file_write(&path);
+            assert!(
+                result.is_err(),
+                "Expected {} to be blocked as credential file",
+                name
+            );
+            assert!(
+                result.unwrap_err().contains("credential"),
+                "Expected error to mention 'credential' for {}",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_file_write_blocks_system_paths() {
+        let system_paths = [
+            "/etc/passwd",
+            "/etc/hosts",
+            "/usr/bin/myscript",
+            "/usr/local/bin/foo",
+            "/bin/sh",
+            "/sbin/init",
+            "/boot/vmlinuz",
+        ];
+        for p in system_paths {
+            let result = validate_file_write(Path::new(p));
+            assert!(
+                result.is_err(),
+                "Expected system path {} to be blocked",
+                p
+            );
+            assert!(result.unwrap_err().contains("system directory"));
+        }
+    }
+
+    #[test]
+    fn test_validate_file_write_allows_normal_paths() {
+        // Normal paths in the workspace should pass cleanly
+        let allowed = [
+            "/home/user/ws/src/main.rs",
+            "/tmp/scratch/notes.md",
+            "/opt/pawan/README.md",
+            "/var/tmp/output.txt",
+            "./relative/path/file.txt",
+        ];
+        for p in allowed {
+            let result = validate_file_write(Path::new(p));
+            assert!(
+                result.is_ok(),
+                "Expected {} to be allowed, got error: {:?}",
+                p,
+                result.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_validate_file_write_allows_lock_files_with_warn() {
+        // Lock files are warn-level, not blocked — they should return Ok
+        // but trigger the warn tracing event. We can't assert the warn
+        // emission in a unit test without a tracing subscriber, but we can
+        // assert Ok so the behavior contract is pinned.
+        let lock_files = [
+            "/home/user/ws/Cargo.lock",
+            "/home/user/ws/package-lock.json",
+            "/home/user/ws/yarn.lock",
+            "/home/user/ws/pnpm-lock.yaml",
+            "/home/user/ws/Gemfile.lock",
+            "/home/user/ws/poetry.lock",
+        ];
+        for p in lock_files {
+            let result = validate_file_write(Path::new(p));
+            assert!(
+                result.is_ok(),
+                "Lock file {} should be allowed (warn only), got error: {:?}",
+                p,
+                result.err()
+            );
+        }
+    }
 }
