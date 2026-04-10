@@ -29,7 +29,8 @@ thulpoff-engine = { version = "0.1", path = "/opt/thulpoff/crates/thulpoff-engin
 
 # Ares — composable LLM backends, tool coordination, agent primitives
 # Use lean feature set (no postgres/web server) for pawan library consumption.
-ares-server = { version = "0.7", path = "/opt/ares", default-features = false, features = ["openai", "ollama"] }
+# Requires ares-server >= 0.7.2 which introduced the lean feature gating.
+ares-server = { version = "0.7.2", default-features = false, features = ["openai", "ollama"] }
 
 # Async runtime
 tokio = { version = "1.48", features = ["full"] }
