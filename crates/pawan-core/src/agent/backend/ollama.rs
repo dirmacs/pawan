@@ -327,3 +327,170 @@ impl LlmBackend for OllamaBackend {
         result
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::ToolResultMessage;
+
+    fn make_backend() -> OllamaBackend {
+        OllamaBackend::new(
+            "http://localhost:11434".into(),
+            "test-model".into(),
+            0.7,
+            "You are a helpful agent.".into(),
+        )
+    }
+
+    #[test]
+    fn build_messages_prepends_system_prompt_and_handles_all_roles() {
+        let backend = make_backend();
+        let input = vec![
+            Message {
+                role: Role::User,
+                content: "fix the bug".into(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+            Message {
+                role: Role::Assistant,
+                content: "Looking at it".into(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+        ];
+        let out = backend.build_messages(&input);
+        // System prompt is always first, even if caller doesn't include one.
+        assert_eq!(out.len(), 3, "system + 2 user/assistant messages");
+        assert_eq!(out[0]["role"], "system");
+        assert_eq!(out[0]["content"], "You are a helpful agent.");
+        assert_eq!(out[1]["role"], "user");
+        assert_eq!(out[1]["content"], "fix the bug");
+        assert_eq!(out[2]["role"], "assistant");
+        assert_eq!(out[2]["content"], "Looking at it");
+        // Plain assistant message (no tool_calls) must NOT include the
+        // tool_calls key at all — Ollama API rejects empty arrays for some
+        // versions.
+        assert!(out[2].get("tool_calls").is_none());
+    }
+
+    #[test]
+    fn build_messages_assistant_with_tool_calls_emits_ollama_format() {
+        let backend = make_backend();
+        let input = vec![Message {
+            role: Role::Assistant,
+            content: "Reading file".into(),
+            tool_calls: vec![ToolCallRequest {
+                id: "tc-abc".into(),
+                name: "read_file".into(),
+                arguments: json!({"path": "src/lib.rs"}),
+            }],
+            tool_result: None,
+        }];
+        let out = backend.build_messages(&input);
+        // system + assistant-with-tools
+        let asst = &out[1];
+        assert_eq!(asst["role"], "assistant");
+        let tcs = asst["tool_calls"].as_array().expect("tool_calls array");
+        assert_eq!(tcs.len(), 1);
+        assert_eq!(tcs[0]["function"]["name"], "read_file");
+        assert_eq!(tcs[0]["function"]["arguments"]["path"], "src/lib.rs");
+    }
+
+    #[test]
+    fn build_messages_tool_role_serializes_result_content() {
+        let backend = make_backend();
+        let input = vec![Message {
+            role: Role::Tool,
+            content: "unused in tool role".into(),
+            tool_calls: vec![],
+            tool_result: Some(ToolResultMessage {
+                tool_call_id: "tc-1".into(),
+                content: json!({"ok": true, "rows": 42}),
+                success: true,
+            }),
+        }];
+        let out = backend.build_messages(&input);
+        // system + tool
+        let tool_msg = &out[1];
+        assert_eq!(tool_msg["role"], "tool");
+        let content = tool_msg["content"].as_str().unwrap();
+        // serde_json::to_string produces a JSON-encoded string
+        assert!(content.contains("\"rows\""), "content should have rows: {}", content);
+        assert!(content.contains("42"), "content should have 42: {}", content);
+    }
+
+    #[test]
+    fn build_tools_wraps_definitions_in_ollama_function_envelope() {
+        let backend = make_backend();
+        let tools = vec![ToolDefinition {
+            name: "greet".into(),
+            description: "Say hi".into(),
+            parameters: json!({"type": "object", "properties": {"name": {"type": "string"}}}),
+        }];
+        let out = backend.build_tools(&tools);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["type"], "function");
+        assert_eq!(out[0]["function"]["name"], "greet");
+        assert_eq!(out[0]["function"]["description"], "Say hi");
+        assert_eq!(
+            out[0]["function"]["parameters"]["properties"]["name"]["type"],
+            "string"
+        );
+    }
+
+    #[test]
+    fn parse_response_plain_content() {
+        let backend = make_backend();
+        let json = serde_json::json!({
+            "message": {
+                "role": "assistant",
+                "content": "hello world"
+            }
+        });
+        let resp = backend.parse_response(&json).unwrap();
+        assert_eq!(resp.content, "hello world");
+        assert!(resp.tool_calls.is_empty());
+        assert_eq!(resp.finish_reason, "stop", "default when no done_reason");
+    }
+
+    #[test]
+    fn parse_response_with_tool_calls_sets_finish_reason() {
+        let backend = make_backend();
+        let json = serde_json::json!({
+            "message": {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [{
+                    "function": {
+                        "name": "read_file",
+                        "arguments": {"path": "foo.rs"}
+                    }
+                }]
+            }
+        });
+        let resp = backend.parse_response(&json).unwrap();
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].name, "read_file");
+        assert_eq!(resp.tool_calls[0].arguments["path"], "foo.rs");
+        assert_eq!(
+            resp.finish_reason, "tool_calls",
+            "presence of tool_calls must flip finish_reason"
+        );
+        // Each tool call gets a fresh UUID — non-empty, unique per call
+        assert!(!resp.tool_calls[0].id.is_empty());
+    }
+
+    #[test]
+    fn parse_response_without_message_returns_error() {
+        let backend = make_backend();
+        let json = serde_json::json!({"done": true});
+        let err = backend.parse_response(&json).unwrap_err();
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("No message") || msg.contains("message"),
+            "error message should mention missing message, got: {}",
+            msg
+        );
+    }
+}
