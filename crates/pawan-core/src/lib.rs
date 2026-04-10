@@ -26,6 +26,7 @@ pub mod config;
 pub mod eruka_bridge;
 pub mod healing;
 pub mod skill_distillation;
+pub mod skills;
 pub mod tasks;
 pub mod tools;
 

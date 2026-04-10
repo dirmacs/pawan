@@ -64,6 +64,7 @@ rusqlite = { version = "0.34", features = ["bundled"] }
 # Thulp — reuse tool types + skill file parsing (DRY)
 thulp-core = { workspace = true }
 thulp-skill-files = { workspace = true }
+thulp-skills = { workspace = true }
 
 # Thulpoff — skill distillation from agent sessions
 thulpoff-core = { workspace = true }
