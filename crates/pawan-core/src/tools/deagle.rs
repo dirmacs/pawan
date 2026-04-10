@@ -271,7 +271,7 @@ impl Tool for DeagleSgTool {
             "type": "object",
             "properties": {
                 "pattern": { "type": "string", "description": "AST pattern with $VAR metavariables" },
-                "lang": { "type": "string", "description": "Language: rust, python, go, typescript, javascript, java, c, cpp" },
+                "lang": { "type": "string", "description": "Language: rust, python, go, typescript, javascript, java, c, cpp, ruby" },
                 "path": { "type": "string", "description": "Path to search (default: workspace root)" }
             },
             "required": ["pattern"]
@@ -404,7 +404,7 @@ impl Tool for DeagleMapTool {
 
     fn description(&self) -> &str {
         "Index or re-index a codebase into the deagle graph database. \
-         Uses tree-sitter parsers for 7 languages (Rust, Python, Go, TS/JS, Java, C, C++). \
+         Uses tree-sitter parsers for 8 languages (Rust, Python, Go, TS/JS, Java, C, C++, Ruby). \
          Incremental — only re-parses changed files (SHA-256 hash detection). \
          Run once to bootstrap, then again after significant code changes. \
          Required before `deagle_search`, `deagle_keyword`, `deagle_sg` work."
