@@ -361,3 +361,101 @@ impl Default for ToolRegistry {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn test_registry_new_is_empty() {
+        let registry = ToolRegistry::new();
+        assert!(registry.tool_names().is_empty());
+        assert!(!registry.has_tool("bash"));
+        assert!(registry.get("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_registry_with_defaults_contains_core_tools() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        // Must include core tools that are always visible to the LLM
+        for name in &["bash", "read_file", "write_file", "edit_file", "grep_search", "glob_search"] {
+            assert!(
+                registry.has_tool(name),
+                "default registry missing core tool: {}",
+                name
+            );
+        }
+        // Standard tier tools should also be there
+        assert!(registry.has_tool("git_status"));
+        assert!(registry.has_tool("git_commit"));
+        // Extended tier tools are registered but initially hidden
+        assert!(registry.has_tool("rg"));
+        assert!(registry.has_tool("fd"));
+    }
+
+    #[test]
+    fn test_registry_get_definitions_hides_extended_until_activated() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        let initial: Vec<String> = registry
+            .get_definitions()
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
+
+        // Extended tools must NOT be in initial visible list
+        assert!(!initial.contains(&"rg".to_string()), "rg should be hidden until activated");
+        assert!(!initial.contains(&"fd".to_string()), "fd should be hidden until activated");
+        // Core tools must be present
+        assert!(initial.contains(&"bash".to_string()));
+        assert!(initial.contains(&"read_file".to_string()));
+
+        // Activate rg and verify it appears
+        registry.activate("rg");
+        let after: Vec<String> = registry
+            .get_definitions()
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
+        assert!(after.contains(&"rg".to_string()), "rg should be visible after activate");
+        assert!(after.len() > initial.len(), "activation should grow visible set");
+    }
+
+    #[test]
+    fn test_registry_get_all_definitions_returns_everything() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        let all = registry.get_all_definitions();
+        let visible = registry.get_definitions();
+        // all (Core + Standard + Extended) should strictly contain more than default-visible
+        assert!(
+            all.len() > visible.len(),
+            "get_all_definitions ({}) should include hidden extended tools beyond get_definitions ({})",
+            all.len(),
+            visible.len()
+        );
+        // rg should be in "all" even without activation
+        let all_names: Vec<String> = all.iter().map(|d| d.name.clone()).collect();
+        assert!(all_names.contains(&"rg".to_string()));
+    }
+
+    #[test]
+    fn test_registry_query_tools_filters_by_dsl() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        // thulp-query DSL: simple name substring match
+        let bash_match = registry.query_tools("name:bash");
+        assert!(
+            !bash_match.is_empty(),
+            "query_tools('name:bash') should match the bash tool"
+        );
+        let names: Vec<String> = bash_match.iter().map(|d| d.name.clone()).collect();
+        assert!(names.contains(&"bash".to_string()));
+
+        // An impossible match returns empty
+        let no_match = registry.query_tools("name:definitely_not_a_tool_xyz");
+        assert!(
+            no_match.is_empty(),
+            "query_tools for nonexistent name should return empty, got {:?}",
+            no_match.iter().map(|d| &d.name).collect::<Vec<_>>()
+        );
+    }
+}
