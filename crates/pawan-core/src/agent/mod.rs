@@ -1565,4 +1565,66 @@ mod tests {
         assert!(names.contains(&"read_file"), "should have read_file in defaults");
         assert!(names.contains(&"bash"), "should have bash in defaults");
     }
+
+    // ─── Edge cases for truncate_tool_result ─────────────────────────────
+
+    #[test]
+    fn test_truncate_empty_object_unchanged() {
+        // Regression: empty object passes through early-return (serialized "{}" = 2 chars)
+        let val = json!({});
+        let result = truncate_tool_result(val.clone(), 10);
+        assert_eq!(result, val);
+    }
+
+    #[test]
+    fn test_truncate_null_value_unchanged() {
+        // Null values pass through the `other => other` arm
+        let val = Value::Null;
+        let result = truncate_tool_result(val.clone(), 10);
+        assert_eq!(result, val);
+    }
+
+    #[test]
+    fn test_truncate_numeric_values_pass_through() {
+        // Numbers and booleans can't be truncated — the fn must leave them intact
+        let val = json!({"count": 42, "ratio": 3.14, "enabled": true});
+        let result = truncate_tool_result(val.clone(), 8000);
+        assert_eq!(result, val);
+    }
+
+    #[test]
+    fn test_truncate_large_string_is_utf8_safe() {
+        // Regression: must use chars().take() not byte slicing so multi-byte
+        // UTF-8 doesn't panic on char boundary (3000 crabs = ~12000 bytes)
+        let emoji_heavy = "🦀".repeat(3000);
+        let val = json!({"crabs": emoji_heavy});
+        let result = truncate_tool_result(val, 1000);
+        let out = result["crabs"].as_str().unwrap();
+        assert!(out.contains("truncated"), "truncation marker must be present");
+        assert!(out.starts_with('🦀'), "must preserve char boundary");
+    }
+
+    #[test]
+    fn test_truncate_nested_object_remains_valid_json() {
+        // Recursive case: large string nested inside a sub-object still truncates,
+        // and the output stays valid parseable JSON.
+        let inner_big = "y".repeat(5000);
+        let val = json!({
+            "meta": "small",
+            "nested": { "inner": inner_big }
+        });
+        let result = truncate_tool_result(val, 1500);
+        assert_eq!(result["meta"], "small");
+        let serialized = serde_json::to_string(&result).unwrap();
+        let _reparsed: Value = serde_json::from_str(&serialized)
+            .expect("truncated result must be valid JSON");
+    }
+
+    #[test]
+    fn test_truncate_short_bare_string_unchanged() {
+        // A bare string under max_chars hits the early-return check
+        let val = json!("short string");
+        let result = truncate_tool_result(val.clone(), 1000);
+        assert_eq!(result, val);
+    }
 }
