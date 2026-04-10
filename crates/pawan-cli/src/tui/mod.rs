@@ -1811,6 +1811,7 @@ fn parse_inline_markdown(text: &str) -> Vec<Span<'static>> {
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use ratatui::backend::TestBackend;
