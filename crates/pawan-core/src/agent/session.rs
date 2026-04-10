@@ -116,3 +116,97 @@ pub struct SessionSummary {
     pub updated_at: String,
     pub message_count: usize,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::Role;
+
+    #[test]
+    fn session_new_generates_8_char_id() {
+        let s = Session::new("test-model");
+        assert_eq!(s.id.len(), 8, "session id must be exactly 8 chars");
+        assert_eq!(s.model, "test-model");
+        assert!(s.messages.is_empty());
+        assert_eq!(s.total_tokens, 0);
+        assert_eq!(s.iteration_count, 0);
+    }
+
+    #[test]
+    fn session_new_produces_distinct_ids() {
+        // UUID prefix uniqueness — two fresh sessions in a row must differ.
+        // (At 8 hex chars = 32 bits, birthday paradox says ~65k sessions
+        // before 50% collision chance, so two in a row is safe.)
+        let a = Session::new("m");
+        let b = Session::new("m");
+        assert_ne!(a.id, b.id, "successive Session::new() must produce distinct ids");
+    }
+
+    #[test]
+    fn session_new_timestamps_parse_as_rfc3339() {
+        let s = Session::new("m");
+        // Both timestamps must be valid RFC3339 and equal at creation.
+        assert_eq!(s.created_at, s.updated_at, "at creation created_at == updated_at");
+        chrono::DateTime::parse_from_rfc3339(&s.created_at)
+            .expect("created_at must parse as RFC3339");
+        chrono::DateTime::parse_from_rfc3339(&s.updated_at)
+            .expect("updated_at must parse as RFC3339");
+    }
+
+    #[test]
+    fn session_serde_roundtrip_preserves_all_fields() {
+        let mut original = Session::new("qwen-test");
+        original.total_tokens = 12345;
+        original.iteration_count = 7;
+        original.messages.push(Message {
+            role: Role::User,
+            content: "hello".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        });
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: Session = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.id, original.id);
+        assert_eq!(restored.model, original.model);
+        assert_eq!(restored.created_at, original.created_at);
+        assert_eq!(restored.updated_at, original.updated_at);
+        assert_eq!(restored.total_tokens, 12345);
+        assert_eq!(restored.iteration_count, 7);
+        assert_eq!(restored.messages.len(), 1);
+    }
+
+    #[test]
+    fn session_deserialize_tolerates_missing_token_fields() {
+        // Old sessions written before total_tokens / iteration_count existed
+        // must still load — they're marked #[serde(default)] so missing
+        // fields deserialize to 0. Regression guard.
+        let json = r#"{
+            "id": "abcd1234",
+            "model": "old-model",
+            "created_at": "2026-01-01T00:00:00Z",
+            "updated_at": "2026-01-01T00:00:00Z",
+            "messages": []
+        }"#;
+        let session: Session = serde_json::from_str(json).unwrap();
+        assert_eq!(session.id, "abcd1234");
+        assert_eq!(session.total_tokens, 0, "missing total_tokens ⇒ default 0");
+        assert_eq!(session.iteration_count, 0, "missing iteration_count ⇒ default 0");
+    }
+
+    #[test]
+    fn session_summary_serde_roundtrip() {
+        let summary = SessionSummary {
+            id: "abcdef12".into(),
+            model: "qwen3.5".into(),
+            created_at: "2026-04-10T12:00:00Z".into(),
+            updated_at: "2026-04-10T13:00:00Z".into(),
+            message_count: 42,
+        };
+        let json = serde_json::to_string(&summary).unwrap();
+        assert!(json.contains("\"id\":\"abcdef12\""));
+        assert!(json.contains("\"message_count\":42"));
+        let restored: SessionSummary = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.id, "abcdef12");
+        assert_eq!(restored.message_count, 42);
+    }
+}
