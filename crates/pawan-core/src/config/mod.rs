@@ -117,6 +117,14 @@ pub struct PawanConfig {
     /// Eruka context engine integration (3-tier memory injection)
     #[serde(default)]
     pub eruka: crate::eruka_bridge::ErukaConfig,
+
+    /// Use ares-server's LLMClient + ToolCoordinator primitives instead of
+    /// pawan's built-in OpenAI-compatible backend. Requires the `ares` feature
+    /// flag to be enabled when building pawan-core. When true, pawan delegates
+    /// LLM generation to ares which provides connection pooling, loop detection,
+    /// and unified multi-provider support. Default: false (backwards compatible).
+    #[serde(default)]
+    pub use_ares_backend: bool,
 }
 
 /// Task-type model routing — use different models for different task categories.
@@ -270,6 +278,7 @@ impl Default for PawanConfig {
             cloud: None,
             models: ModelRouting::default(),
             eruka: crate::eruka_bridge::ErukaConfig::default(),
+            use_ares_backend: false,
         }
     }
 }
