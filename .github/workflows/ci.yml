@@ -28,14 +28,24 @@ jobs:
         run: cargo fmt --all -- --check
 
   test:
-    name: Test
+    name: Test (nextest)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Test
-        run: cargo test --workspace
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest
+      - name: Test (nextest)
+        # nextest runs each test binary in a separate process with better
+        # parallelism + failure reporting than `cargo test`. Falls back to
+        # `cargo test` for doc-tests which nextest doesn't support yet.
+        # Default features only — ares feature requires path deps.
+        run: |
+          cargo nextest run --workspace --no-fail-fast
+          cargo test --workspace --doc
 
   doc:
     name: Doc
