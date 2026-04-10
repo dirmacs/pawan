@@ -1147,4 +1147,112 @@ mod tests {
             assert!(schema.is_object(), "Schema should be object for {}", expected_name);
         }
     }
+
+    #[tokio::test]
+    async fn test_git_commit_missing_message_errors() {
+        let temp_dir = setup_git_repo().await;
+        let tool = GitCommitTool::new(temp_dir.path().to_path_buf());
+        // No "message" field
+        let result = tool.execute(json!({})).await;
+        assert!(result.is_err(), "commit without message must error");
+    }
+
+    #[tokio::test]
+    async fn test_git_commit_multiline_message_preserved() {
+        let temp_dir = setup_git_repo().await;
+        std::fs::write(temp_dir.path().join("a.txt"), "content").unwrap();
+
+        GitAddTool::new(temp_dir.path().to_path_buf())
+            .execute(json!({ "files": ["a.txt"] }))
+            .await
+            .unwrap();
+
+        // Commit with a message that has newlines, backticks, dollars,
+        // and quotes — everything that could break shell escaping.
+        let message = "feat: the subject line\n\nThis is the body.\nIt has `backticks`, $dollars, and \"quotes\".\n\nCo-Authored-By: Test <test@example.com>";
+        let commit_result = GitCommitTool::new(temp_dir.path().to_path_buf())
+            .execute(json!({ "message": message }))
+            .await
+            .unwrap();
+        assert!(commit_result["success"].as_bool().unwrap());
+
+        // Read the commit message back via git log
+        let log_result = GitLogTool::new(temp_dir.path().to_path_buf())
+            .execute(json!({ "count": 1 }))
+            .await
+            .unwrap();
+        let log_str = format!("{}", log_result);
+        assert!(
+            log_str.contains("the subject line"),
+            "log should contain subject line, got: {}",
+            log_str
+        );
+    }
+
+    #[tokio::test]
+    async fn test_git_stash_on_dirty_repo_saves_changes() {
+        let temp_dir = setup_git_repo().await;
+        // First commit a base file
+        std::fs::write(temp_dir.path().join("base.txt"), "v1").unwrap();
+        GitAddTool::new(temp_dir.path().to_path_buf())
+            .execute(json!({ "files": ["base.txt"] }))
+            .await
+            .unwrap();
+        GitCommitTool::new(temp_dir.path().to_path_buf())
+            .execute(json!({ "message": "base" }))
+            .await
+            .unwrap();
+
+        // Now modify it so there's something to stash
+        std::fs::write(temp_dir.path().join("base.txt"), "v2-dirty").unwrap();
+
+        let stash_tool = GitStashTool::new(temp_dir.path().to_path_buf());
+        let result = stash_tool
+            .execute(json!({ "action": "push", "message": "test stash" }))
+            .await
+            .unwrap();
+        assert!(result["success"].as_bool().unwrap());
+
+        // Working tree should be clean again (stash popped the change)
+        let content = std::fs::read_to_string(temp_dir.path().join("base.txt")).unwrap();
+        assert_eq!(content, "v1", "stash push should revert working tree");
+    }
+
+    #[tokio::test]
+    async fn test_git_log_with_count_limit() {
+        let temp_dir = setup_git_repo().await;
+        // Make 3 commits
+        for i in 1..=3 {
+            std::fs::write(
+                temp_dir.path().join(format!("file{i}.txt")),
+                format!("v{i}"),
+            )
+            .unwrap();
+            GitAddTool::new(temp_dir.path().to_path_buf())
+                .execute(json!({ "files": [format!("file{i}.txt")] }))
+                .await
+                .unwrap();
+            GitCommitTool::new(temp_dir.path().to_path_buf())
+                .execute(json!({ "message": format!("commit {i}") }))
+                .await
+                .unwrap();
+        }
+
+        // Log with count=2 should only return 2 commits (one line per commit
+        // under --pretty=format:%h %an %ar %s)
+        let tool = GitLogTool::new(temp_dir.path().to_path_buf());
+        let result = tool.execute(json!({ "count": 2 })).await.unwrap();
+        assert!(result["success"].as_bool().unwrap());
+        assert_eq!(
+            result["commit_count"].as_u64().unwrap(),
+            2,
+            "count=2 should return exactly 2 commits, got: {}",
+            result["log"].as_str().unwrap_or("")
+        );
+        // Sanity check: the log string should mention the 2 most recent commits
+        let log = result["log"].as_str().unwrap();
+        assert!(log.contains("commit 3"), "expected 'commit 3' in log, got: {}", log);
+        assert!(log.contains("commit 2"), "expected 'commit 2' in log, got: {}", log);
+        assert!(!log.contains("commit 1"), "'commit 1' should be excluded by count=2, got: {}", log);
+    }
 }
