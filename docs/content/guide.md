@@ -95,6 +95,14 @@ max_tokens = 4096
 max_tool_iterations = 20
 thinking_budget = 0
 
+# Opt-in: use ares-server's LLMClient + tool coordination primitives
+# Requires building with --features ares
+use_ares_backend = false
+
+# Optional: link to an external skills repository (dstack-style)
+# Overridden by PAWAN_SKILLS_REPO env var
+skills_repo = "/opt/dirmacs-skills"
+
 [cloud]
 provider = "nvidia"
 model = "minimaxai/minimax-m2.5"
@@ -103,10 +111,28 @@ model = "minimaxai/minimax-m2.5"
 enabled = true
 url = "http://localhost:8081"
 
+# MCP servers are auto-discovered from PATH at startup:
+# - eruka-mcp (context memory)
+# - daedra (web search)
+# - deagle-mcp (code intelligence)
+# Explicit entries override auto-discovery.
 [mcp.daedra]
 command = "daedra"
 args = ["serve", "--transport", "stdio", "--quiet"]
 ```
+
+### Dirmacs stack integration
+
+Pawan is built on top of the dirmacs Rust stack for maximum reuse:
+
+- **ares-server**: LLM client abstraction, tool coordination, agent primitives (opt-in via `--features ares`)
+- **deagle**: graph-backed code intelligence (5 subprocess tools: search, keyword, sg, stats, map)
+- **thulp-core / thulp-skill-files**: typed tool definitions, SKILL.md parsing
+- **thulp-skills**: multi-step skill workflow execution with timeout/retry
+- **thulp-query**: DSL for dynamic tool filtering (`name:git`, `has:path`, etc.)
+- **thulpoff-core / thulpoff-engine**: skill distillation, evaluation, refinement from agent sessions
+- **eruka-mcp**: context memory MCP server (auto-discovered)
+- **daedra**: web search MCP server (auto-discovered)
 
 ## Common workflows
 
