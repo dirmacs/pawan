@@ -568,4 +568,87 @@ mod tests {
             err
         );
     }
+
+    #[tokio::test]
+    async fn test_deagle_keyword_missing_query_errors() {
+        // Mirrors search: DeagleKeywordTool must bail on missing query rather
+        // than pass a null/empty string to the deagle CLI (which would either
+        // list everything or hang).
+        let tool = DeagleKeywordTool::new(PathBuf::from("."));
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err(), "missing query must error");
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("query"),
+            "error should mention 'query', got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_deagle_sg_missing_pattern_errors() {
+        // DeagleSgTool requires an AST pattern — no pattern means no search
+        // is possible, so we must bail before invoking the deagle binary.
+        let tool = DeagleSgTool::new(PathBuf::from("."));
+        let result = tool.execute(serde_json::json!({})).await;
+        assert!(result.is_err(), "missing pattern must error");
+        let err = format!("{}", result.unwrap_err());
+        assert!(
+            err.contains("pattern"),
+            "error should mention 'pattern', got: {}",
+            err
+        );
+    }
+
+    #[tokio::test]
+    async fn test_deagle_search_query_wrong_type_errors() {
+        // Query present but as integer, not string — `.as_str()` returns None
+        // so the `ok_or_else` branch must still fire. Guards against a future
+        // refactor that silently coerces non-string queries.
+        let tool = DeagleSearchTool::new(PathBuf::from("."));
+        let result = tool.execute(serde_json::json!({"query": 42})).await;
+        assert!(result.is_err(), "non-string query must error");
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("query"), "error should mention 'query', got: {}", err);
+    }
+
+    #[test]
+    fn test_deagle_keyword_schema_required_query() {
+        // Symmetric to test_deagle_search_schema_required_query — guards
+        // against accidental removal of the required field on keyword.
+        let tool = DeagleKeywordTool::new(PathBuf::from("."));
+        let schema = tool.parameters_schema();
+        let required = schema["required"].as_array().unwrap();
+        assert!(required.iter().any(|v| v == "query"));
+        let props = schema["properties"].as_object().unwrap();
+        assert!(props.contains_key("query"));
+        assert!(props.contains_key("limit"));
+    }
+
+    #[test]
+    fn test_deagle_stats_schema_has_no_properties() {
+        // Stats takes no arguments — if someone adds a property here they
+        // should also wire it through execute(), so this assertion is a
+        // cross-file reminder.
+        let tool = DeagleStatsTool::new(PathBuf::from("."));
+        let schema = tool.parameters_schema();
+        let props = schema["properties"].as_object().unwrap();
+        assert!(props.is_empty(), "stats schema should have no properties");
+        assert!(schema.get("required").is_none() || schema["required"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_deagle_map_schema_has_no_required() {
+        // Map's `path` is optional (defaults to workspace root). If someone
+        // marks it required, downstream agents calling `deagle_map()` without
+        // args will break — this test catches that regression.
+        let tool = DeagleMapTool::new(PathBuf::from("."));
+        let schema = tool.parameters_schema();
+        let has_required = schema.get("required").is_some_and(|r| {
+            r.as_array().map(|a| !a.is_empty()).unwrap_or(false)
+        });
+        assert!(!has_required, "map should not require any parameters");
+        let props = schema["properties"].as_object().unwrap();
+        assert!(props.contains_key("path"));
+    }
 }
