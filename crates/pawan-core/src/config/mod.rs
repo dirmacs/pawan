@@ -125,6 +125,21 @@ pub struct PawanConfig {
     /// and unified multi-provider support. Default: false (backwards compatible).
     #[serde(default)]
     pub use_ares_backend: bool,
+
+    /// Optional path to a skills repository (directory of SKILL.md files).
+    ///
+    /// Mirrors the dstack pattern: public repo + private skills linked by
+    /// config. When set, pawan discovers all SKILL.md files under this path
+    /// at runtime via thulp-skill-files SkillLoader. Useful for linking
+    /// private skill libraries without embedding them in the public repo.
+    ///
+    /// Resolution order:
+    ///   1. `PAWAN_SKILLS_REPO` environment variable
+    ///   2. `skills_repo` field in pawan.toml
+    ///   3. `~/.config/pawan/skills` if it exists
+    ///   4. None (no skill discovery beyond the project SKILL.md)
+    #[serde(default)]
+    pub skills_repo: Option<PathBuf>,
 }
 
 /// Task-type model routing — use different models for different task categories.
@@ -279,6 +294,7 @@ impl Default for PawanConfig {
             models: ModelRouting::default(),
             eruka: crate::eruka_bridge::ErukaConfig::default(),
             use_ares_backend: false,
+            skills_repo: None,
         }
     }
 }
@@ -581,6 +597,95 @@ impl PawanConfig {
                 None
             }
         }
+    }
+
+    /// Resolve the effective skills repository path using the dstack pattern:
+    /// env var > config field > default `~/.config/pawan/skills` > None.
+    ///
+    /// Returns `Some(path)` only if the resolved path exists as a directory.
+    /// This allows public pawan repos to link to private skill libraries
+    /// without embedding them — the path is configured per-machine.
+    pub fn resolve_skills_repo(&self) -> Option<PathBuf> {
+        // 1. Environment variable has highest priority
+        if let Ok(env_path) = std::env::var("PAWAN_SKILLS_REPO") {
+            let p = PathBuf::from(env_path);
+            if p.is_dir() {
+                return Some(p);
+            }
+            tracing::warn!(path = %p.display(), "PAWAN_SKILLS_REPO set but directory does not exist");
+        }
+
+        // 2. Config field
+        if let Some(ref p) = self.skills_repo {
+            if p.is_dir() {
+                return Some(p.clone());
+            }
+            tracing::warn!(path = %p.display(), "config.skills_repo set but directory does not exist");
+        }
+
+        // 3. Default: ~/.config/pawan/skills
+        if let Some(home) = dirs::home_dir() {
+            let default = home.join(".config").join("pawan").join("skills");
+            if default.is_dir() {
+                return Some(default);
+            }
+        }
+
+        None
+    }
+
+    /// Discover all SKILL.md files in the configured skills repository using
+    /// thulp-skill-files SkillLoader.
+    ///
+    /// Returns a list of `(skill_name, description, file_path)` tuples. The
+    /// caller is responsible for deciding which skills to inject into the
+    /// system prompt or present to the user.
+    ///
+    /// The skills repository is never compiled into the pawan binary — this
+    /// enables the "public repo links to private skills via config" pattern
+    /// used by dstack for `dirmacs/skills`.
+    pub fn discover_skills_from_repo(&self) -> Vec<(String, String, PathBuf)> {
+        use thulp_skill_files::SkillFile;
+
+        let repo = match self.resolve_skills_repo() {
+            Some(r) => r,
+            None => return Vec::new(),
+        };
+
+        let mut results = Vec::new();
+        let walker = match std::fs::read_dir(&repo) {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::warn!(path = %repo.display(), error = %e, "failed to read skills repo");
+                return Vec::new();
+            }
+        };
+
+        for entry in walker.flatten() {
+            let path = entry.path();
+            // Each skill is a directory containing SKILL.md
+            let skill_file = path.join("SKILL.md");
+            if !skill_file.is_file() {
+                continue;
+            }
+            match SkillFile::parse(&skill_file) {
+                Ok(skill) => {
+                    let name = skill.effective_name();
+                    let desc = skill
+                        .frontmatter
+                        .description
+                        .clone()
+                        .unwrap_or_else(|| "(no description)".to_string());
+                    results.push((name, desc, skill_file));
+                }
+                Err(e) => {
+                    tracing::debug!(path = %skill_file.display(), error = %e, "skip unparseable skill");
+                }
+            }
+        }
+
+        results.sort_by(|a, b| a.0.cmp(&b.0));
+        results
     }
 
     /// Check if thinking mode should be enabled.
