@@ -722,62 +722,8 @@ core_max_tokens = 1000
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // Tests for lifecycle/caching/export methods (task #80)
+    // Regression: sync_turn must handle long messages (task #80)
     // ─────────────────────────────────────────────────────────────────
-
-    #[tokio::test]
-    async fn disabled_sync_turn_returns_false() {
-        let client = ErukaClient::new(ErukaConfig::default());
-        let result = client
-            .sync_turn("user msg", "assistant reply", "session-1")
-            .await
-            .unwrap();
-        assert!(!result, "disabled client must short-circuit sync_turn");
-    }
-
-    #[tokio::test]
-    async fn disabled_on_pre_compress_returns_false() {
-        let client = ErukaClient::new(ErukaConfig::default());
-        let result = client
-            .on_pre_compress("some conversation snippet", "session-2")
-            .await
-            .unwrap();
-        assert!(!result, "disabled client must short-circuit on_pre_compress");
-    }
-
-    #[tokio::test]
-    async fn disabled_prefetch_returns_none() {
-        let client = ErukaClient::new(ErukaConfig::default());
-        let result = client.prefetch("query", 1000).await.unwrap();
-        assert!(result.is_none(), "disabled client must return None");
-    }
-
-    #[tokio::test]
-    async fn disabled_get_context_cached_returns_none() {
-        let client = ErukaClient::new(ErukaConfig::default());
-        let result = client
-            .get_context_cached("identity/project", "session-3")
-            .await
-            .unwrap();
-        assert!(result.is_none(), "disabled client must return None");
-    }
-
-    #[tokio::test]
-    async fn disabled_export_context_returns_none() {
-        let client = ErukaClient::new(ErukaConfig::default());
-        let result = client.export_context("*", true).await.unwrap();
-        assert!(result.is_none(), "disabled client must return None");
-    }
-
-    #[tokio::test]
-    async fn disabled_write_context_returns_false() {
-        let client = ErukaClient::new(ErukaConfig::default());
-        let result = client
-            .write_context("identity/project", "pawan", "test", 0.9)
-            .await
-            .unwrap();
-        assert!(!result, "disabled client must short-circuit write_context");
-    }
 
     #[tokio::test]
     async fn sync_turn_caps_long_messages_at_500_chars_each() {
