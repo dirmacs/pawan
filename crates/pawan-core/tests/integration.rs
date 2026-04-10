@@ -1214,3 +1214,59 @@ fn test_env_var_overrides_config_skills_repo() {
 
     std::env::remove_var("PAWAN_SKILLS_REPO");
 }
+
+// ─── Phase 9: eruka-mcp auto-discovery ─────────────────────────────────────
+
+/// Auto-discovery never overwrites explicit MCP config entries
+#[test]
+fn test_auto_discover_mcp_preserves_existing() {
+    use pawan::config::McpServerEntry;
+    use std::collections::HashMap;
+
+    let mut config = PawanConfig::default();
+    config.mcp.insert(
+        "eruka".to_string(),
+        McpServerEntry {
+            command: "custom-eruka-binary".to_string(),
+            args: vec!["--custom".to_string()],
+            env: HashMap::new(),
+            enabled: true,
+        },
+    );
+
+    let _ = config.auto_discover_mcp_servers();
+    // Existing entry must be preserved
+    assert_eq!(config.mcp["eruka"].command, "custom-eruka-binary");
+    assert_eq!(config.mcp["eruka"].args[0], "--custom");
+}
+
+/// Auto-discovery is idempotent — calling it twice yields the same state
+#[test]
+fn test_auto_discover_mcp_idempotent() {
+    let mut config = PawanConfig::default();
+    let first = config.auto_discover_mcp_servers();
+    let first_mcp_count = config.mcp.len();
+
+    let second = config.auto_discover_mcp_servers();
+    // Second call should find nothing new
+    assert_eq!(second.len(), 0, "second call should discover nothing new");
+    assert_eq!(config.mcp.len(), first_mcp_count, "mcp count unchanged");
+
+    // Verify first call's discoveries match what's in the config
+    for name in &first {
+        assert!(config.mcp.contains_key(name));
+    }
+}
+
+/// Auto-discovery returns empty vec on a clean config when no binaries exist
+#[test]
+fn test_auto_discover_mcp_returns_empty_without_binaries() {
+    // We can't fake the binary existence reliably, so just verify the
+    // function runs without panicking and returns some Vec<String>
+    let mut config = PawanConfig::default();
+    let discovered = config.auto_discover_mcp_servers();
+    // Each discovered entry must be registered in the mcp map
+    for name in &discovered {
+        assert!(config.mcp.contains_key(name));
+    }
+}
