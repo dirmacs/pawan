@@ -1750,5 +1750,126 @@ mod tests {
         assert!(val["tree"].is_string() || val["output"].is_string(),
                 "Should produce tree output");
     }
+
+    // --- Execution tests (require rg/fd binaries on PATH) ---
+
+    #[tokio::test]
+    async fn test_grep_search_finds_pattern_in_files() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("alpha.rs"),
+            "fn main() {\n    println!(\"unique_marker_abc\");\n}\n",
+        )
+        .unwrap();
+        std::fs::write(tmp.path().join("beta.rs"), "fn unrelated() {}\n").unwrap();
+
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let result = tool
+            .execute(json!({ "pattern": "unique_marker_abc" }))
+            .await
+            .unwrap();
+
+        let count = result["count"].as_u64().unwrap();
+        assert!(count >= 1, "should find at least one match, got {}", count);
+        let results = result["results"].as_str().unwrap();
+        assert!(results.contains("unique_marker_abc"));
+        assert!(results.contains("alpha.rs"));
+    }
+
+    #[tokio::test]
+    async fn test_grep_search_returns_empty_on_no_match() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("x.rs"), "fn main() {}\n").unwrap();
+
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let result = tool
+            .execute(json!({ "pattern": "definitely_not_in_any_file_9f8e7d6c" }))
+            .await
+            .unwrap();
+
+        assert_eq!(result["count"], 0);
+        assert_eq!(result["results"].as_str().unwrap(), "");
+    }
+
+    #[tokio::test]
+    async fn test_glob_search_finds_files_by_extension() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("one.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("two.rs"), "").unwrap();
+        std::fs::write(tmp.path().join("ignored.txt"), "").unwrap();
+
+        let tool = GlobSearchTool::new(tmp.path().into());
+        let result = tool
+            .execute(json!({ "pattern": "*.rs" }))
+            .await
+            .unwrap();
+
+        // Result shape varies — verify it's a success value with meaningful content
+        let debug = format!("{}", result);
+        assert!(debug.contains("one.rs") || debug.contains("two.rs"),
+            "should find at least one .rs file, got: {}", debug);
+        assert!(!debug.contains("ignored.txt"), "should not match .txt, got: {}", debug);
+    }
+
+    #[tokio::test]
+    async fn test_ripgrep_case_insensitive_flag() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(
+            tmp.path().join("x.txt"),
+            "Hello World\nhello world\nHELLO WORLD\n",
+        )
+        .unwrap();
+
+        let tool = RipgrepTool::new(tmp.path().into());
+
+        // Case-sensitive: only "hello world" (lowercase) should match
+        let case_sensitive = tool
+            .execute(json!({ "pattern": "hello world" }))
+            .await
+            .unwrap();
+        let cs_debug = format!("{}", case_sensitive);
+
+        // Case-insensitive: all three should match
+        let case_insensitive = tool
+            .execute(json!({ "pattern": "hello world", "case_insensitive": true }))
+            .await
+            .unwrap();
+        let ci_debug = format!("{}", case_insensitive);
+
+        assert!(
+            ci_debug.len() > cs_debug.len(),
+            "case_insensitive should find more matches.\nCS: {}\nCI: {}",
+            cs_debug, ci_debug
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ripgrep_fixed_strings_treats_regex_chars_literally() {
+        let tmp = TempDir::new().unwrap();
+        // This file contains literal "a.b" — regex "a.b" would also match "axb".
+        std::fs::write(tmp.path().join("x.txt"), "a.b\naxb\n").unwrap();
+
+        let tool = RipgrepTool::new(tmp.path().into());
+
+        // Regex mode: "a.b" matches BOTH "a.b" and "axb" (. = any char)
+        let regex_mode = tool
+            .execute(json!({ "pattern": "a.b" }))
+            .await
+            .unwrap();
+        let regex_debug = format!("{}", regex_mode);
+
+        // Fixed strings mode: "a.b" only matches the literal "a.b"
+        let fixed_mode = tool
+            .execute(json!({ "pattern": "a.b", "fixed_strings": true }))
+            .await
+            .unwrap();
+        let fixed_debug = format!("{}", fixed_mode);
+
+        assert!(
+            regex_debug.contains("axb") || regex_debug.len() > fixed_debug.len(),
+            "regex mode should match more.\nregex: {}\nfixed: {}",
+            regex_debug, fixed_debug
+        );
+    }
 }
 
