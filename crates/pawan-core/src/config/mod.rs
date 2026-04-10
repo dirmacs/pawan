@@ -634,6 +634,72 @@ impl PawanConfig {
         None
     }
 
+    /// Auto-discover MCP server binaries in PATH and register any that aren't
+    /// already configured. Returns the names of newly-discovered servers.
+    ///
+    /// Supported auto-discovery targets:
+    /// - `eruka-mcp` — Eruka context memory (anti-hallucination knowledge store)
+    /// - `daedra` — web search across 9 backends
+    /// - `deagle-mcp` — deagle code intelligence graph
+    ///
+    /// Existing entries in the `mcp` HashMap are never overwritten. This makes
+    /// the auto-discovery idempotent and safe to call at every agent startup.
+    pub fn auto_discover_mcp_servers(&mut self) -> Vec<String> {
+        let mut discovered = Vec::new();
+
+        // eruka-mcp: context memory for anti-hallucination
+        if !self.mcp.contains_key("eruka") && which::which("eruka-mcp").is_ok() {
+            self.mcp.insert(
+                "eruka".to_string(),
+                McpServerEntry {
+                    command: "eruka-mcp".to_string(),
+                    args: vec!["--transport".to_string(), "stdio".to_string()],
+                    env: HashMap::new(),
+                    enabled: true,
+                },
+            );
+            discovered.push("eruka".to_string());
+            tracing::info!("auto-discovered eruka-mcp");
+        }
+
+        // daedra: web search with 9 backends + fallback
+        if !self.mcp.contains_key("daedra") && which::which("daedra").is_ok() {
+            self.mcp.insert(
+                "daedra".to_string(),
+                McpServerEntry {
+                    command: "daedra".to_string(),
+                    args: vec![
+                        "serve".to_string(),
+                        "--transport".to_string(),
+                        "stdio".to_string(),
+                        "--quiet".to_string(),
+                    ],
+                    env: HashMap::new(),
+                    enabled: true,
+                },
+            );
+            discovered.push("daedra".to_string());
+            tracing::info!("auto-discovered daedra");
+        }
+
+        // deagle-mcp: graph-backed code intelligence
+        if !self.mcp.contains_key("deagle") && which::which("deagle-mcp").is_ok() {
+            self.mcp.insert(
+                "deagle".to_string(),
+                McpServerEntry {
+                    command: "deagle-mcp".to_string(),
+                    args: vec!["--transport".to_string(), "stdio".to_string()],
+                    env: HashMap::new(),
+                    enabled: true,
+                },
+            );
+            discovered.push("deagle".to_string());
+            tracing::info!("auto-discovered deagle-mcp");
+        }
+
+        discovered
+    }
+
     /// Discover all SKILL.md files in the configured skills repository using
     /// thulp-skill-files SkillLoader.
     ///
