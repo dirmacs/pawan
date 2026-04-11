@@ -102,7 +102,7 @@ deagle_sg(pattern="impl $TYPE { $$$ }", lang="rust")
 deagle_stats()
 ```
 
-Before any deagle search works, run `deagle_map()` once to build the graph at `<workspace>/.deagle/graph.db`. Languages supported: Rust, Python, Go, TypeScript, JavaScript, Java, C, C++ (8 languages via tree-sitter parsers).
+Before any deagle search works, run `deagle_map()` once to build the graph at `<workspace>/.deagle/graph.db`. Languages supported: Rust, Python, Go, TypeScript, JavaScript, Java, C, C++, Ruby (9 languages via tree-sitter parsers, as of deagle 0.1.5).
 
 ## Search Tools
 
