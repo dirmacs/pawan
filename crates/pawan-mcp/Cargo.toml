@@ -18,9 +18,23 @@ async-trait = { workspace = true }
 tracing = { workspace = true }
 thiserror = { workspace = true }
 
+# Shared tool-metadata types (used directly by thulp_bridge.rs to talk to
+# thulp-mcp's typed ToolDefinition / ToolResult). pawan-core re-exports the
+# same `ToolDefinition`, but pawan-mcp also touches `Parameter` and
+# `ToolResult` so we depend on the source crate directly.
+thulp-core = { workspace = true }
+
 futures = { workspace = true }
 
-# MCP client + server
+# MCP client + server (rmcp — current canonical implementation)
 rmcp = { version = "0.12", features = ["client", "server", "transport-io", "transport-child-process"] }
+
+# Phase 11 (#20): thulp-mcp parallel client wrapper. Uses rs-utcp under the
+# hood (different transport from rmcp). Lives alongside rmcp for now —
+# enables consumers to choose; full rmcp removal deferred to a follow-up
+# phase once the thulp-mcp client reaches feature parity (resources,
+# prompts, server-side, child-process transport).
+thulp-mcp = "0.3.1"
+
 schemars = "1.0"
 toon-format = { version = "0.4.4", default-features = false }
