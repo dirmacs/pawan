@@ -282,6 +282,12 @@ enum Commands {
         student_model: Option<String>,
     },
 
+    /// Autonomous agent loop — runs a prompt on a fixed interval (ralph-loop pattern)
+    Loop {
+        #[command(subcommand)]
+        action: LoopAction,
+    },
+
     /// Headless single-prompt execution (for scripting and orchestration)
     Run {
         /// The prompt to execute
@@ -411,6 +417,24 @@ enum ConfigAction {
     Show,
     /// Generate a pawan.toml template
     Init,
+}
+
+#[derive(Subcommand)]
+enum LoopAction {
+    /// Start an autonomous agent loop (runs prompt on a fixed interval)
+    Start {
+        /// Prompt to run every tick (defaults to task-pick from TaskList)
+        #[arg(short, long)]
+        prompt: Option<String>,
+
+        /// Interval between ticks in seconds (default: 180 = 3 minutes)
+        #[arg(short, long, default_value = "180")]
+        interval: u64,
+
+        /// Maximum number of ticks before stopping (0 = run forever)
+        #[arg(long, default_value = "0")]
+        max_ticks: u64,
+    },
 }
 
 #[tokio::main]
@@ -569,6 +593,7 @@ async fn run() -> Result<()> {
             )
             .await
         }
+        Some(Commands::Loop { action }) => run_loop(config, workspace, action, cli.verbose).await,
     }
 }
 
@@ -2959,6 +2984,111 @@ async fn run_notify(message: &str, channel: &str) -> Result<()> {
         }
         Err(e) => {
             println!("{} {}", "Error:".red(), e);
+        }
+    }
+
+    Ok(())
+}
+
+/// Dispatch loop subcommands
+async fn run_loop(
+    config: PawanConfig,
+    workspace: PathBuf,
+    action: LoopAction,
+    verbose: bool,
+) -> Result<()> {
+    match action {
+        LoopAction::Start { prompt, interval, max_ticks } => {
+            run_loop_start(config, workspace, prompt, interval, max_ticks, verbose).await
+        }
+    }
+}
+
+/// Autonomous agent loop — runs a task every `interval` seconds.
+///
+/// Default prompt: pick the highest-priority pending task from TaskList and
+/// work on it. This mirrors the ralph-loop Execution tick.
+async fn run_loop_start(
+    config: PawanConfig,
+    workspace: PathBuf,
+    prompt: Option<String>,
+    interval_secs: u64,
+    max_ticks: u64,
+    verbose: bool,
+) -> Result<()> {
+    use tokio::signal;
+
+    let effective_prompt = prompt.unwrap_or_else(|| {
+        "Check the TaskList for the highest-priority pending task. \
+         Pick it, mark it in_progress, complete it fully, then mark it completed. \
+         If no pending tasks exist, report what you found and stop."
+            .to_string()
+    });
+
+    println!("{}", "Pawan Loop Mode".green().bold());
+    println!("{}", "═".repeat(40).dimmed());
+    println!(
+        "{} {}s  {} {}",
+        "Interval:".cyan(),
+        interval_secs,
+        "Max ticks:".cyan(),
+        if max_ticks == 0 { "∞".to_string() } else { max_ticks.to_string() }
+    );
+    println!("{} {}", "Prompt:".cyan(), &effective_prompt[..effective_prompt.len().min(80)]);
+    println!("{}", "Press Ctrl+C to stop".dimmed());
+    println!();
+
+    let mut tick: u64 = 0;
+
+    loop {
+        tick += 1;
+        if max_ticks > 0 && tick > max_ticks {
+            println!("{}", "Max ticks reached — stopping.".dimmed());
+            break;
+        }
+
+        let elapsed = tick * interval_secs;
+        println!(
+            "{} {} {}",
+            format!("[tick {}]", tick).cyan().bold(),
+            format!("+{}s", elapsed).dimmed(),
+            "─".repeat(30).dimmed()
+        );
+
+        let config_ref = config.clone();
+        let mut agent = PawanAgent::new(config.clone(), workspace.clone());
+
+        #[cfg(feature = "mcp")]
+        setup_mcp_tools(&mut agent, &config_ref).await;
+
+        match agent.task(&effective_prompt).await {
+            Ok(response) => {
+                println!("{}", response.content);
+                if verbose && !response.tool_calls.is_empty() {
+                    for tc in &response.tool_calls {
+                        if tc.success {
+                            println!("  {} {} ({}ms)", "✓".green(), tc.name.cyan(), tc.duration_ms);
+                        } else {
+                            println!("  {} {} ({}ms)", "✗".red(), tc.name.cyan(), tc.duration_ms);
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("{} {}", "Loop tick error:".red(), e);
+            }
+        }
+
+        println!();
+
+        // Wait for the interval, but exit immediately on Ctrl+C
+        let sleep = tokio::time::sleep(tokio::time::Duration::from_secs(interval_secs));
+        tokio::select! {
+            _ = sleep => {}
+            _ = signal::ctrl_c() => {
+                println!("{}", "\nLoop stopped by user.".dimmed());
+                break;
+            }
         }
     }
 
