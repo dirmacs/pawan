@@ -19,15 +19,21 @@ surfaces a diagnostic that the LLM reads and fixes on the next turn.
                                       │
             ┌─────────────────────────▼─────────────────────────┐
             │              agent/mod.rs loop                     │
-            │  1. inject_core_memory  (eruka_bridge)             │
+            │  1. inject_core_memory + prefetch  (eruka_bridge)  │
             │  2. send to LLM backend (NIM / ollama / ares)      │
             │  3. parse tool calls                               │
             │  4. execute tools (ToolRegistry)                   │
             │  5. feed results back                              │
-            │  6. repeat until model stops calling tools         │
-            │  7. archive_session + sync_turn  (eruka_bridge)    │
+            │  6. on_pre_compress before each prune_history      │
+            │  7. repeat until model stops calling tools         │
+            │  8. sync_turn at return  (eruka_bridge)            │
             └───────────────────────────────────────────────────┘
 ```
+
+After `execute_with_all_callbacks` returns, the CLI (or pawan-web) calls
+`agent.archive_to_eruka()` as a separate step on save. Archival is not
+inside the hot loop so that individual turns stay fast even when Eruka
+is up.
 
 Source of truth:
 - Agent loop: `crates/pawan-core/src/agent/mod.rs`
@@ -70,13 +76,13 @@ integration is opt-in and degrades gracefully when missing:
 
 | Component | Crate / Path | Purpose | Graceful Fallback |
 |-----------|--------------|---------|-------------------|
-| **ares-server** | `agent/backend/ares_backend.rs` | LLM proxy with routing, NIM/Groq/Anthropic fan-out | OpenAI-compat backend |
+| **ares-server** (0.7.5) | `agent/backend/ares_backend.rs` | LLM proxy with routing, NIM/Groq/Anthropic fan-out | OpenAI-compat backend |
 | **eruka** | `eruka_bridge.rs` | Context memory (core + archival) | Short-circuit when disabled |
-| **thulp-skills** | `tools/agent.rs` (skill loader) | SKILL.md discovery + execution | Uses built-in prompts |
+| **thulp-skills** (0.3.1) | `skills.rs` (`PawanTransport`) | Multi-step skill workflows over `ToolRegistry` | Uses built-in prompts |
 | **thulpoff** | `skill_distillation.rs` | Refine skills via eval loop | Skill stays as-is |
-| **deagle** | `tools/deagle.rs` | Code intelligence (graph + AST search) | Falls back to ripgrep |
+| **deagle** (0.1.5, embedded) | `tools/deagle.rs` | Graph + FTS5 + AST search via `deagle-core` / `deagle-parse` library deps (no subprocess) | Falls back to ripgrep |
 | **daedra (MCP)** | `pawan-mcp` | Web search + external tools | Skipped if unreachable |
-| **eruka-mcp** | Auto-discovered | 17 context tools | Uses direct eruka REST |
+| **eruka-mcp** | Auto-discovered | 13 context tools | Uses direct eruka REST |
 
 The eruka_bridge exposes 5 lifecycle/caching/export methods that the agent
 loop calls directly without going through MCP — `sync_turn`,
@@ -100,14 +106,26 @@ so turn lifecycle is fast even when MCP is off.
          ┌────────────────┬───────────────────┼───────────────────┬────────────┐
          ▼                ▼                   ▼                   ▼            ▼
     ReadFileTool    BashTool (validated)  RipgrepTool          DeagleTool  McpToolBridge
-                    (read-only cache,                          (subprocess) (namespaced)
-                     compound check)
+                    (read-only cache,     (native CLI       (embedded lib, (namespaced,
+                     compound check)       via mise)         no subprocess)  rmcp peer)
 ```
 
 Every pawan tool implements the same `Tool` trait. External MCP tools are
-wrapped in `McpToolBridge` which delegates to an rmcp `Peer<RoleClient>`.
-This means the agent loop treats "read_file" and "mcp_daedra_web_search"
-identically — the namespacing happens at the bridge layer.
+wrapped in `McpToolBridge` which delegates to an rmcp `Peer<RoleClient>` —
+pure helpers (`namespaced_name`, `description_or_default`, `schema_as_value`,
+`extract_text_content`, `format_search_results`, `format_text_results`) are
+extracted so the namespacing, fallback, and result-shaping logic can be unit
+tested without a live MCP peer. This means the agent loop treats
+`read_file` and `mcp_daedra_web_search` identically — the namespacing
+happens at the bridge layer.
+
+**Batteries-included**: as of the Option B embedding, pawan no longer
+shells out to a `deagle` binary. `deagle-core` and `deagle-parse` are
+library dependencies, so all five deagle tools (`deagle_search`,
+`deagle_keyword`, `deagle_sg`, `deagle_stats`, `deagle_map`) work out of
+the box after `cargo install pawan`. Native tools (rg, fd, sd, ast-grep,
+erd) are either auto-installed via mise on first use or installed in a
+batch with `pawan bootstrap`.
 
 ## Safety Layers
 
