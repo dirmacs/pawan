@@ -361,7 +361,7 @@ impl Tool for DeagleSgTool {
         let rel_dir = args["path"].as_str().unwrap_or(".");
         let lang_filter = args["lang"]
             .as_str()
-            .map(|s| parse_language(s))
+            .map(parse_language)
             .filter(|l| *l != Language::Unknown);
 
         let search_root = if rel_dir == "." {
