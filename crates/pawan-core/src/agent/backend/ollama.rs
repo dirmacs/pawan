@@ -493,4 +493,130 @@ mod tests {
             msg
         );
     }
+
+    #[test]
+    fn build_messages_system_role_stacks_on_implicit_system() {
+        // The implicit system prompt is always the first entry. If the caller
+        // also passes a Role::System message, it must be APPENDED, not
+        // replace the implicit one. Historical regression: prior version
+        // incorrectly overwrote the backend's system prompt.
+        let backend = make_backend();
+        let input = vec![Message {
+            role: Role::System,
+            content: "extra context: be terse".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        }];
+        let out = backend.build_messages(&input);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0]["role"], "system");
+        assert_eq!(out[0]["content"], "You are a helpful agent.");
+        assert_eq!(out[1]["role"], "system");
+        assert_eq!(out[1]["content"], "extra context: be terse");
+    }
+
+    #[test]
+    fn build_messages_tool_role_without_result_is_skipped() {
+        // A Role::Tool message with tool_result = None produces no output —
+        // the if-let-Some guard short-circuits. This keeps the conversation
+        // array clean when there's a spurious tool role without a payload.
+        let backend = make_backend();
+        let input = vec![Message {
+            role: Role::Tool,
+            content: "no-op".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        }];
+        let out = backend.build_messages(&input);
+        // Only the implicit system prompt survives
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0]["role"], "system");
+    }
+
+    #[test]
+    fn build_messages_multiple_tool_calls_preserved() {
+        // All tool calls in a single assistant message must appear in the
+        // tool_calls array, in order. Regression: earlier version only
+        // emitted the first one.
+        let backend = make_backend();
+        let input = vec![Message {
+            role: Role::Assistant,
+            content: "doing 3 things".into(),
+            tool_calls: vec![
+                ToolCallRequest {
+                    id: "a".into(),
+                    name: "read_file".into(),
+                    arguments: json!({"path": "a.rs"}),
+                },
+                ToolCallRequest {
+                    id: "b".into(),
+                    name: "read_file".into(),
+                    arguments: json!({"path": "b.rs"}),
+                },
+                ToolCallRequest {
+                    id: "c".into(),
+                    name: "bash".into(),
+                    arguments: json!({"command": "ls"}),
+                },
+            ],
+            tool_result: None,
+        }];
+        let out = backend.build_messages(&input);
+        let tcs = out[1]["tool_calls"].as_array().unwrap();
+        assert_eq!(tcs.len(), 3);
+        assert_eq!(tcs[0]["function"]["arguments"]["path"], "a.rs");
+        assert_eq!(tcs[1]["function"]["arguments"]["path"], "b.rs");
+        assert_eq!(tcs[2]["function"]["name"], "bash");
+    }
+
+    #[test]
+    fn parse_response_done_reason_overrides_default_stop() {
+        // When Ollama reports done_reason="length" (context truncated), the
+        // parsed finish_reason must surface that — not silently pretend the
+        // response completed cleanly. Downstream heal loop treats "length"
+        // differently from "stop".
+        let backend = make_backend();
+        let json = serde_json::json!({
+            "message": { "role": "assistant", "content": "partial..." },
+            "done_reason": "length"
+        });
+        let resp = backend.parse_response(&json).unwrap();
+        assert_eq!(resp.finish_reason, "length");
+        assert_eq!(resp.content, "partial...");
+    }
+
+    #[test]
+    fn parse_response_tool_call_missing_arguments_defaults_to_empty_object() {
+        // Function with name but no arguments field — must NOT panic, must
+        // default to an empty JSON object so downstream code can still call
+        // `args["field"].as_str()` without a type error.
+        let backend = make_backend();
+        let json = serde_json::json!({
+            "message": {
+                "role": "assistant",
+                "tool_calls": [{
+                    "function": { "name": "stats" }
+                }]
+            }
+        });
+        let resp = backend.parse_response(&json).unwrap();
+        assert_eq!(resp.tool_calls.len(), 1);
+        assert_eq!(resp.tool_calls[0].name, "stats");
+        assert_eq!(resp.tool_calls[0].arguments, json!({}));
+        assert_eq!(resp.finish_reason, "tool_calls");
+    }
+
+    #[test]
+    fn parse_response_message_without_content_defaults_to_empty_string() {
+        // If the message has no content field (just a role), content must
+        // be "" not a parse error — some Ollama versions omit content when
+        // the response is pure tool_calls.
+        let backend = make_backend();
+        let json = serde_json::json!({
+            "message": { "role": "assistant" }
+        });
+        let resp = backend.parse_response(&json).unwrap();
+        assert_eq!(resp.content, "");
+        assert!(resp.tool_calls.is_empty());
+    }
 }
