@@ -571,7 +571,8 @@ impl PawanConfig {
 
     /// Load SKILL.md files from the project using thulp-skill-files.
     /// Returns a summary of discovered skills for context injection.
-    pub fn load_skill_context() -> Option<String> {
+    /// Sibling of `load_context_file`; only called from `get_system_prompt`.
+    fn load_skill_context() -> Option<String> {
         use thulp_skill_files::SkillFile;
 
         let skill_path = std::path::Path::new("SKILL.md");
