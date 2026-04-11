@@ -161,6 +161,35 @@ enum Commands {
 
     /// Diagnose setup issues (API keys, model connectivity, tools)
     Doctor,
+
+    /// Install pawan's external dependencies (mise, deagle, native tools).
+    /// Idempotent — safe to run repeatedly; skips anything already on PATH.
+    Bootstrap {
+        /// Don't install mise (caller is managing it themselves)
+        #[arg(long)]
+        skip_mise: bool,
+        /// Don't install deagle
+        #[arg(long)]
+        skip_deagle: bool,
+        /// Don't install the mise-managed native tools (rg, fd, sd, ast-grep, erd)
+        #[arg(long)]
+        skip_native: bool,
+        /// Reinstall even if the binary is already on PATH
+        #[arg(long)]
+        force: bool,
+        /// Show what would be installed without doing it
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    /// Uninstall pawan's bootstrap marker. Optionally cargo-uninstalls deagle.
+    /// Does NOT touch mise or mise-managed tools (shared with other programs).
+    Uninstall {
+        /// Also `cargo uninstall deagle`
+        #[arg(long)]
+        purge_deagle: bool,
+    },
+
     /// Run model latency benchmarks via nimakai
     Bench,
     /// Send a notification via doltares relay (WhatsApp/Telegram)
@@ -446,6 +475,14 @@ async fn run() -> Result<()> {
         }
         Some(Commands::Init) => run_init(workspace).await,
         Some(Commands::Doctor) => run_doctor(config, workspace).await,
+        Some(Commands::Bootstrap {
+            skip_mise,
+            skip_deagle,
+            skip_native,
+            force,
+            dry_run,
+        }) => run_bootstrap(skip_mise, skip_deagle, skip_native, force, dry_run).await,
+        Some(Commands::Uninstall { purge_deagle }) => run_uninstall(purge_deagle).await,
         Some(Commands::Bench) => run_bench().await,
         Some(Commands::Notify { message, channel }) => run_notify(&message, &channel).await,
         Some(Commands::Fmt { check }) => run_fmt(workspace, check).await,
@@ -1727,6 +1764,83 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
         );
     }
 
+    Ok(())
+}
+
+/// Install pawan's external dependencies (mise, deagle, native tools).
+async fn run_bootstrap(
+    skip_mise: bool,
+    skip_deagle: bool,
+    skip_native: bool,
+    force: bool,
+    dry_run: bool,
+) -> Result<()> {
+    use pawan::bootstrap::{self, BootstrapOptions, BootstrapStepStatus};
+
+    if dry_run {
+        let missing = bootstrap::missing_deps();
+        if missing.is_empty() {
+            println!("{}", "All dependencies present — nothing to install.".green());
+        } else {
+            println!("{}", "Missing dependencies:".yellow().bold());
+            for dep in &missing {
+                println!("  - {}", dep);
+            }
+            println!("\nRun `pawan bootstrap` (without --dry-run) to install.");
+        }
+        return Ok(());
+    }
+
+    println!("{}", "Bootstrapping pawan external dependencies...".cyan().bold());
+    let opts = BootstrapOptions {
+        skip_mise,
+        skip_deagle,
+        skip_native,
+        force_reinstall: force,
+    };
+
+    let report = bootstrap::ensure_deps(opts);
+
+    for step in &report.steps {
+        let tag = match &step.status {
+            BootstrapStepStatus::AlreadyInstalled => format!("{}", "[ok]".green()),
+            BootstrapStepStatus::Installed => format!("{}", "[installed]".green().bold()),
+            BootstrapStepStatus::Skipped(r) => format!("{} ({})", "[skipped]".yellow(), r),
+            BootstrapStepStatus::Failed(e) => format!("{} {}", "[failed]".red().bold(), e),
+        };
+        println!("  {:12} {}", step.name, tag);
+    }
+
+    println!("\n{}", report.summary().bold());
+
+    if !report.all_ok() {
+        return Err(PawanError::Config(
+            "bootstrap failed — see errors above; rerun to retry or use --skip-* to bypass".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Remove the bootstrap marker and optionally uninstall deagle.
+async fn run_uninstall(purge_deagle: bool) -> Result<()> {
+    use pawan::bootstrap;
+
+    println!("{}", "Removing pawan bootstrap marker...".cyan());
+    bootstrap::uninstall(purge_deagle)?;
+
+    println!("{}", "  marker removed".green());
+    if purge_deagle {
+        println!("{}", "  deagle uninstalled via cargo".green());
+    } else {
+        println!(
+            "  {}",
+            "mise and mise-managed tools NOT removed (shared with other programs)".dimmed()
+        );
+        println!(
+            "  {}",
+            "to also remove deagle, rerun with --purge-deagle".dimmed()
+        );
+    }
     Ok(())
 }
 
