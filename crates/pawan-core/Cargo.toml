@@ -20,13 +20,9 @@ default = []
 # agent primitives (ToolCoordinator, ConfigurableAgent, loop detection,
 # crash recovery). Adds ~20% compile time but unlocks major code reuse.
 #
-# ares-server 0.7.2 is published on crates.io as of 2026-04-10 with
-# the lean feature set we need (openai + ollama, no postgres/sqlx
-# compile-time macros). 0.7.3 is an even safer build (drops the sqlx
-# macros that broke downstream postgres-feature consumers — not
-# relevant to pawan since we don't use the postgres feature) but
-# is not yet on crates.io as of 2026-04-11. Pawan builds clean
-# against 0.7.2.
+# ares-server 0.7.3 is on crates.io as of 2026-04-11 with the lean
+# feature set (openai + ollama, no postgres/sqlx compile-time macros).
+# Pawan depends on it via workspace = "0.7.3".
 ares = ["dep:ares-server"]
 
 [dependencies]
@@ -67,11 +63,12 @@ rusqlite = { version = "0.34", features = ["bundled"] }
 
 # Deagle code intelligence — embedded directly so pawan no longer
 # requires the `deagle` binary on PATH. Adds tree-sitter parsers for
-# 8 languages (~30-50MB binary bloat) but eliminates one external dep.
+# 9 languages (~30-50MB binary bloat) but eliminates one external dep.
 # `pattern` feature enables ast-grep structural search; `text-search`
 # enables FTS5 keyword indexing via the grep-* crates.
-deagle-core = "0.1.4"
-deagle-parse = { version = "0.1.4", features = ["pattern", "text-search"] }
+# 0.1.5 adds tree-sitter-ruby for Ruby/Rake/gemspec files.
+deagle-core = "0.1.5"
+deagle-parse = { version = "0.1.5", features = ["pattern", "text-search"] }
 
 # Parallel walking for the embedded deagle_map implementation
 rayon = "1.10"
