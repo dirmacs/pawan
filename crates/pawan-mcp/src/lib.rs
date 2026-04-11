@@ -6,7 +6,9 @@
 mod bridge;
 mod manager;
 pub mod server;
+mod thulp_bridge;
 
 pub use bridge::McpToolBridge;
 pub use manager::{McpManager, McpServerConfig};
 pub use server::PawanServer;
+pub use thulp_bridge::ThulpMcpBridge;
