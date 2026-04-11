@@ -84,7 +84,8 @@ fn test_tool_registry_definitions() {
     for def in &definitions {
         assert!(!def.name.is_empty());
         assert!(!def.description.is_empty());
-        assert!(def.parameters.is_object());
+        // Parameters are now typed Vec<Parameter>; the MCP-form schema must be a JSON object.
+        assert!(def.to_mcp_input_schema().is_object());
     }
 }
 

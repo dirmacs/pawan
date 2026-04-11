@@ -21,7 +21,7 @@ pub mod search;
 pub mod ares_bridge;
 
 use async_trait::async_trait;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -30,52 +30,8 @@ use std::sync::Arc;
 ///
 /// Holds typed `Vec<Parameter>` rather than a raw JSON-schema `Value`. When a
 /// backend needs the JSON-schema form to send to an LLM API, it converts via
-/// `to_mcp_input_schema()` below.
+/// `ToolDefinition::to_mcp_input_schema()` (added in thulp-core 0.3.2).
 pub use thulp_core::ToolDefinition;
-
-/// Convert a `thulp_core::ToolDefinition` into an MCP-compatible JSON Schema
-/// `Value` suitable for the `tools[].function.parameters` field that
-/// OpenAI-compatible LLM APIs expect.
-///
-/// This is the inverse of `thulp_core::ToolDefinition::parse_mcp_input_schema`
-/// and lives in pawan only because thulp-core 0.3 hasn't shipped a public
-/// version of this conversion yet. When thulp-core gains it, drop this and
-/// re-export.
-pub fn to_mcp_input_schema(def: &ToolDefinition) -> Value {
-    let mut properties = serde_json::Map::new();
-    let mut required: Vec<Value> = Vec::new();
-
-    for param in &def.parameters {
-        let mut prop = serde_json::Map::new();
-        prop.insert(
-            "type".to_string(),
-            Value::String(param.param_type.as_str().to_string()),
-        );
-        if !param.description.is_empty() {
-            prop.insert(
-                "description".to_string(),
-                Value::String(param.description.clone()),
-            );
-        }
-        if !param.enum_values.is_empty() {
-            prop.insert("enum".to_string(), Value::Array(param.enum_values.clone()));
-        }
-        if let Some(default) = &param.default {
-            prop.insert("default".to_string(), default.clone());
-        }
-        properties.insert(param.name.clone(), Value::Object(prop));
-
-        if param.required {
-            required.push(Value::String(param.name.clone()));
-        }
-    }
-
-    json!({
-        "type": "object",
-        "properties": properties,
-        "required": required,
-    })
-}
 
 /// Trait for implementing tools
 #[async_trait]

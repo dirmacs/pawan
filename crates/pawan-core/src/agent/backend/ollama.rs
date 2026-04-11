@@ -87,7 +87,7 @@ impl OllamaBackend {
                     "function": {
                         "name": t.name,
                         "description": t.description,
-                        "parameters": t.parameters
+                        "parameters": t.to_mcp_input_schema()
                     }
                 })
             })
@@ -422,12 +422,12 @@ mod tests {
 
     #[test]
     fn build_tools_wraps_definitions_in_ollama_function_envelope() {
+        use thulp_core::Parameter;
         let backend = make_backend();
-        let tools = vec![ToolDefinition {
-            name: "greet".into(),
-            description: "Say hi".into(),
-            parameters: json!({"type": "object", "properties": {"name": {"type": "string"}}}),
-        }];
+        let tools = vec![ToolDefinition::builder("greet")
+            .description("Say hi")
+            .parameter(Parameter::optional_string("name"))
+            .build()];
         let out = backend.build_tools(&tools);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0]["type"], "function");

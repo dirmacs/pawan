@@ -157,7 +157,7 @@ impl OpenAiCompatBackend {
                     "function": {
                         "name": t.name,
                         "description": t.description,
-                        "parameters": t.parameters
+                        "parameters": t.to_mcp_input_schema()
                     }
                 })
             })
