@@ -2643,6 +2643,10 @@ async fn run_headless(
                         id, id
                     );
                 }
+                // Also archive to Eruka (non-fatal if disabled/unreachable)
+                if let Err(e) = agent.archive_to_eruka().await {
+                    eprintln!("Warning: eruka archive_session failed: {}", e);
+                }
             }
             Err(e) => eprintln!("Warning: failed to save session: {}", e),
         }

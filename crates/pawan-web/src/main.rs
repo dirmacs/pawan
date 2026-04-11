@@ -248,6 +248,7 @@ async fn chat_stream_handler(
         {
             Ok(response) => {
                 let _ = agent.save_session();
+                let _ = agent.archive_to_eruka().await;
                 let event = Event::default()
                     .event("done")
                     .data(serde_json::json!({
