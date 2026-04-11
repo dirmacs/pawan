@@ -321,6 +321,155 @@ impl ClippyFixer {
     }
 }
 
+/// Security advisory fixer — runs `cargo audit --json` and parses each
+/// advisory into a `Diagnostic` so the heal loop can treat security
+/// findings the same way it treats compile errors and clippy warnings.
+///
+/// This is part of the "compile-as-auditor" amplification (#38): we widen
+/// the heal loop's input from `cargo check + clippy + test` to also include
+/// dependency vulnerabilities, treating the toolchain as a unified code
+/// auditor rather than just a build pipeline.
+///
+/// `cargo audit` is a separate binary and not always installed. If it's
+/// missing or fails to run, this fixer returns an empty Vec rather than
+/// erroring — security checks are advisory, not blocking.
+pub struct AuditFixer {
+    workspace_root: PathBuf,
+}
+
+impl AuditFixer {
+    /// Create a new AuditFixer
+    pub fn new(workspace_root: PathBuf) -> Self {
+        Self { workspace_root }
+    }
+
+    /// Run `cargo audit --json` and convert each vulnerability into a Diagnostic.
+    pub async fn check(&self) -> Result<Vec<Diagnostic>> {
+        let child = Command::new("cargo")
+            .args(["audit", "--json"])
+            .current_dir(&self.workspace_root)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .stdin(Stdio::null())
+            .spawn();
+
+        // If cargo audit isn't installed, return empty rather than error.
+        let child = match child {
+            Ok(c) => c,
+            Err(_) => return Ok(Vec::new()),
+        };
+
+        let output = match tokio::time::timeout(
+            std::time::Duration::from_secs(120),
+            child.wait_with_output(),
+        )
+        .await
+        {
+            Ok(Ok(o)) => o,
+            _ => return Ok(Vec::new()),
+        };
+
+        // cargo audit prints JSON to stdout (vulns + warnings sections);
+        // exit code is non-zero when vulnerabilities are present, but stdout
+        // still contains the JSON we want to parse.
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Ok(Self::parse_audit_json(&stdout))
+    }
+
+    /// Parse `cargo audit --json` output into Diagnostic entries.
+    /// Pure function — extracted so it can be unit-tested without invoking
+    /// the binary.
+    pub fn parse_audit_json(json_text: &str) -> Vec<Diagnostic> {
+        let mut diagnostics = Vec::new();
+
+        let parsed: serde_json::Value = match serde_json::from_str(json_text) {
+            Ok(v) => v,
+            Err(_) => return diagnostics,
+        };
+
+        // Hard vulnerabilities (CVEs) — error level
+        if let Some(vulns) = parsed
+            .get("vulnerabilities")
+            .and_then(|v| v.get("list"))
+            .and_then(|v| v.as_array())
+        {
+            for vuln in vulns {
+                let advisory = vuln.get("advisory");
+                let id = advisory
+                    .and_then(|a| a.get("id"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let title = advisory
+                    .and_then(|a| a.get("title"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let crate_name = vuln
+                    .get("package")
+                    .and_then(|p| p.get("name"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let crate_version = vuln
+                    .get("package")
+                    .and_then(|p| p.get("version"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+
+                diagnostics.push(Diagnostic {
+                    kind: DiagnosticKind::Error,
+                    message: format!(
+                        "[security] {crate_name} {crate_version}: {title}"
+                    ),
+                    file: None,
+                    line: None,
+                    column: None,
+                    code: Some(id.to_string()),
+                    suggestion: None,
+                    raw: vuln.to_string(),
+                });
+            }
+        }
+
+        // Soft warnings (unmaintained, unsound, yanked) — warning level
+        if let Some(warnings) = parsed.get("warnings").and_then(|v| v.as_object()) {
+            for (kind_name, list) in warnings {
+                if let Some(arr) = list.as_array() {
+                    for entry in arr {
+                        let advisory = entry.get("advisory");
+                        let id = advisory
+                            .and_then(|a| a.get("id"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let title = advisory
+                            .and_then(|a| a.get("title"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let crate_name = entry
+                            .get("package")
+                            .and_then(|p| p.get("name"))
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+
+                        diagnostics.push(Diagnostic {
+                            kind: DiagnosticKind::Warning,
+                            message: format!(
+                                "[{kind_name}] {crate_name}: {title}"
+                            ),
+                            file: None,
+                            line: None,
+                            column: None,
+                            code: Some(id.to_string()),
+                            suggestion: None,
+                            raw: entry.to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        diagnostics
+    }
+}
+
 /// Test failure fixer — parses cargo test output to identify and locate failed tests.
 pub struct TestFixer {
     workspace_root: PathBuf,
@@ -453,6 +602,7 @@ pub struct Healer {
     compiler_fixer: CompilerFixer,
     clippy_fixer: ClippyFixer,
     test_fixer: TestFixer,
+    audit_fixer: AuditFixer,
 }
 
 impl Healer {
@@ -462,6 +612,7 @@ impl Healer {
             compiler_fixer: CompilerFixer::new(workspace_root.clone()),
             clippy_fixer: ClippyFixer::new(workspace_root.clone()),
             test_fixer: TestFixer::new(workspace_root.clone()),
+            audit_fixer: AuditFixer::new(workspace_root.clone()),
             workspace_root,
             config,
         }
@@ -469,8 +620,10 @@ impl Healer {
 
     /// Get all diagnostics (errors and warnings) from the workspace
     ///
-    /// This method runs cargo check and clippy (if configured) to collect
-    /// compilation errors and warnings.
+    /// This method runs cargo check, clippy, and (if `fix_security` is on)
+    /// `cargo audit` to collect compilation errors, warnings, and security
+    /// advisories — the "compile-as-auditor" amplification (#38) treats the
+    /// toolchain as a unified code reviewer rather than just a build pipeline.
     ///
     /// # Returns
     /// A vector of Diagnostic objects, or an error if the checks fail to run
@@ -483,6 +636,10 @@ impl Healer {
 
         if self.config.fix_warnings {
             all.extend(self.clippy_fixer.check().await?);
+        }
+
+        if self.config.fix_security {
+            all.extend(self.audit_fixer.check().await?);
         }
 
         Ok(all)
@@ -935,5 +1092,129 @@ mod tests {
             "build progress lines should not produce diagnostics, got {}",
             diagnostics.len()
         );
+    }
+
+    // ─── AuditFixer parser tests (compile-as-auditor amplification) ──────
+
+    #[test]
+    fn test_audit_parse_empty_output_returns_empty() {
+        let diagnostics = AuditFixer::parse_audit_json("");
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_audit_parse_invalid_json_returns_empty() {
+        // Garbage in, no panic, empty out — `cargo audit` failures must
+        // never crash the heal loop.
+        let diagnostics = AuditFixer::parse_audit_json("not json at all { ] [");
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_audit_parse_no_findings_returns_empty() {
+        let json = r#"{"vulnerabilities":{"list":[]},"warnings":{}}"#;
+        let diagnostics = AuditFixer::parse_audit_json(json);
+        assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn test_audit_parse_vulnerability_becomes_error_diagnostic() {
+        let json = r#"{
+            "vulnerabilities": {
+                "list": [{
+                    "advisory": {
+                        "id": "RUSTSEC-2023-0071",
+                        "title": "Marvin Attack: timing sidechannel in RSA"
+                    },
+                    "package": {
+                        "name": "rsa",
+                        "version": "0.9.10"
+                    }
+                }]
+            },
+            "warnings": {}
+        }"#;
+        let diagnostics = AuditFixer::parse_audit_json(json);
+        assert_eq!(diagnostics.len(), 1);
+        let d = &diagnostics[0];
+        assert_eq!(d.kind, DiagnosticKind::Error);
+        assert_eq!(d.code.as_deref(), Some("RUSTSEC-2023-0071"));
+        assert!(d.message.contains("rsa"));
+        assert!(d.message.contains("0.9.10"));
+        assert!(d.message.contains("Marvin Attack"));
+        assert!(d.message.starts_with("[security]"));
+    }
+
+    #[test]
+    fn test_audit_parse_unmaintained_warning_becomes_warning_diagnostic() {
+        let json = r#"{
+            "vulnerabilities": {"list": []},
+            "warnings": {
+                "unmaintained": [{
+                    "advisory": {
+                        "id": "RUSTSEC-2025-0012",
+                        "title": "backoff is unmaintained"
+                    },
+                    "package": {"name": "backoff", "version": "0.4.0"}
+                }]
+            }
+        }"#;
+        let diagnostics = AuditFixer::parse_audit_json(json);
+        assert_eq!(diagnostics.len(), 1);
+        let d = &diagnostics[0];
+        assert_eq!(d.kind, DiagnosticKind::Warning);
+        assert_eq!(d.code.as_deref(), Some("RUSTSEC-2025-0012"));
+        assert!(d.message.contains("[unmaintained]"));
+        assert!(d.message.contains("backoff"));
+    }
+
+    #[test]
+    fn test_audit_parse_mixed_vuln_and_warning_separates_kinds() {
+        let json = r#"{
+            "vulnerabilities": {
+                "list": [{
+                    "advisory": {"id": "RUSTSEC-2023-0071", "title": "marvin"},
+                    "package": {"name": "rsa", "version": "0.9.10"}
+                }]
+            },
+            "warnings": {
+                "unsound": [{
+                    "advisory": {"id": "RUSTSEC-2026-0097", "title": "rand thread_rng"},
+                    "package": {"name": "rand", "version": "0.8.5"}
+                }]
+            }
+        }"#;
+        let diagnostics = AuditFixer::parse_audit_json(json);
+        assert_eq!(diagnostics.len(), 2);
+        let errors: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.kind == DiagnosticKind::Error)
+            .collect();
+        let warnings: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| d.kind == DiagnosticKind::Warning)
+            .collect();
+        assert_eq!(errors.len(), 1, "vulnerability must be Error kind");
+        assert_eq!(warnings.len(), 1, "unsound entry must be Warning kind");
+        assert!(warnings[0].message.contains("[unsound]"));
+    }
+
+    #[test]
+    fn test_audit_parse_handles_missing_fields_gracefully() {
+        // Real-world JSON has occasional missing optional fields. Parser
+        // should default to "unknown" rather than panicking.
+        let json = r#"{
+            "vulnerabilities": {
+                "list": [{
+                    "package": {}
+                }]
+            },
+            "warnings": {}
+        }"#;
+        let diagnostics = AuditFixer::parse_audit_json(json);
+        assert_eq!(diagnostics.len(), 1);
+        let d = &diagnostics[0];
+        assert_eq!(d.code.as_deref(), Some("unknown"));
+        assert!(d.message.contains("unknown"));
     }
 }

@@ -318,6 +318,12 @@ pub struct HealingConfig {
     /// Generate missing documentation
     pub generate_docs: bool,
 
+    /// Run `cargo audit` and surface security advisories as diagnostics.
+    /// Off by default — `cargo audit` requires the binary to be installed
+    /// and has occasional network dependencies for the advisory database.
+    #[serde(default)]
+    pub fix_security: bool,
+
     /// Maximum fix attempts per issue
     pub max_attempts: usize,
 }
@@ -330,6 +336,7 @@ impl Default for HealingConfig {
             fix_warnings: true,
             fix_tests: true,
             generate_docs: false,
+            fix_security: false,
             max_attempts: 3,
         }
     }
