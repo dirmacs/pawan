@@ -112,9 +112,9 @@ dependencies = [
 
 [[package]]
 name = "ares-server"
-version = "0.7.3"
+version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c803728b4e427d3cc3fbf5fb177057ac14c59baeb458e7c4142b105e7082094"
+checksum = "48a9920ceb89f187d41bf9e519905cb0d311ec8a089664020d1bb1695eeb360e"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -4842,9 +4842,9 @@ dependencies = [
 
 [[package]]
 name = "thulp-core"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "33708dc780172bf0f5283d89fac1028ac140204b700ded862c373665035ea695"
+checksum = "4be5fd291e49bcae923b1f94ba2980c97eed6fe9ae7f537efc2bee32daefedb9"
 dependencies = [
  "async-trait",
  "serde",
@@ -4854,9 +4854,9 @@ dependencies = [
 
 [[package]]
 name = "thulp-query"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6bacd67a732d421263099eafe5b45c05a2c21ab9dd8b4cea69bc8ce5ce13ee88"
+checksum = "5cf6c12d54c1669c2ecbfefc6256287cbf32bb904813705581d01314cdc63fe1"
 dependencies = [
  "nom",
  "regex",
@@ -4868,9 +4868,9 @@ dependencies = [
 
 [[package]]
 name = "thulp-skill-files"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff8f4179e090159ae77c3536b5cd367301249bb5813179deecee575f4e71bf93"
+checksum = "28efed52f47c3e7668bab856089ff376691dbc677ef8347c38ea550c3c0393a8"
 dependencies = [
  "dirs 5.0.1",
  "regex",
@@ -4884,9 +4884,9 @@ dependencies = [
 
 [[package]]
 name = "thulp-skills"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "258d3faef2ba54d3d5dfe6ece18d1af1ad7d40de25e68b90fe0d26a82ce893e1"
+checksum = "ed6245fd6d5052a0511c27fe805f626d601dfcf02d631c0d761f27a2b3284e9c"
 dependencies = [
  "async-trait",
  "fastrand",

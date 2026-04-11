@@ -20,9 +20,9 @@ default = []
 # agent primitives (ToolCoordinator, ConfigurableAgent, loop detection,
 # crash recovery). Adds ~20% compile time but unlocks major code reuse.
 #
-# ares-server 0.7.3 is on crates.io as of 2026-04-11 with the lean
-# feature set (openai + ollama, no postgres/sqlx compile-time macros).
-# Pawan depends on it via workspace = "0.7.3".
+# ares-server 0.7.5 is on crates.io as of 2026-04-11. Pawan pulls the
+# lean feature set (openai + ollama, no postgres/sqlx compile-time macros,
+# no mcp coupling). Version pinned via workspace dependency table.
 ares = ["dep:ares-server"]
 
 [dependencies]
