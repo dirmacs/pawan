@@ -11,3 +11,6 @@ docs/public/
 
 # Scheduled tasks lock file (session-local)
 .claude/scheduled_tasks.lock
+
+# Local planning / intel / notes — not part of the public repo
+/.planning/
