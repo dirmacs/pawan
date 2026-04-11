@@ -200,12 +200,18 @@ pub fn ensure_deagle(force: bool) -> BootstrapStep {
     }
 }
 
-/// Install mise via its official shell installer (`curl https://mise.run | sh`).
-/// Idempotent — skipped if mise is already on PATH or at `~/.local/bin/mise`
-/// (mise's default install location, which may not yet be on PATH).
+/// Install mise via `cargo install --locked mise`. Idempotent — skipped
+/// if mise is already on PATH or at `~/.local/bin/mise` (mise's default
+/// install location, which may not yet be on PATH).
 ///
-/// Note: this pipes a remote shell script to `sh`. Callers who don't trust
-/// that path should set `skip_mise = true` and install mise themselves.
+/// We prefer `cargo install` over the curl-pipe-shell installer because
+/// (a) cargo is already present for any user who got pawan via
+/// `cargo install pawan`, and (b) cargo install is a known,
+/// signed-binary path — no remote shell script trust required.
+///
+/// Note: `mise` itself is a binary-only crate on crates.io (no lib
+/// target), so pawan cannot `use mise::...` directly. Bootstrap is the
+/// only remaining integration surface.
 pub fn ensure_mise() -> BootstrapStep {
     if binary_exists("mise") {
         return BootstrapStep {
@@ -224,8 +230,8 @@ pub fn ensure_mise() -> BootstrapStep {
         };
     }
 
-    let output = Command::new("sh")
-        .args(["-c", "curl -fsSL https://mise.run | sh"])
+    let output = Command::new("cargo")
+        .args(["install", "--locked", "mise"])
         .output();
 
     let status = match output {
@@ -233,9 +239,9 @@ pub fn ensure_mise() -> BootstrapStep {
         Ok(o) => {
             let stderr = String::from_utf8_lossy(&o.stderr);
             let brief: String = stderr.chars().take(200).collect();
-            BootstrapStepStatus::Failed(format!("mise install failed: {}", brief))
+            BootstrapStepStatus::Failed(format!("cargo install mise failed: {}", brief))
         }
-        Err(e) => BootstrapStepStatus::Failed(format!("mise install spawn failed: {}", e)),
+        Err(e) => BootstrapStepStatus::Failed(format!("cargo install mise spawn failed: {}", e)),
     };
 
     BootstrapStep {
