@@ -726,4 +726,122 @@ mod tests {
             .unwrap();
         assert_eq!(archive_count, 0, "no archive row should be created when nothing decayed");
     }
+
+    #[test]
+    fn list_empty_store_returns_empty_vec() {
+        // Boundary: brand-new store, no beads. list() must return Ok([])
+        // not error, so callers can skip the Err branch.
+        let store = test_store();
+        assert_eq!(store.list(None, None).unwrap().len(), 0);
+        assert_eq!(store.list(Some("open"), None).unwrap().len(), 0);
+        assert_eq!(store.list(None, Some(0)).unwrap().len(), 0);
+        assert_eq!(store.list(Some("closed"), Some(5)).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn list_combines_status_and_priority_filters() {
+        // Both filters in one query hit the dual-AND branch in list() —
+        // previously I only saw them tested individually.
+        let store = test_store();
+        let _a = store.create("critical open", None, 0).unwrap();
+        let _b = store.create("normal open", None, 2).unwrap();
+        let c = store.create("critical closed", None, 0).unwrap();
+        store.close(&c.id, Some("done")).unwrap();
+
+        // open AND priority <= 1 → only "critical open"
+        let result = store.list(Some("open"), Some(1)).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].title, "critical open");
+
+        // closed AND priority <= 1 → only "critical closed"
+        let result = store.list(Some("closed"), Some(1)).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].title, "critical closed");
+    }
+
+    #[test]
+    fn list_orders_by_priority_ascending() {
+        // ORDER BY priority ASC — critical (0) beats backlog (4). If the
+        // sort direction flips, cli consumers get surprise ordering.
+        let store = test_store();
+        store.create("backlog", None, 4).unwrap();
+        store.create("critical", None, 0).unwrap();
+        store.create("normal", None, 2).unwrap();
+
+        let all = store.list(None, None).unwrap();
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].priority, 0, "priority 0 must be first");
+        assert_eq!(all[1].priority, 2);
+        assert_eq!(all[2].priority, 4, "priority 4 must be last");
+    }
+
+    #[test]
+    fn ready_treats_missing_dep_as_closed() {
+        // The impl comment at tasks.rs:417 says "missing dep = treat as
+        // closed" — if a bead depends on an id that doesn't resolve, the
+        // bead should still become ready rather than stuck forever.
+        let store = test_store();
+        let child = store.create("depends on ghost", None, 1).unwrap();
+
+        // Disable FK enforcement just long enough to insert a dangling
+        // dep row — this simulates the real-world scenario where a bead
+        // was removed out of band (e.g. via a raw SQL migration).
+        store.conn.execute("PRAGMA foreign_keys = OFF", []).unwrap();
+        store.conn
+            .execute(
+                "INSERT INTO deps (bead_id, depends_on) VALUES (?1, ?2)",
+                params![child.id.0, "00000000"],
+            )
+            .unwrap();
+        store.conn.execute("PRAGMA foreign_keys = ON", []).unwrap();
+
+        // child should now be ready despite the stale dep row
+        let ready = store.ready().unwrap();
+        assert!(ready.iter().any(|b| b.id == child.id), "dangling dep must not block");
+    }
+
+    #[test]
+    fn dep_add_is_idempotent() {
+        // INSERT OR IGNORE — calling dep_add twice with the same pair
+        // must not error and must not create duplicate rows.
+        let store = test_store();
+        let a = store.create("A", None, 1).unwrap();
+        let b = store.create("B", None, 1).unwrap();
+
+        store.dep_add(&a.id, &b.id).unwrap();
+        store.dep_add(&a.id, &b.id).unwrap();
+        store.dep_add(&a.id, &b.id).unwrap();
+
+        let deps = store.deps(&a.id).unwrap();
+        assert_eq!(deps.len(), 1, "triple insert must collapse to single dep row");
+        assert_eq!(deps[0], b.id);
+    }
+
+    #[test]
+    fn delete_removes_deps_in_both_directions() {
+        // delete() must clean deps where the bead appears as either
+        // bead_id OR depends_on — otherwise deleting A while B depends on
+        // it leaves orphan rows pointing at nothing.
+        let store = test_store();
+        let a = store.create("A", None, 1).unwrap();
+        let b = store.create("B", None, 1).unwrap();
+        let c = store.create("C", None, 1).unwrap();
+
+        // A depends on B (A is bead_id, B is depends_on)
+        store.dep_add(&a.id, &b.id).unwrap();
+        // C depends on B
+        store.dep_add(&c.id, &b.id).unwrap();
+        assert_eq!(store.deps(&a.id).unwrap().len(), 1);
+        assert_eq!(store.deps(&c.id).unwrap().len(), 1);
+
+        // Delete B — both A→B and C→B rows must be removed
+        store.delete(&b.id).unwrap();
+
+        assert_eq!(store.deps(&a.id).unwrap().len(), 0, "A→B row must be gone");
+        assert_eq!(store.deps(&c.id).unwrap().len(), 0, "C→B row must be gone");
+
+        // A and C themselves must still exist
+        assert!(store.get(&a.id).is_ok());
+        assert!(store.get(&c.id).is_ok());
+    }
 }
