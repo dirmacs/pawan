@@ -319,7 +319,7 @@ impl Tool for DeagleSgTool {
             "type": "object",
             "properties": {
                 "pattern": { "type": "string", "description": "AST pattern with $VAR metavariables" },
-                "lang": { "type": "string", "description": "Language: rust, python, go, typescript, javascript, java, c, cpp" },
+                "lang": { "type": "string", "description": "Language: rust, python, go, typescript, javascript, java, c, cpp, ruby" },
                 "path": { "type": "string", "description": "Path to search (default: workspace root)" }
             },
             "required": ["pattern"]
@@ -433,8 +433,7 @@ impl Tool for DeagleSgTool {
 
 /// Parse a user-provided language string into a `deagle_core::Language`.
 /// Returns `Language::Unknown` for anything it can't resolve.
-/// Note: deagle-core 0.1.4 supports 8 languages — Ruby is in the
-/// unpublished 0.1.5 branch but not yet on crates.io.
+/// deagle-core 0.1.5 supports 9 languages (added Ruby in this release).
 fn parse_language(s: &str) -> Language {
     match s.to_lowercase().as_str() {
         "rust" | "rs" => Language::Rust,
@@ -445,6 +444,7 @@ fn parse_language(s: &str) -> Language {
         "java" => Language::Java,
         "cpp" | "c++" => Language::Cpp,
         "c" => Language::C,
+        "ruby" | "rb" => Language::Ruby,
         _ => Language::Unknown,
     }
 }
@@ -538,7 +538,7 @@ impl Tool for DeagleMapTool {
 
     fn description(&self) -> &str {
         "Index or re-index a codebase into the embedded deagle graph database. \
-         Uses tree-sitter parsers for 8 languages (Rust, Python, Go, TypeScript, JavaScript, Java, C, C++). \
+         Uses tree-sitter parsers for 9 languages (Rust, Python, Go, TypeScript, JavaScript, Java, C, C++, Ruby). \
          Incremental — only re-parses changed files (SHA-256 hash detection). \
          Run once to bootstrap, then again after significant code changes. \
          Required before `deagle_search`, `deagle_keyword`, `deagle_sg` work."
@@ -901,7 +901,7 @@ mod tests {
 
     #[test]
     fn test_parse_language_covers_all_supported() {
-        // deagle-core 0.1.4 supports 8 languages + Unknown fallback
+        // deagle-core 0.1.5 supports 9 languages + Unknown fallback
         assert_eq!(parse_language("rust"), Language::Rust);
         assert_eq!(parse_language("rs"), Language::Rust);
         assert_eq!(parse_language("python"), Language::Python);
@@ -914,6 +914,8 @@ mod tests {
         assert_eq!(parse_language("cpp"), Language::Cpp);
         assert_eq!(parse_language("c++"), Language::Cpp);
         assert_eq!(parse_language("c"), Language::C);
+        assert_eq!(parse_language("ruby"), Language::Ruby);
+        assert_eq!(parse_language("rb"), Language::Ruby);
         assert_eq!(parse_language("unknown-lang"), Language::Unknown);
     }
 

@@ -112,9 +112,9 @@ dependencies = [
 
 [[package]]
 name = "ares-server"
-version = "0.7.2"
+version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "419e959dfdc03ad70492d27e141e6c68555f612ebe1a91ad2553053ca77ef6d9"
+checksum = "1c803728b4e427d3cc3fbf5fb177057ac14c59baeb458e7c4142b105e7082094"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -1135,9 +1135,9 @@ dependencies = [
 
 [[package]]
 name = "deagle-core"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "43c52dbb8e058373122d90d9b5cd1289d33653e35fa5c9ac25013d3060e73423"
+checksum = "c8141573414a2fa9092016a8ff341e32353cb7be2bb2c933e0a0241ad80fc3f3"
 dependencies = [
  "fuzzy-matcher",
  "rusqlite",
@@ -1149,9 +1149,9 @@ dependencies = [
 
 [[package]]
 name = "deagle-parse"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bbfdbe93091a2ae4723f2181e53906c838f9f86a3bf853f435b7398491bdc5da"
+checksum = "f957dc786e20697bcddca2a7414d070935a0eba4c67eabb4b87d4b40203f5faf"
 dependencies = [
  "ast-grep-core",
  "ast-grep-language",
@@ -1167,6 +1167,7 @@ dependencies = [
  "tree-sitter-go",
  "tree-sitter-java",
  "tree-sitter-python",
+ "tree-sitter-ruby",
  "tree-sitter-rust",
  "tree-sitter-typescript",
 ]
