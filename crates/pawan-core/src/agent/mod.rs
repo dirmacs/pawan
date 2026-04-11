@@ -173,6 +173,12 @@ pub struct PawanAgent {
 
     /// Eruka bridge for 3-tier memory injection
     eruka: Option<crate::eruka_bridge::ErukaClient>,
+
+    /// Stable identifier for this agent instance's session — used as the
+    /// key for eruka sync_turn / on_pre_compress writes so turns from one
+    /// conversation cluster under the same path. Generated fresh in new(),
+    /// overwritten by resume_session() when loading an existing session.
+    session_id: String,
 }
 
 impl PawanAgent {
@@ -195,6 +201,7 @@ impl PawanAgent {
             backend,
             context_tokens_estimate: 0,
             eruka,
+            session_id: uuid::Uuid::new_v4().to_string(),
         }
     }
 
@@ -439,7 +446,47 @@ impl PawanAgent {
         let session = session::Session::load(session_id)?;
         self.history = session.messages;
         self.context_tokens_estimate = session.total_tokens as usize;
+        // Adopt the loaded session's id so eruka writes cluster under the
+        // same key as the on-disk session.
+        self.session_id = session_id.to_string();
         Ok(())
+    }
+
+    /// Archive the current conversation to Eruka's context store. Safe to
+    /// call from any async context; returns Ok even when eruka is disabled
+    /// or unreachable so callers can fire-and-forget after save_session().
+    pub async fn archive_to_eruka(&self) -> Result<()> {
+        let Some(eruka) = &self.eruka else {
+            return Ok(());
+        };
+        let mut session = session::Session::new(&self.config.model);
+        session.id = self.session_id.clone();
+        session.messages = self.history.clone();
+        session.total_tokens = self.context_tokens_estimate as u64;
+        eruka.archive_session(&session).await
+    }
+
+    /// Build a compact snapshot of the current history for on_pre_compress.
+    /// Keeps message role + first 200 chars per entry so the eruka write
+    /// stays bounded even with huge histories.
+    fn history_snapshot_for_eruka(history: &[Message]) -> String {
+        let mut out = String::with_capacity(2048);
+        for msg in history {
+            let prefix = match msg.role {
+                Role::User => "U: ",
+                Role::Assistant => "A: ",
+                Role::Tool => "T: ",
+                Role::System => "S: ",
+            };
+            let body: String = msg.content.chars().take(200).collect();
+            out.push_str(prefix);
+            out.push_str(&body);
+            out.push('\n');
+            if out.len() > 4000 {
+                break;
+            }
+        }
+        out
     }
 
     /// Get the configuration
@@ -592,6 +639,22 @@ impl PawanAgent {
             if let Err(e) = eruka.inject_core_memory(&mut self.history).await {
                 tracing::warn!("Eruka memory injection failed (non-fatal): {}", e);
             }
+
+            // Prefetch task-relevant context: semantic search + compressed
+            // general context. Inject as a system message so the LLM can
+            // draw on prior-session context for the same query. Non-fatal.
+            match eruka.prefetch(user_prompt, 2000).await {
+                Ok(Some(ctx)) => {
+                    self.history.push(Message {
+                        role: Role::System,
+                        content: ctx,
+                        tool_calls: vec![],
+                        tool_result: None,
+                    });
+                }
+                Ok(None) => {}
+                Err(e) => tracing::warn!("Eruka prefetch failed (non-fatal): {}", e),
+            }
         }
 
         self.history.push(Message {
@@ -633,6 +696,14 @@ impl PawanAgent {
             // Estimate context tokens
             self.context_tokens_estimate = self.history.iter().map(|m| m.content.len()).sum::<usize>() / 4;
             if self.context_tokens_estimate > self.config.max_context_tokens {
+                // Snapshot pre-compression content to Eruka so the facts
+                // being discarded survive the prune. Non-fatal.
+                if let Some(eruka) = &self.eruka {
+                    let snapshot = Self::history_snapshot_for_eruka(&self.history);
+                    if let Err(e) = eruka.on_pre_compress(&snapshot, &self.session_id).await {
+                        tracing::warn!("Eruka on_pre_compress failed (non-fatal): {}", e);
+                    }
+                }
                 self.prune_history();
             }
 
@@ -683,6 +754,12 @@ impl PawanAgent {
                                 // If context is too large, prune before retry
                                 if err_str.contains("context") || err_str.contains("token") {
                                     tracing::info!("Pruning history before retry (possible context overflow)");
+                                    if let Some(eruka) = &self.eruka {
+                                        let snapshot = Self::history_snapshot_for_eruka(&self.history);
+                                        if let Err(e) = eruka.on_pre_compress(&snapshot, &self.session_id).await {
+                                            tracing::warn!("Eruka on_pre_compress failed (non-fatal): {}", e);
+                                        }
+                                    }
                                     self.prune_history();
                                 }
                                 continue;
@@ -826,6 +903,17 @@ impl PawanAgent {
                     tool_calls: vec![],
                     tool_result: None,
                 });
+
+                // Persist this completed turn to Eruka so future prefetches
+                // and sessions can pull from it. Non-fatal on any error.
+                if let Some(eruka) = &self.eruka {
+                    if let Err(e) = eruka
+                        .sync_turn(user_prompt, &clean_content, &self.session_id)
+                        .await
+                    {
+                        tracing::warn!("Eruka sync_turn failed (non-fatal): {}", e);
+                    }
+                }
 
                 return Ok(AgentResponse {
                     content: clean_content,
@@ -1626,5 +1714,107 @@ mod tests {
         let val = json!("short string");
         let result = truncate_tool_result(val.clone(), 1000);
         assert_eq!(result, val);
+    }
+
+    #[test]
+    fn test_session_id_is_unique_per_agent() {
+        // Two fresh agents must get distinct session_ids so their eruka
+        // writes don't collide under the same operations/turns/ key.
+        let a1 = PawanAgent::new(PawanConfig::default(), PathBuf::from("."));
+        let a2 = PawanAgent::new(PawanConfig::default(), PathBuf::from("."));
+        assert_ne!(a1.session_id, a2.session_id);
+        assert!(!a1.session_id.is_empty());
+        // UUID v4 with dashes is 36 chars
+        assert_eq!(a1.session_id.len(), 36);
+    }
+
+    #[test]
+    fn test_resume_session_adopts_loaded_id() {
+        // resume_session must overwrite self.session_id with the loaded
+        // session's id so subsequent eruka writes cluster under that id
+        // rather than the ephemeral one from new().
+        use std::io::Write;
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Minimal valid session file
+        let sess_dir = tmp.path().join(".pawan").join("sessions");
+        std::fs::create_dir_all(&sess_dir).unwrap();
+        let sess_id = "resume-test-xyz";
+        let sess_path = sess_dir.join(format!("{}.json", sess_id));
+        let sess_json = serde_json::json!({
+            "id": sess_id,
+            "model": "test-model",
+            "created_at": "2026-04-11T00:00:00Z",
+            "updated_at": "2026-04-11T00:00:00Z",
+            "messages": [],
+            "total_tokens": 0,
+            "iteration_count": 0
+        });
+        let mut f = std::fs::File::create(&sess_path).unwrap();
+        f.write_all(sess_json.to_string().as_bytes()).unwrap();
+
+        // Point HOME at the tmp dir so Session::sessions_dir resolves here
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let mut agent = PawanAgent::new(PawanConfig::default(), PathBuf::from("."));
+        let orig_id = agent.session_id.clone();
+        agent.resume_session(sess_id).expect("resume should succeed");
+        assert_eq!(agent.session_id, sess_id);
+        assert_ne!(agent.session_id, orig_id);
+
+        // Restore HOME to avoid polluting other tests
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
+    }
+
+    #[test]
+    fn test_history_snapshot_for_eruka_bounded() {
+        // 100 messages of 500 chars each = 50k raw content. Snapshot must
+        // cap at ~4000 chars so eruka writes never balloon.
+        let mut history = Vec::new();
+        for i in 0..100 {
+            history.push(Message {
+                role: if i % 2 == 0 { Role::User } else { Role::Assistant },
+                content: "x".repeat(500),
+                tool_calls: vec![],
+                tool_result: None,
+            });
+        }
+        let snapshot = PawanAgent::history_snapshot_for_eruka(&history);
+        // After the break at >4000, one more line (up to 203 chars) gets
+        // appended, so total is bounded by ~4200.
+        assert!(snapshot.len() <= 4400, "snapshot too long: {} chars", snapshot.len());
+        assert!(snapshot.len() > 200, "snapshot too short: {} chars", snapshot.len());
+    }
+
+    #[test]
+    fn test_history_snapshot_for_eruka_includes_role_prefixes() {
+        // Each message must be tagged with its role so the eruka consumer
+        // can distinguish user questions from assistant answers.
+        let history = vec![
+            Message { role: Role::User, content: "hi".into(), tool_calls: vec![], tool_result: None },
+            Message { role: Role::Assistant, content: "hello".into(), tool_calls: vec![], tool_result: None },
+            Message { role: Role::Tool, content: "ok".into(), tool_calls: vec![], tool_result: None },
+            Message { role: Role::System, content: "sys".into(), tool_calls: vec![], tool_result: None },
+        ];
+        let snapshot = PawanAgent::history_snapshot_for_eruka(&history);
+        assert!(snapshot.contains("U: hi"));
+        assert!(snapshot.contains("A: hello"));
+        assert!(snapshot.contains("T: ok"));
+        assert!(snapshot.contains("S: sys"));
+    }
+
+    #[tokio::test]
+    async fn test_archive_to_eruka_ok_when_disabled() {
+        // When eruka is disabled (the default), archive_to_eruka must
+        // return Ok without touching the network — this is the
+        // fire-and-forget contract the CLI relies on.
+        let agent = PawanAgent::new(PawanConfig::default(), PathBuf::from("."));
+        assert!(agent.eruka.is_none(), "default config should disable eruka");
+        let result = agent.archive_to_eruka().await;
+        assert!(result.is_ok(), "archive_to_eruka should be non-fatal when disabled");
     }
 }
