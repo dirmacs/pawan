@@ -21,19 +21,60 @@ pub mod search;
 pub mod ares_bridge;
 
 use async_trait::async_trait;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// Tool definition for LLM
-#[derive(Debug, Clone)]
-pub struct ToolDefinition {
-    /// Tool name
-    pub name: String,
-    /// Tool description
-    pub description: String,
-    /// JSON Schema for parameters
-    pub parameters: Value,
+/// Tool definition — re-exported from `thulp_core` so pawan and the rest of
+/// the dirmacs stack share a single source of truth for tool metadata.
+///
+/// Holds typed `Vec<Parameter>` rather than a raw JSON-schema `Value`. When a
+/// backend needs the JSON-schema form to send to an LLM API, it converts via
+/// `to_mcp_input_schema()` below.
+pub use thulp_core::ToolDefinition;
+
+/// Convert a `thulp_core::ToolDefinition` into an MCP-compatible JSON Schema
+/// `Value` suitable for the `tools[].function.parameters` field that
+/// OpenAI-compatible LLM APIs expect.
+///
+/// This is the inverse of `thulp_core::ToolDefinition::parse_mcp_input_schema`
+/// and lives in pawan only because thulp-core 0.3 hasn't shipped a public
+/// version of this conversion yet. When thulp-core gains it, drop this and
+/// re-export.
+pub fn to_mcp_input_schema(def: &ToolDefinition) -> Value {
+    let mut properties = serde_json::Map::new();
+    let mut required: Vec<Value> = Vec::new();
+
+    for param in &def.parameters {
+        let mut prop = serde_json::Map::new();
+        prop.insert(
+            "type".to_string(),
+            Value::String(param.param_type.as_str().to_string()),
+        );
+        if !param.description.is_empty() {
+            prop.insert(
+                "description".to_string(),
+                Value::String(param.description.clone()),
+            );
+        }
+        if !param.enum_values.is_empty() {
+            prop.insert("enum".to_string(), Value::Array(param.enum_values.clone()));
+        }
+        if let Some(default) = &param.default {
+            prop.insert("default".to_string(), default.clone());
+        }
+        properties.insert(param.name.clone(), Value::Object(prop));
+
+        if param.required {
+            required.push(Value::String(param.name.clone()));
+        }
+    }
+
+    json!({
+        "type": "object",
+        "properties": properties,
+        "required": required,
+    })
 }
 
 /// Trait for implementing tools
@@ -71,13 +112,13 @@ pub trait Tool: Send + Sync {
             .map_err(|e| e.to_string())
     }
 
-    /// Convert to ToolDefinition
+    /// Convert to ToolDefinition.
+    ///
+    /// Now identical to `thulp_definition()` since `ToolDefinition` is a
+    /// re-export of `thulp_core::ToolDefinition`. Kept as a separate method
+    /// for call-site compatibility.
     fn to_definition(&self) -> ToolDefinition {
-        ToolDefinition {
-            name: self.name().to_string(),
-            description: self.description().to_string(),
-            parameters: self.parameters_schema(),
-        }
+        self.thulp_definition()
     }
 }
 
