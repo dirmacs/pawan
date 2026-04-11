@@ -162,18 +162,21 @@ enum Commands {
     /// Diagnose setup issues (API keys, model connectivity, tools)
     Doctor,
 
-    /// Install pawan's external dependencies (mise, deagle, native tools).
+    /// Install pawan's external dependencies (mise, native tools).
     /// Idempotent — safe to run repeatedly; skips anything already on PATH.
+    /// Note: deagle is NOT installed by default — it's embedded as a library.
+    /// Pass --include-deagle to also install the standalone CLI binary.
     Bootstrap {
         /// Don't install mise (caller is managing it themselves)
         #[arg(long)]
         skip_mise: bool,
-        /// Don't install deagle
-        #[arg(long)]
-        skip_deagle: bool,
         /// Don't install the mise-managed native tools (rg, fd, sd, ast-grep, erd)
         #[arg(long)]
         skip_native: bool,
+        /// Also install the standalone `deagle` CLI binary (useful for
+        /// interactive shell use; pawan already embeds deagle as a library)
+        #[arg(long)]
+        include_deagle: bool,
         /// Reinstall even if the binary is already on PATH
         #[arg(long)]
         force: bool,
@@ -477,11 +480,11 @@ async fn run() -> Result<()> {
         Some(Commands::Doctor) => run_doctor(config, workspace).await,
         Some(Commands::Bootstrap {
             skip_mise,
-            skip_deagle,
             skip_native,
+            include_deagle,
             force,
             dry_run,
-        }) => run_bootstrap(skip_mise, skip_deagle, skip_native, force, dry_run).await,
+        }) => run_bootstrap(skip_mise, skip_native, include_deagle, force, dry_run).await,
         Some(Commands::Uninstall { purge_deagle }) => run_uninstall(purge_deagle).await,
         Some(Commands::Bench) => run_bench().await,
         Some(Commands::Notify { message, channel }) => run_notify(&message, &channel).await,
@@ -1767,11 +1770,11 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
     Ok(())
 }
 
-/// Install pawan's external dependencies (mise, deagle, native tools).
+/// Install pawan's external dependencies (mise, native tools, optionally deagle).
 async fn run_bootstrap(
     skip_mise: bool,
-    skip_deagle: bool,
     skip_native: bool,
+    include_deagle: bool,
     force: bool,
     dry_run: bool,
 ) -> Result<()> {
@@ -1780,7 +1783,8 @@ async fn run_bootstrap(
     if dry_run {
         let missing = bootstrap::missing_deps();
         if missing.is_empty() {
-            println!("{}", "All dependencies present — nothing to install.".green());
+            println!("{}", "All required dependencies present — nothing to install.".green());
+            println!("  {}", "deagle is embedded as a library — no separate binary needed.".dimmed());
         } else {
             println!("{}", "Missing dependencies:".yellow().bold());
             for dep in &missing {
@@ -1794,8 +1798,8 @@ async fn run_bootstrap(
     println!("{}", "Bootstrapping pawan external dependencies...".cyan().bold());
     let opts = BootstrapOptions {
         skip_mise,
-        skip_deagle,
         skip_native,
+        include_deagle,
         force_reinstall: force,
     };
 

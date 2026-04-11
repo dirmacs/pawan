@@ -16,7 +16,7 @@ Tools are organized into tiers to save LLM prompt tokens:
 
 Extended tools are always executable — they just don't appear in the LLM prompt until the model calls one. This saves ~40% prompt tokens on simple tasks.
 
-**Auto-install**: If a native tool (ast-grep, rg, fd, sd) is missing, pawan auto-installs it via mise on first use. No manual setup needed. Deagle is a separate binary at `/usr/local/bin/deagle`; install via `cargo install deagle`.
+**Batteries-included**: `cargo install pawan` is enough. The 5 deagle tools are embedded directly — pawan depends on `deagle-core` + `deagle-parse` as library crates, so there's no external `deagle` binary to install. For the 5 native tools (rg, fd, sd, ast-grep, erd), run `pawan bootstrap` once to install them via mise, or let pawan auto-install each one on first use. Idempotent and reversible via `pawan uninstall`.
 
 ## File Tools
 
@@ -76,15 +76,15 @@ lsp(action="analyze", path=".")
 - `lsp`: slower, Rust-only, but type-aware — use when you need type system information
 - `deagle_*`: graph-backed symbol search with BM25 keyword ranking — use when you need to find a specific symbol definition or trace relationships across a codebase
 
-### deagle — graph-backed code intelligence
+### deagle — graph-backed code intelligence (embedded)
 
-Deagle is a Rust-native code intelligence engine (tree-sitter + SQLite) that indexes codebases into a graph database. Pawan exposes 5 deagle tools:
+Deagle is a Rust-native code intelligence engine (tree-sitter + SQLite) that indexes codebases into a graph database. As of v0.3.x, pawan **embeds** `deagle-core` + `deagle-parse` as library dependencies — there's no separate `deagle` binary to install. Pawan exposes 5 deagle tools:
 
 | Tool | Description |
 |------|-------------|
-| `deagle_search` | Symbol search by name with kind filter (function, struct, trait, class, import) |
+| `deagle_search` | Symbol search by name with kind filter (function, struct, trait, class, import). Supports fuzzy matching. |
 | `deagle_keyword` | Full-text search with BM25 ranking (SQLite FTS5) — semantic concept queries |
-| `deagle_sg` | Structural AST pattern search via ast-grep (delegates to the deagle binary) |
+| `deagle_sg` | Structural AST pattern search via embedded ast-grep library |
 | `deagle_stats` | Graph database stats — node/edge counts, size |
 | `deagle_map` | Index or re-index a codebase (run once to bootstrap, then after major changes) |
 
@@ -102,7 +102,7 @@ deagle_sg(pattern="impl $TYPE { $$$ }", lang="rust")
 deagle_stats()
 ```
 
-Before any deagle search works, run `deagle_map()` once to build the graph. Languages supported: Rust, Python, Go, TS/JS, Java, C, C++, Ruby.
+Before any deagle search works, run `deagle_map()` once to build the graph at `<workspace>/.deagle/graph.db`. Languages supported: Rust, Python, Go, TypeScript, JavaScript, Java, C, C++ (8 languages via tree-sitter parsers).
 
 ## Search Tools
 
