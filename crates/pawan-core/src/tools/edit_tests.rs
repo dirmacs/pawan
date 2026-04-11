@@ -1138,6 +1138,9 @@ mod healing_config_tests {
         assert!(config.healing.fix_warnings);
         assert!(config.healing.fix_tests);
         assert!(!config.healing.auto_commit);
+        // fix_security defaults to OFF — cargo audit needs the binary
+        // installed and can hit the network for the advisory database.
+        assert!(!config.healing.fix_security);
     }
 }
 
