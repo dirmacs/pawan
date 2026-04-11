@@ -20,9 +20,13 @@ default = []
 # agent primitives (ToolCoordinator, ConfigurableAgent, loop detection,
 # crash recovery). Adds ~20% compile time but unlocks major code reuse.
 #
-# NOTE: ares-server is not yet published on crates.io. To use this feature,
-# pawan must be built from a workspace where /opt/ares exists (path dep).
-# Once ares-server is published, this feature will work from `cargo install`.
+# ares-server 0.7.2 is published on crates.io as of 2026-04-10 with
+# the lean feature set we need (openai + ollama, no postgres/sqlx
+# compile-time macros). 0.7.3 is an even safer build (drops the sqlx
+# macros that broke downstream postgres-feature consumers — not
+# relevant to pawan since we don't use the postgres feature) but
+# is not yet on crates.io as of 2026-04-11. Pawan builds clean
+# against 0.7.2.
 ares = ["dep:ares-server"]
 
 [dependencies]
