@@ -198,13 +198,18 @@ pawan fmt --check  # check only, no changes
 
 ### `pawan tasks`
 
-Beads-style task tracking with dependencies and ready detection.
+Beads-style task tracking (SQLite at `~/.pawan/beads.db`) with dependencies, memory decay, and ready detection.
 
 ```bash
-pawan tasks list              # list all tasks
-pawan tasks add "description" # add a new task
-pawan tasks done <id>         # mark task complete
-pawan tasks ready             # show tasks ready to start
+pawan tasks list                       # list all tasks
+pawan tasks list --status open --priority 1  # filter by status + priority
+pawan tasks create "description"       # create a new bead
+pawan tasks update <id> --status in_progress
+pawan tasks close <id> --reason "done" # close a bead with a reason
+pawan tasks ready                      # show beads whose deps are closed
+pawan tasks dep add <bead> <depends_on>    # add dependency
+pawan tasks dep rm <bead> <depends_on>     # remove dependency
+pawan tasks decay --max-age-days 30    # archive closed beads older than N days
 ```
 
 ## Configuration

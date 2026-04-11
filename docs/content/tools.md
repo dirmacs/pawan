@@ -2,7 +2,7 @@
 title = "Tools"
 +++
 
-Pawan ships 31 built-in tools with tiered visibility, auto-install, typed parameter validation, and dynamic MCP discovery.
+Pawan ships 34 built-in tools with tiered visibility, auto-install, typed parameter validation, and dynamic MCP discovery.
 
 ## Tool Tiers
 
@@ -11,12 +11,12 @@ Tools are organized into tiers to save LLM prompt tokens:
 | Tier | Tools | Visibility |
 |------|-------|------------|
 | **Core** (7) | bash, read_file, write_file, edit_file, ast_grep, glob_search, grep_search | Always in LLM prompt |
-| **Standard** (15) | git tools, agents, list_directory, edit_file_lines, insert_after, append_file | In prompt by default |
-| **Extended** (7) | ripgrep, fd, sd, tree, mise, zoxide, lsp | Hidden until first use, then auto-activated |
+| **Standard** (15) | git tools (9), agents (2), list_directory, edit_file_lines, insert_after, append_file | In prompt by default |
+| **Extended** (12) | ripgrep, fd, sd, tree, mise, zoxide, lsp, deagle_search, deagle_keyword, deagle_sg, deagle_stats, deagle_map | Hidden until first use, then auto-activated |
 
 Extended tools are always executable — they just don't appear in the LLM prompt until the model calls one. This saves ~40% prompt tokens on simple tasks.
 
-**Auto-install**: If a native tool (ast-grep, rg, fd, sd) is missing, pawan auto-installs it via mise on first use. No manual setup needed.
+**Auto-install**: If a native tool (ast-grep, rg, fd, sd) is missing, pawan auto-installs it via mise on first use. No manual setup needed. Deagle is a separate binary at `/usr/local/bin/deagle`; install via `cargo install deagle`.
 
 ## File Tools
 
@@ -74,6 +74,35 @@ lsp(action="analyze", path=".")
 **When to use which:**
 - `ast_grep`: fast, multi-language, no project context needed — use for most edits
 - `lsp`: slower, Rust-only, but type-aware — use when you need type system information
+- `deagle_*`: graph-backed symbol search with BM25 keyword ranking — use when you need to find a specific symbol definition or trace relationships across a codebase
+
+### deagle — graph-backed code intelligence
+
+Deagle is a Rust-native code intelligence engine (tree-sitter + SQLite) that indexes codebases into a graph database. Pawan exposes 5 deagle tools:
+
+| Tool | Description |
+|------|-------------|
+| `deagle_search` | Symbol search by name with kind filter (function, struct, trait, class, import) |
+| `deagle_keyword` | Full-text search with BM25 ranking (SQLite FTS5) — semantic concept queries |
+| `deagle_sg` | Structural AST pattern search via ast-grep (delegates to the deagle binary) |
+| `deagle_stats` | Graph database stats — node/edge counts, size |
+| `deagle_map` | Index or re-index a codebase (run once to bootstrap, then after major changes) |
+
+```bash
+# Find a specific function definition
+deagle_search(query="fetch_core_memory", kind="function")
+
+# Semantic search for concept
+deagle_keyword(query="authentication logic", limit=10)
+
+# AST pattern — all impl blocks
+deagle_sg(pattern="impl $TYPE { $$$ }", lang="rust")
+
+# Verify index is populated
+deagle_stats()
+```
+
+Before any deagle search works, run `deagle_map()` once to build the graph. Languages supported: Rust, Python, Go, TS/JS, Java, C, C++, Ruby.
 
 ## Search Tools
 
@@ -205,7 +234,7 @@ Read-only bash commands (`ls`, `cat`, `grep`, `cargo check`) are auto-allowed ev
 
 ## Parameter Validation
 
-All 31 tools have typed parameter definitions via thulp-core. Before execution, the agent validates arguments against the tool's parameter schema — catching missing required params, wrong types, and unknown fields before the tool runs.
+All 34 tools have typed parameter definitions via thulp-core. Before execution, the agent validates arguments against the tool's parameter schema — catching missing required params, wrong types, and unknown fields before the tool runs.
 
 ## Safety & Intelligence
 
