@@ -486,6 +486,157 @@ mod tests {
         assert_eq!(content, "hello\nworld");
     }
 
+    // ─── ReadFileTool edge cases ──────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_read_file_missing_path_returns_error() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = ReadFileTool::new(temp_dir.path().to_path_buf());
+        let err = tool.execute(json!({})).await.unwrap_err();
+        match err {
+            crate::PawanError::Tool(msg) => assert!(msg.contains("path is required")),
+            other => panic!("expected Tool error, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_read_file_nonexistent_returns_not_found() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = ReadFileTool::new(temp_dir.path().to_path_buf());
+        let err = tool
+            .execute(json!({"path": "does_not_exist.rs"}))
+            .await
+            .unwrap_err();
+        match err {
+            crate::PawanError::NotFound(msg) => assert!(msg.contains("File not found")),
+            other => panic!("expected NotFound error, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_read_file_line_numbers_are_formatted() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("numbered.txt");
+        std::fs::write(&file_path, "alpha\nbeta\ngamma").unwrap();
+
+        let tool = ReadFileTool::new(temp_dir.path().to_path_buf());
+        let result = tool
+            .execute(json!({"path": "numbered.txt"}))
+            .await
+            .unwrap();
+
+        let content = result["content"].as_str().unwrap();
+        // Line 1 must be right-aligned in a 6-char field followed by a tab
+        assert!(
+            content.contains("     1\talpha"),
+            "expected 6-char right-aligned line number: got {content:?}"
+        );
+        assert!(content.contains("     2\tbeta"));
+        assert!(content.contains("     3\tgamma"));
+    }
+
+    #[tokio::test]
+    async fn test_read_file_offset_and_limit_respected() {
+        let temp_dir = TempDir::new().unwrap();
+        let lines: String = (1..=10).map(|i| format!("line{i}\n")).collect();
+        let file_path = temp_dir.path().join("ten.txt");
+        std::fs::write(&file_path, &lines).unwrap();
+
+        let tool = ReadFileTool::new(temp_dir.path().to_path_buf());
+        // offset=3 skips lines 1-3, limit=2 takes lines 4 and 5
+        let result = tool
+            .execute(json!({"path": "ten.txt", "offset": 3, "limit": 2}))
+            .await
+            .unwrap();
+
+        assert_eq!(result["lines_shown"], 2);
+        assert_eq!(result["offset"], 3);
+        let content = result["content"].as_str().unwrap();
+        // Line 4 and 5 must appear; lines 1-3 and 6-10 must not
+        assert!(content.contains("line4"), "expected line4 in {content:?}");
+        assert!(content.contains("line5"), "expected line5 in {content:?}");
+        assert!(!content.contains("line3"), "line3 should be before offset");
+        assert!(!content.contains("line6"), "line6 should be beyond limit");
+    }
+
+    #[tokio::test]
+    async fn test_read_file_large_file_warning() {
+        let temp_dir = TempDir::new().unwrap();
+        // 301 lines — triggers the large-file warning when all are read
+        let lines: String = (1..=301).map(|i| format!("ln{i}\n")).collect();
+        let file_path = temp_dir.path().join("large.txt");
+        std::fs::write(&file_path, &lines).unwrap();
+
+        let tool = ReadFileTool::new(temp_dir.path().to_path_buf());
+        // Read without offset/limit — default limit is 200, so lines_shown < total_lines
+        // Warning fires only when lines_shown == total_lines and total_lines > 300,
+        // so use a large limit to force all lines to be shown.
+        let result = tool
+            .execute(json!({"path": "large.txt", "limit": 400}))
+            .await
+            .unwrap();
+
+        assert_eq!(result["total_lines"], 301);
+        let warning = &result["warning"];
+        assert!(
+            !warning.is_null(),
+            "expected warning for 301-line file, got null"
+        );
+        assert!(
+            warning.as_str().unwrap().contains("Large file"),
+            "warning should mention 'Large file'"
+        );
+    }
+
+    // ─── WriteFileTool edge cases ─────────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_write_file_missing_path_returns_error() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = WriteFileTool::new(temp_dir.path().to_path_buf());
+        let err = tool
+            .execute(json!({"content": "hello"}))
+            .await
+            .unwrap_err();
+        match err {
+            crate::PawanError::Tool(msg) => assert!(msg.contains("path is required")),
+            other => panic!("expected Tool error, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_write_file_missing_content_returns_error() {
+        let temp_dir = TempDir::new().unwrap();
+        let tool = WriteFileTool::new(temp_dir.path().to_path_buf());
+        let err = tool
+            .execute(json!({"path": "output.txt"}))
+            .await
+            .unwrap_err();
+        match err {
+            crate::PawanError::Tool(msg) => assert!(msg.contains("content is required")),
+            other => panic!("expected Tool error, got {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_write_file_blocked_dotgit_returns_error() {
+        let temp_dir = TempDir::new().unwrap();
+        // Use an absolute .git path under temp so validate_file_write sees the .git component
+        let git_path = temp_dir.path().join(".git").join("COMMIT_EDITMSG");
+        let tool = WriteFileTool::new(temp_dir.path().to_path_buf());
+        let err = tool
+            .execute(json!({"path": git_path.to_str().unwrap(), "content": "blocked"}))
+            .await
+            .unwrap_err();
+        match err {
+            crate::PawanError::Tool(msg) => {
+                assert!(msg.contains("Write blocked"), "expected 'Write blocked' in: {msg}");
+                assert!(msg.contains(".git"), "expected '.git' in: {msg}");
+            }
+            other => panic!("expected Tool error, got {:?}", other),
+        }
+    }
+
     #[tokio::test]
     async fn test_list_directory() {
         let temp_dir = TempDir::new().unwrap();
