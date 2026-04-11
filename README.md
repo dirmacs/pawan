@@ -5,7 +5,8 @@
 <h1 align="center">पवन — pawan</h1>
 
 <p align="center">
-  Self-healing CLI coding agent. Rust. 29 tools. AST + LSP powers. Runs on your hardware.<br>
+  <strong>A Rust vibe coding runtime.</strong><br>
+  Self-healing CLI coding agent with AST + LSP powers. Runs on your hardware.<br>
   No subscription. No telemetry. No vendor lock-in.
 </p>
 
@@ -19,6 +20,20 @@
 Pawan reads, writes, and heals code. It has a tool-calling loop, streaming TUI, git integration, AST-level code rewriting, and works with any OpenAI-compatible API — NVIDIA NIM, MLX, Ollama, or your own endpoint.
 
 Built by [DIRMACS](https://dirmacs.com). Named after [Power Star Pawan Kalyan](https://en.wikipedia.org/wiki/Pawan_Kalyan) — martial artist, Telugu cinema icon, Deputy CM of Andhra Pradesh. That energy: raw power, cult following, fearless execution.
+
+## Why Rust for vibe coding
+
+Vibe coding is *describe, ship, don't think about it*. The failure mode is the language: in a language the LLM can bluff, sloppy output slips through and rots in production. Rust does not let the LLM bluff. The borrow checker, the type system, and `cargo check` are a deterministic auditor running at the speed of a compiler — every line the model emits is adversarially reviewed before it can run.
+
+Pawan is built to take advantage of that loop:
+
+- **Compile-gated confidence** — after every `.rs` write, pawan runs `cargo check` and feeds the errors back to the model. The model can't leave the turn until the code compiles.
+- **AST-level rewrites via ast-grep** — structural find/replace over tree-sitter parse trees, not regex. When the model asks for "replace all `.unwrap()` with `?`", it actually happens correctly everywhere, including inside macros and nested expressions.
+- **LSP-backed navigation** — go-to-definition, references, hover — the same signal your editor uses, piped into the model's context.
+- **Self-healing loop** — `pawan heal` reads the current compile errors, generates a fix, applies it, re-checks, repeats until green.
+- **No vendor lock-in** — runs against NVIDIA NIM, local MLX, Ollama, or any OpenAI-compatible endpoint. Bring your own model.
+
+The thesis: the faster the vibe coding loop, the more important the compiler becomes. Pawan is the runtime that makes Rust's compiler part of the agent loop.
 
 ## Install
 
