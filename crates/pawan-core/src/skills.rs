@@ -304,4 +304,105 @@ mod tests {
     fn _unused_pathbuf() -> PathBuf {
         PathBuf::new()
     }
+
+    #[test]
+    fn test_format_and_commit_skill_has_3_steps_with_expected_tools() {
+        // Pins the format → stage → commit pipeline. If someone reorders
+        // these steps (or drops one), the workflow breaks because git_add
+        // needs to run after cargo fmt edits and git_commit needs staged
+        // files.
+        let skill = built_in_skills::format_and_commit();
+        assert_eq!(skill.steps.len(), 3);
+        assert_eq!(skill.steps[0].name, "format");
+        assert_eq!(skill.steps[0].tool, "bash");
+        assert_eq!(skill.steps[1].name, "stage");
+        assert_eq!(skill.steps[1].tool, "git_add");
+        assert_eq!(skill.steps[2].name, "commit");
+        assert_eq!(skill.steps[2].tool, "git_commit");
+    }
+
+    #[test]
+    fn test_format_and_commit_requires_message_input() {
+        // The commit step references `{{message}}` which the skill
+        // executor substitutes from inputs. If inputs drops "message",
+        // the template stays literal and the commit message is wrong.
+        let skill = built_in_skills::format_and_commit();
+        assert!(skill.inputs.contains(&"message".to_string()));
+        // The commit arguments must still reference the template variable
+        let commit_args = &skill.steps[2].arguments;
+        let msg = commit_args["message"].as_str().unwrap();
+        assert!(msg.contains("{{message}}"), "commit should use {{{{message}}}} template, got: {}", msg);
+    }
+
+    #[test]
+    fn test_test_and_report_skill_has_exactly_one_step() {
+        // Structure pin: this skill is intentionally minimal — a single
+        // `cargo test` step. Anything more should live in a different skill.
+        let skill = built_in_skills::test_and_report();
+        assert_eq!(skill.steps.len(), 1);
+        assert_eq!(skill.steps[0].name, "test");
+        assert_eq!(skill.steps[0].tool, "bash");
+        assert!(skill.inputs.is_empty(), "test_and_report takes no inputs");
+    }
+
+    #[test]
+    fn test_deagle_explore_pipeline_order() {
+        // deagle_map MUST run before deagle_stats and deagle_search —
+        // otherwise the graph is empty and the search returns nothing.
+        // If someone swaps the order, this catches it.
+        let skill = built_in_skills::deagle_explore();
+        assert_eq!(skill.steps.len(), 3);
+        assert_eq!(skill.steps[0].tool, "deagle_map", "index must run first");
+        assert_eq!(skill.steps[1].tool, "deagle_stats", "stats runs after map");
+        assert_eq!(skill.steps[2].tool, "deagle_search", "search last");
+        // symbol input must be declared + referenced in search step
+        assert!(skill.inputs.contains(&"symbol".to_string()));
+        let search_args = &skill.steps[2].arguments;
+        assert!(search_args["query"].as_str().unwrap().contains("{{symbol}}"));
+    }
+
+    #[test]
+    fn test_all_built_in_skill_tools_are_in_default_registry() {
+        // Every tool referenced by every built-in skill MUST exist in the
+        // default ToolRegistry — otherwise the skill can never run. This
+        // test catches the "skill added but tool rename happened" drift.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let registry = ToolRegistry::with_defaults(tmp.path().to_path_buf());
+
+        let all_skills = [
+            built_in_skills::format_and_commit(),
+            built_in_skills::test_and_report(),
+            built_in_skills::deagle_explore(),
+        ];
+
+        for skill in &all_skills {
+            for step in &skill.steps {
+                assert!(
+                    registry.has_tool(&step.tool),
+                    "skill {:?} step {:?} references unregistered tool {:?}",
+                    skill.name, step.name, step.tool,
+                );
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pawan_transport_list_tools_all_have_descriptions() {
+        // Integration quality check: every thulp_definition exposed via
+        // list_tools must have a non-empty description. Empty descriptions
+        // confuse downstream skill authors and LLMs choosing tools.
+        let tmp = tempfile::TempDir::new().unwrap();
+        let registry = Arc::new(ToolRegistry::with_defaults(tmp.path().to_path_buf()));
+        let transport = PawanTransport::new(registry);
+
+        let tools = transport.list_tools().await.unwrap();
+        assert!(!tools.is_empty());
+        for tool in &tools {
+            assert!(
+                !tool.description.is_empty(),
+                "tool {} has empty description",
+                tool.name,
+            );
+        }
+    }
 }
