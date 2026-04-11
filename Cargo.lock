@@ -4842,9 +4842,9 @@ dependencies = [
 
 [[package]]
 name = "thulp-core"
-version = "0.3.1"
+version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4be5fd291e49bcae923b1f94ba2980c97eed6fe9ae7f537efc2bee32daefedb9"
+checksum = "deb18c13c6fb75fe5c9dcbc38f61a070aed67bc4117b12d13a2868457d8d022f"
 dependencies = [
  "async-trait",
  "serde",

@@ -79,14 +79,14 @@ impl AresBackend {
         out
     }
 
-    /// Convert pawan ToolDefinitions to ares ToolDefinitions
+    /// Convert pawan ToolDefinitions (typed) to ares ToolDefinitions (JSON-schema form)
     fn to_ares_tools(&self, tools: &[ToolDefinition]) -> Vec<ares::types::ToolDefinition> {
         tools
             .iter()
             .map(|t| ares::types::ToolDefinition {
                 name: t.name.clone(),
                 description: t.description.clone(),
-                parameters: t.parameters.clone(),
+                parameters: t.to_mcp_input_schema(),
             })
             .collect()
     }
