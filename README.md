@@ -5,7 +5,7 @@
 <h1 align="center">पवन — pawan</h1>
 
 <p align="center">
-  <strong>A Rust vibe coding runtime.</strong><br>
+  <strong>A Rust runtime for vibe coding and agentic engineering.</strong><br>
   Self-healing CLI coding agent with AST + LSP powers. Runs on your hardware.<br>
   No subscription. No telemetry. No vendor lock-in.
 </p>
@@ -21,9 +21,9 @@ Pawan reads, writes, and heals code. It has a tool-calling loop, streaming TUI, 
 
 Built by [DIRMACS](https://dirmacs.com). Named after [Power Star Pawan Kalyan](https://en.wikipedia.org/wiki/Pawan_Kalyan) — martial artist, Telugu cinema icon, Deputy CM of Andhra Pradesh. That energy: raw power, cult following, fearless execution.
 
-## Why Rust for vibe coding
+## Why Rust for vibe coding & agentic engineering
 
-Vibe coding is *describe, ship, don't think about it*. The failure mode is the language: in a language the LLM can bluff, sloppy output slips through and rots in production. Rust does not let the LLM bluff. The borrow checker, the type system, and `cargo check` are a deterministic auditor running at the speed of a compiler — every line the model emits is adversarially reviewed before it can run.
+Vibe coding is *describe, ship, don't think about it*. Agentic engineering is the same loop with the model holding the tools. Both share a failure mode: the language. In a language where the LLM can bluff, sloppy output slips through and rots in production. Rust does not let the LLM bluff. The borrow checker, the type system, and `cargo check` are a deterministic auditor running at the speed of a compiler — every line the model emits is adversarially reviewed before it can run.
 
 Pawan is built to take advantage of that loop:
 
@@ -33,7 +33,7 @@ Pawan is built to take advantage of that loop:
 - **Self-healing loop** — `pawan heal` reads the current compile errors, generates a fix, applies it, re-checks, repeats until green.
 - **No vendor lock-in** — runs against NVIDIA NIM, local MLX, Ollama, or any OpenAI-compatible endpoint. Bring your own model.
 
-The thesis: the faster the vibe coding loop, the more important the compiler becomes. Pawan is the runtime that makes Rust's compiler part of the agent loop.
+The thesis: the faster the vibe / agentic engineering loop runs, the more important the compiler becomes. Pawan is the runtime that makes Rust's compiler part of the agent loop.
 
 ## Install
 
