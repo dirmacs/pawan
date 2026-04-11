@@ -458,4 +458,201 @@ mod tests {
             no_match.iter().map(|d| &d.name).collect::<Vec<_>>()
         );
     }
+
+    // ── Mock tool used by the registration / execution / selection tests ──
+    struct MockTool {
+        name: String,
+        description: String,
+        return_value: Value,
+    }
+
+    impl MockTool {
+        fn new(name: &str, description: &str, return_value: Value) -> Self {
+            Self {
+                name: name.to_string(),
+                description: description.to_string(),
+                return_value,
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Tool for MockTool {
+        fn name(&self) -> &str {
+            &self.name
+        }
+        fn description(&self) -> &str {
+            &self.description
+        }
+        fn parameters_schema(&self) -> Value {
+            serde_json::json!({ "type": "object", "properties": {} })
+        }
+        async fn execute(&self, _args: Value) -> crate::Result<Value> {
+            Ok(self.return_value.clone())
+        }
+    }
+
+    #[test]
+    fn test_register_defaults_to_standard_tier() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(MockTool::new(
+            "mock_std",
+            "a test mock",
+            Value::Null,
+        )));
+        // Standard-tier tools must appear in the default LLM-visible set without activation.
+        let visible: Vec<String> = registry
+            .get_definitions()
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
+        assert!(
+            visible.contains(&"mock_std".to_string()),
+            "register() should default to Standard tier (visible without activation), got {:?}",
+            visible
+        );
+    }
+
+    #[test]
+    fn test_register_with_tier_overwrites_same_name() {
+        let mut registry = ToolRegistry::new();
+        registry.register_with_tier(
+            Arc::new(MockTool::new("dup", "first registration", Value::Null)),
+            ToolTier::Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(MockTool::new("dup", "second registration", Value::Null)),
+            ToolTier::Core,
+        );
+
+        // Only one tool with that name; the second registration wins for both
+        // the description string and the tier classification.
+        let names = registry.tool_names();
+        assert_eq!(
+            names.iter().filter(|n| **n == "dup").count(),
+            1,
+            "register_with_tier of an existing name must replace, not duplicate"
+        );
+        let def = registry.get("dup").expect("dup should exist after overwrite");
+        assert_eq!(def.description(), "second registration");
+        // Tier was upgraded to Core — must remain visible without explicit activation.
+        let visible: Vec<String> = registry
+            .get_definitions()
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
+        assert!(visible.contains(&"dup".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_execute_dispatches_to_registered_tool() {
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(MockTool::new(
+            "echo",
+            "returns a fixed value",
+            serde_json::json!({ "answer": 42 }),
+        )));
+
+        let out = registry
+            .execute("echo", Value::Null)
+            .await
+            .expect("execute on a registered tool should succeed");
+        assert_eq!(out, serde_json::json!({ "answer": 42 }));
+    }
+
+    #[tokio::test]
+    async fn test_execute_unknown_tool_returns_not_found() {
+        let registry = ToolRegistry::new();
+        let err = registry
+            .execute("nonexistent_tool", Value::Null)
+            .await
+            .expect_err("execute on missing tool should fail");
+        match err {
+            crate::PawanError::NotFound(msg) => {
+                assert!(msg.contains("nonexistent_tool"), "error should name the missing tool, got: {}", msg);
+            }
+            other => panic!("expected PawanError::NotFound, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_select_for_query_always_includes_core_tools() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        // Even an irrelevant query must keep Core tools in the result, since
+        // the LLM should never lose access to its file/bash/grep/glob primitives.
+        let selected = registry.select_for_query("xyzzy plover", 5);
+        let names: Vec<String> = selected.iter().map(|d| d.name.clone()).collect();
+        for core in &["bash", "read_file", "write_file", "edit_file", "grep_search", "glob_search", "ast_grep"] {
+            assert!(
+                names.contains(&core.to_string()),
+                "select_for_query must include core tool {} regardless of query, got {:?}",
+                core,
+                names
+            );
+        }
+    }
+
+    #[test]
+    fn test_select_for_query_caps_at_max_tools_when_possible() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        // The cap is best-effort: select_for_query always includes ALL Core
+        // tools (7 of them), then fills remaining slots with scored tools.
+        // So a max_tools >= core count should be respected for the non-core fill.
+        let selected = registry.select_for_query("git commit my changes", 10);
+        assert!(
+            selected.len() <= 10,
+            "select_for_query(max=10) returned {} tools, must not exceed cap",
+            selected.len()
+        );
+        // And the git-related tools should rank into the visible window for a git query
+        let names: Vec<String> = selected.iter().map(|d| d.name.clone()).collect();
+        assert!(
+            names.iter().any(|n| n.starts_with("git_")),
+            "git query should pull in at least one git_ tool, got {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn test_activate_no_op_for_unknown_tool_does_not_panic() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        // activate must silently ignore unknown names rather than panicking or
+        // polluting the activated set (which would mismatch tool_names()).
+        registry.activate("not_a_real_tool_at_all");
+        let visible: Vec<String> = registry
+            .get_definitions()
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
+        assert!(
+            !visible.contains(&"not_a_real_tool_at_all".to_string()),
+            "activate of unknown tool must not make it visible"
+        );
+    }
+
+    #[test]
+    fn test_tool_names_lists_every_registered_tool() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        let names = registry.tool_names();
+        // The default registry registers 32 tools (7 Core + 13 Standard + 12 Extended).
+        // Use a lower-bound check rather than equality so adding tools doesn't break
+        // this test, but a major drop in count would catch a regression.
+        assert!(
+            names.len() >= 30,
+            "default registry should expose >=30 tools via tool_names(), got {}",
+            names.len()
+        );
+        // And every registered name must round-trip through has_tool / get.
+        for name in &names {
+            assert!(registry.has_tool(name));
+            assert!(registry.get(name).is_some());
+        }
+    }
+
+    #[test]
+    fn test_default_impl_returns_empty_registry() {
+        let registry = ToolRegistry::default();
+        assert!(registry.tool_names().is_empty());
+        assert!(registry.get_definitions().is_empty());
+    }
 }
