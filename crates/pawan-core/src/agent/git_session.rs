@@ -361,4 +361,66 @@ mod tests {
         let children = store.children(&root).unwrap();
         assert_eq!(children.len(), 2);
     }
+
+    #[test]
+    fn test_list_sessions_after_save() {
+        let (store, _dir) = test_store();
+        let s = session("sess-list-1", "session list test");
+        store.save_commit(&s, None).unwrap();
+
+        let sessions = store.list_sessions().unwrap();
+        assert!(!sessions.is_empty(), "list_sessions must be non-empty after save");
+        let found = sessions.iter().any(|c| c.message.contains("sess-list-1"));
+        assert!(found, "saved session id must appear in list_sessions()");
+    }
+
+    #[test]
+    fn test_load_commit_bad_hash_returns_git_error() {
+        let (store, _dir) = test_store();
+        let err = store.load_commit("not_a_valid_hash_zzz").unwrap_err();
+        match err {
+            crate::PawanError::Git(msg) => {
+                assert!(!msg.is_empty(), "Git error message must not be empty")
+            }
+            other => panic!("expected PawanError::Git, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_list_leaves_empty_repo_returns_empty() {
+        let (store, _dir) = test_store();
+        let leaves = store.list_leaves().unwrap();
+        assert!(leaves.is_empty(), "empty repo must have no leaves");
+    }
+
+    #[test]
+    fn test_commit_message_no_user_messages_uses_fallback() {
+        // A session with zero messages → "new session" fallback
+        let s = Session {
+            id: "no-msg".into(),
+            model: "m".into(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            updated_at: chrono::Utc::now().to_rfc3339(),
+            messages: vec![],
+            total_tokens: 0,
+            iteration_count: 0,
+        };
+        let msg = GitSessionStore::commit_message(&s);
+        assert!(
+            msg.contains("new session"),
+            "commit message with no user messages must say 'new session', got: {msg}"
+        );
+        assert!(msg.contains("no-msg"), "must include session id, got: {msg}");
+    }
+
+    #[test]
+    fn test_lineage_root_has_single_entry() {
+        let (store, _dir) = test_store();
+        let s = session("root-only", "the root");
+        let root_hash = store.save_commit(&s, None).unwrap();
+
+        let lineage = store.lineage(&root_hash).unwrap();
+        assert_eq!(lineage.len(), 1, "root commit must have lineage of length 1");
+        assert_eq!(lineage[0].hash, root_hash);
+    }
 }
