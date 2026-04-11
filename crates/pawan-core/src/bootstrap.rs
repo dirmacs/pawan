@@ -4,9 +4,16 @@
 //! `cargo install pawan`:
 //!
 //! - `mise` — polyglot tool/runtime manager (needed to install the rest)
-//! - `deagle` — graph code intelligence binary
 //! - `rg`, `fd`, `sd`, `ast-grep`, `erd` — native search/replace/tree tools
 //!   (auto-installed via mise on first tool use, but only if mise is present)
+//!
+//! As of the Option B rewrite, `deagle` is NO LONGER an external dep:
+//! `deagle-core` and `deagle-parse` are embedded directly into pawan as
+//! library crates, so all 5 deagle tools work out of the box. The
+//! [`ensure_deagle`] function still exists for backwards compatibility
+//! (and for users who want the standalone `deagle` CLI on PATH for
+//! interactive use), but it's opt-in via `--include-deagle` and not
+//! part of the default bootstrap.
 //!
 //! This module provides an idempotent, reversible install path so that
 //! `cargo install pawan && pawan bootstrap` is enough to get a working
@@ -17,9 +24,10 @@
 //! ## Reversibility
 //!
 //! [`uninstall`] removes the marker file and optionally runs
-//! `cargo uninstall deagle`. It deliberately does NOT touch mise or
-//! mise-managed tools because those may be used by other programs on
-//! the system. Users who want a full purge should remove them manually.
+//! `cargo uninstall deagle` (only if `--purge-deagle` is passed, and
+//! only if the user had opted in to installing it). It deliberately
+//! does NOT touch mise or mise-managed tools because those may be used
+//! by other programs on the system.
 
 use crate::{PawanError, Result};
 use std::path::PathBuf;
@@ -30,10 +38,13 @@ use std::process::Command;
 pub struct BootstrapOptions {
     /// Skip installing mise (caller will handle it themselves).
     pub skip_mise: bool,
-    /// Skip installing deagle (caller will handle it themselves).
-    pub skip_deagle: bool,
     /// Skip installing the mise-managed native tools (rg/fd/sd/ast-grep/erd).
     pub skip_native: bool,
+    /// ALSO install the standalone `deagle` CLI binary via
+    /// `cargo install --locked deagle`. Opt-in because pawan already
+    /// embeds `deagle-core` + `deagle-parse` as library deps, so the
+    /// standalone CLI is only useful for interactive shell use.
+    pub include_deagle: bool,
     /// Reinstall even if the binary is already on PATH. Off by default —
     /// bootstrap is meant to be safe to run repeatedly.
     pub force_reinstall: bool,
@@ -134,22 +145,20 @@ pub fn binary_exists(name: &str) -> bool {
     which::which(name).is_ok()
 }
 
-/// True if every dep pawan cares about is on PATH.
+/// True if every REQUIRED external dep is on PATH. Deagle is excluded
+/// because pawan embeds deagle-core + deagle-parse as library deps —
+/// the standalone binary is no longer required.
 pub fn is_bootstrapped() -> bool {
-    binary_exists("mise")
-        && binary_exists("deagle")
-        && NATIVE_TOOLS.iter().all(|t| binary_exists(t))
+    binary_exists("mise") && NATIVE_TOOLS.iter().all(|t| binary_exists(t))
 }
 
-/// List of dep names that are NOT on PATH. Non-destructive — used by
+/// List of REQUIRED dep names that are NOT on PATH. Deagle is excluded
+/// because pawan embeds it directly — see [`is_bootstrapped`]. Used by
 /// `pawan doctor` and the CLI `bootstrap --dry-run` flag.
 pub fn missing_deps() -> Vec<String> {
     let mut missing = Vec::new();
     if !binary_exists("mise") {
         missing.push("mise".to_string());
-    }
-    if !binary_exists("deagle") {
-        missing.push("deagle".to_string());
     }
     for tool in NATIVE_TOOLS {
         if !binary_exists(tool) {
@@ -309,19 +318,24 @@ pub fn ensure_native_tool(tool: &str) -> BootstrapStep {
 /// Run the full bootstrap sequence per the options. On success (`all_ok`
 /// returns true), writes a marker file at [`marker_path`] containing the
 /// install timestamp.
+///
+/// Default (all opts false): installs mise and native tools. Deagle is
+/// NOT installed by default — pawan embeds deagle-core + deagle-parse
+/// as library deps, so the standalone CLI is only needed for
+/// interactive shell use. Set `include_deagle = true` to opt in.
 pub fn ensure_deps(opts: BootstrapOptions) -> BootstrapReport {
     let mut report = BootstrapReport::default();
 
     if !opts.skip_mise {
         report.steps.push(ensure_mise());
     }
-    if !opts.skip_deagle {
-        report.steps.push(ensure_deagle(opts.force_reinstall));
-    }
     if !opts.skip_native {
         for tool in NATIVE_TOOLS {
             report.steps.push(ensure_native_tool(tool));
         }
+    }
+    if opts.include_deagle {
+        report.steps.push(ensure_deagle(opts.force_reinstall));
     }
 
     // Write the marker only if the run completed without any Failed step.
@@ -567,18 +581,50 @@ mod tests {
 
     #[test]
     fn ensure_deps_with_all_skips_writes_empty_report() {
-        // skip_mise + skip_deagle + skip_native = no steps attempted.
-        // all_ok must still be true and no files must be written.
+        // skip_mise + skip_native = no steps attempted. include_deagle
+        // defaults to false (embedded), so no deagle step either.
+        // all_ok must still be true.
         let opts = BootstrapOptions {
             skip_mise: true,
-            skip_deagle: true,
             skip_native: true,
+            include_deagle: false,
             force_reinstall: false,
         };
         let report = ensure_deps(opts);
         assert_eq!(report.steps.len(), 0);
         assert!(report.all_ok());
         assert_eq!(report.installed_count(), 0);
+    }
+
+    #[test]
+    fn default_options_do_not_include_deagle() {
+        // Default bootstrap must NOT try to install deagle — it's embedded
+        // as a library now. This catches any future refactor that flips
+        // the default.
+        let opts = BootstrapOptions::default();
+        assert!(!opts.include_deagle, "default must exclude deagle install");
+        assert!(!opts.skip_mise, "default installs mise");
+        assert!(!opts.skip_native, "default installs native tools");
+        assert!(!opts.force_reinstall);
+    }
+
+    #[test]
+    fn is_bootstrapped_does_not_require_deagle() {
+        // The embedded library means is_bootstrapped() must NOT check
+        // for the deagle binary. This guards against a regression where
+        // someone re-adds the check.
+        // We can't fully test the "true" case without mocking `which`,
+        // but we can assert that the function's behavior doesn't depend
+        // on deagle binary presence: if mise + all native tools are on
+        // PATH, it must be true regardless of deagle.
+        if binary_exists("mise") && NATIVE_TOOLS.iter().all(|t| binary_exists(t)) {
+            assert!(is_bootstrapped());
+        }
+        // Also: missing_deps must not list deagle
+        assert!(
+            !missing_deps().iter().any(|d| d == "deagle"),
+            "missing_deps must not mention deagle"
+        );
     }
 
     #[test]
