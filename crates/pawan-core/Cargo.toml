@@ -61,6 +61,17 @@ git2 = "0.20"
 # Beads-style task tracking (SQLite-backed)
 rusqlite = { version = "0.34", features = ["bundled"] }
 
+# Deagle code intelligence — embedded directly so pawan no longer
+# requires the `deagle` binary on PATH. Adds tree-sitter parsers for
+# 8 languages (~30-50MB binary bloat) but eliminates one external dep.
+# `pattern` feature enables ast-grep structural search; `text-search`
+# enables FTS5 keyword indexing via the grep-* crates.
+deagle-core = "0.1.4"
+deagle-parse = { version = "0.1.4", features = ["pattern", "text-search"] }
+
+# Parallel walking for the embedded deagle_map implementation
+rayon = "1.10"
+
 # Thulp — reuse tool types + skill file parsing (DRY)
 thulp-core = { workspace = true }
 thulp-skill-files = { workspace = true }
