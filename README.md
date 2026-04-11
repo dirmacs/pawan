@@ -35,6 +35,28 @@ Pawan is built to take advantage of that loop:
 
 The thesis: the faster the vibe / agentic engineering loop runs, the more important the compiler becomes. Pawan is the runtime that makes Rust's compiler part of the agent loop.
 
+## Where pawan fits
+
+The agentic coding space is crowded. Most tools optimize for breadth — every language, every editor, every cloud provider. Pawan picks a narrower fight: the Rust developer who wants the compiler to be the model's adversarial reviewer and wants the inference to run on hardware they own.
+
+| Tool | Primary focus | Local inference | Compile-gated | Interface | Pricing |
+|---|---|---|---|---|---|
+| **pawan** | **Rust-first, compiler-as-auditor** | **Yes (MLX / Ollama / llama.cpp)** | **Yes — `cargo check` in the loop** | **CLI + TUI + HTTP API** | **MIT, BYO model** |
+| Cursor | Multi-language editor | No (cloud only) | No | Editor fork | Subscription |
+| Zed | Multi-language editor | Partial (ollama plug-in) | No | Editor | Subscription |
+| Aider | Multi-language CLI | Yes (ollama) | No (lint optional) | CLI | MIT, BYO key |
+| Codex CLI | Multi-language CLI | No | No | CLI | Subscription |
+| Continue.dev | Multi-language plug-in | Yes (ollama) | No | VS Code / JetBrains | MIT, BYO key |
+| opencode | Multi-language TUI | Yes (ollama) | No | TUI | MIT, BYO key |
+
+The core claim:
+
+- If you write Rust and you want the loop to run *fast and safe*, the compiler matters more than the IDE. Pawan bakes `cargo check` into every `.rs` write, feeds the errors back, and doesn't let the model leave the turn until the code compiles. No other tool in this row does that by default.
+- If you want to run the inference locally — MLX on an M-series Mac, Ollama on Linux, llama.cpp anywhere — you shouldn't have to choose between a TUI that works and a `curl` loop. Pawan ships as a CLI and a TUI with OpenAI-compatible transport, so the same binary points at NIM, llama.cpp, or Ollama with an environment variable flip.
+- If you want to treat your whole repo as a graph (AST + LSP + deagle) instead of a pile of strings, pawan is built on that model. `ast_grep` over tree-sitter, `deagle` for code intelligence, `rust-analyzer` for navigation — all wired into the agent's tool belt, all gated behind the compiler at the end of the turn.
+
+The short version: **pawan is the vibe-coding runtime for people whose production language already fights bad code for them.** If you're using Rust in anger, that's the feature you want.
+
 ## Install
 
 ```bash
