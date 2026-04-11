@@ -27,11 +27,15 @@ thulp-query = "0.3"
 thulpoff-core = { version = "0.1", path = "/opt/thulpoff/crates/thulpoff-core" }
 thulpoff-engine = { version = "0.1", path = "/opt/thulpoff/crates/thulpoff-engine" }
 
-# Ares — composable LLM backends, tool coordination, agent primitives
-# Use lean feature set (no postgres/web server) for pawan library consumption.
-# 0.7.3 drops compile-time sqlx::query! macros (pawan doesn't use the
-# postgres feature anyway, but 0.7.3 is strictly safer for downstream).
-ares-server = { version = "0.7.3", default-features = false, features = ["openai", "ollama"] }
+# Ares — composable LLM backends, tool coordination, agent primitives.
+# Lean feature set: openai + ollama only, no postgres / no web server.
+# Version history: 0.7.3 dropped compile-time sqlx::query! macros (downstream
+# crates no longer need DATABASE_URL or a .sqlx cache to build); 0.7.5 then
+# decoupled the `mcp` feature from `postgres` so library consumers can pull in
+# MCP protocol/client/registry/extension/tool plumbing without dragging sqlx
+# into their dep graph (the MCP server itself still needs both features). 0.7.4
+# was a coarse coupling that never shipped to crates.io, superseded by 0.7.5.
+ares-server = { version = "0.7.5", default-features = false, features = ["openai", "ollama"] }
 
 # Async runtime
 tokio = { version = "1.48", features = ["full"] }
