@@ -25,6 +25,13 @@ default = []
 # no mcp coupling). Version pinned via workspace dependency table.
 ares = ["dep:ares-server"]
 
+# Enable the lancor LLM backend for local inference via llama.cpp.
+# Adds the `lancor` HTTP client + server orchestration crate. Tool calling
+# is NOT supported by this backend (lancor's chat client is text-only); for
+# tool-using agents against a llama.cpp server, prefer openai_compat with
+# the server's OpenAI-compatible endpoint.
+lancor = ["dep:lancor"]
+
 [dependencies]
 # Core from workspace
 tokio = { workspace = true }
@@ -87,6 +94,9 @@ thulpoff-engine = { workspace = true }
 # Renamed to `ares` so existing bridge code (ares_backend.rs, ares_bridge.rs)
 # can use `ares::llm::...` etc. without changes.
 ares-server = { workspace = true, optional = true }
+
+# Lancor — llama.cpp toolkit for local inference (optional, feature-gated)
+lancor = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3.23"

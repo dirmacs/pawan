@@ -38,6 +38,13 @@ thulpoff-engine = { version = "0.1", path = "/opt/thulpoff/crates/thulpoff-engin
 # was a coarse coupling that never shipped to crates.io, superseded by 0.7.5.
 ares-server = { version = "0.7.5", default-features = false, features = ["openai", "ollama"] }
 
+# Lancor — llama.cpp toolkit (API client + HuggingFace Hub + server orchestration)
+# Used by the optional `lancor` backend feature for local inference. Limitation:
+# lancor's chat client is text-only (no native tool calling). For tool-using
+# agents against a local llama.cpp server, prefer pawan's openai_compat backend
+# pointed at the server's OpenAI-compatible endpoint.
+lancor = "0.2"
+
 # Async runtime
 tokio = { version = "1.48", features = ["full"] }
 
