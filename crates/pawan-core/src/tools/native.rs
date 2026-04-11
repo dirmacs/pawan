@@ -2047,5 +2047,119 @@ mod tests {
         );
         assert!(match_count >= 1, "should find at least one match");
     }
+
+    // --- mise_package_name edge cases beyond the named aliases ---
+
+    #[test]
+    fn test_mise_package_name_is_case_sensitive() {
+        // The match arm uses literal strings, so "RG" (uppercase) must fall
+        // through to the passthrough arm, not resolve to "ripgrep". If someone
+        // converts the match to case-insensitive, CLI users typing "RG" by
+        // accident would silently install a totally different package.
+        assert_eq!(mise_package_name("RG"), "RG");
+        assert_eq!(mise_package_name("Fd"), "Fd");
+        assert_eq!(mise_package_name("AST-GREP"), "AST-GREP");
+    }
+
+    #[test]
+    fn test_mise_package_name_passes_through_arbitrary_names() {
+        // Unknown binaries must round-trip unchanged so that custom tools
+        // installed outside the pawan alias list still work with auto-install.
+        assert_eq!(mise_package_name("foo"), "foo");
+        assert_eq!(mise_package_name(""), "");
+        assert_eq!(mise_package_name("some-random-tool_v2"), "some-random-tool_v2");
+    }
+
+    // --- glob_search / grep_search require the `pattern` argument ---
+
+    #[tokio::test]
+    async fn test_glob_search_missing_pattern_returns_error() {
+        // GlobSearchTool::execute checks pattern BEFORE calling run_cmd, so this
+        // test is deterministic regardless of whether fd is installed.
+        let tmp = TempDir::new().unwrap();
+        let tool = GlobSearchTool::new(tmp.path().into());
+        let err = tool
+            .execute(json!({}))
+            .await
+            .expect_err("glob_search without pattern must error");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("pattern required"),
+            "error message should say 'pattern required', got: {}",
+            msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_grep_search_missing_pattern_returns_error() {
+        // GrepSearchTool::execute also checks pattern first (no ensure_binary),
+        // so this is deterministic without rg installed.
+        let tmp = TempDir::new().unwrap();
+        let tool = GrepSearchTool::new(tmp.path().into());
+        let err = tool
+            .execute(json!({}))
+            .await
+            .expect_err("grep_search without pattern must error");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("pattern required"),
+            "error message should say 'pattern required', got: {}",
+            msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_glob_search_non_string_pattern_returns_error() {
+        // Passing pattern as a number must be rejected at the type check.
+        // as_str() returns None for JSON numbers, so the ok_or_else fires.
+        let tmp = TempDir::new().unwrap();
+        let tool = GlobSearchTool::new(tmp.path().into());
+        let err = tool
+            .execute(json!({ "pattern": 42 }))
+            .await
+            .expect_err("glob_search with numeric pattern must error");
+        let msg = format!("{}", err);
+        assert!(msg.contains("pattern required"), "got: {}", msg);
+    }
+
+    // --- mise action validation ---
+
+    #[tokio::test]
+    async fn test_mise_tool_unknown_action_returns_error() {
+        // MiseTool's match arm has a catch-all that produces "Unknown action: X"
+        // before invoking run_cmd. Requires the `mise` binary to exist so that
+        // the pre-check doesn't error out first — which it does on this VPS
+        // via /root/.local/bin/mise.
+        let tmp = TempDir::new().unwrap();
+        let tool = MiseTool::new(tmp.path().into());
+        let result = tool
+            .execute(json!({ "action": "totally_not_a_real_verb" }))
+            .await;
+        let err = result.expect_err("unknown mise action must error");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("Unknown action") && msg.contains("totally_not_a_real_verb"),
+            "error must name the unknown action, got: {}",
+            msg
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mise_tool_install_without_tool_returns_error() {
+        // `mise install` requires a `tool` argument; the arm's ok_or_else must
+        // fire before anything else runs.
+        let tmp = TempDir::new().unwrap();
+        let tool = MiseTool::new(tmp.path().into());
+        let result = tool
+            .execute(json!({ "action": "install" }))
+            .await;
+        let err = result.expect_err("mise install without tool must error");
+        let msg = format!("{}", err);
+        assert!(
+            msg.contains("tool required for install"),
+            "error should mention 'tool required for install', got: {}",
+            msg
+        );
+    }
 }
 
