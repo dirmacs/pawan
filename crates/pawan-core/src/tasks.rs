@@ -844,4 +844,69 @@ mod tests {
         assert!(store.get(&a.id).is_ok());
         assert!(store.get(&c.id).is_ok());
     }
+
+    // ─── Additional gap coverage ──────────────────────────────────────────
+
+    #[test]
+    fn test_get_nonexistent_id_returns_not_found() {
+        let store = test_store();
+        let ghost = BeadId("00000000".into());
+        let err = store.get(&ghost).unwrap_err();
+        match err {
+            crate::PawanError::NotFound(msg) => assert!(msg.contains("00000000")),
+            other => panic!("expected NotFound, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_close_sets_closed_at_timestamp() {
+        let store = test_store();
+        let bead = store.create("close-me", None, 2).unwrap();
+        assert!(bead.closed_at.is_none(), "new bead must not have closed_at");
+
+        store.close(&bead.id, Some("finished")).unwrap();
+        let loaded = store.get(&bead.id).unwrap();
+
+        assert!(
+            loaded.closed_at.is_some(),
+            "closed_at must be set after close()"
+        );
+        // Must parse as valid RFC3339
+        chrono::DateTime::parse_from_rfc3339(loaded.closed_at.as_deref().unwrap())
+            .expect("closed_at must be valid RFC3339");
+        assert_eq!(loaded.status, BeadStatus::Closed);
+    }
+
+    #[test]
+    fn test_create_without_description_persists_none() {
+        let store = test_store();
+        let bead = store.create("no-desc", None, 1).unwrap();
+        assert!(bead.description.is_none(), "description must be None when not provided");
+
+        // Verify the DB also stores NULL (not an empty string)
+        let loaded = store.get(&bead.id).unwrap();
+        assert!(loaded.description.is_none(), "DB must store NULL for missing description");
+    }
+
+    #[test]
+    fn test_update_all_none_is_noop() {
+        let store = test_store();
+        let bead = store.create("stable", Some("desc"), 3).unwrap();
+
+        // Call update with all-None — nothing should change
+        store.update(&bead.id, None, None, None).unwrap();
+        let loaded = store.get(&bead.id).unwrap();
+
+        assert_eq!(loaded.title, "stable", "title must not change");
+        assert_eq!(loaded.description.as_deref(), Some("desc"), "description must not change");
+        assert_eq!(loaded.status, BeadStatus::Open, "status must not change");
+        assert_eq!(loaded.priority, 3, "priority must not change");
+    }
+
+    #[test]
+    fn test_ready_empty_store_returns_empty() {
+        let store = test_store();
+        let ready = store.ready().unwrap();
+        assert!(ready.is_empty(), "empty store must return no ready beads");
+    }
 }
