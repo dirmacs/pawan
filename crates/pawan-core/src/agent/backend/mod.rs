@@ -9,6 +9,9 @@ pub mod openai_compat;
 #[cfg(feature = "ares")]
 pub mod ares_backend;
 
+#[cfg(feature = "lancor")]
+pub mod lancor;
+
 use crate::agent::{LLMResponse, Message, TokenCallback, ToolDefinition};
 use crate::Result;
 use async_trait::async_trait;
