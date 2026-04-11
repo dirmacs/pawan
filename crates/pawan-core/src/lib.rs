@@ -22,6 +22,7 @@
 //! ```
 
 pub mod agent;
+pub mod bootstrap;
 pub mod config;
 pub mod eruka_bridge;
 pub mod healing;
