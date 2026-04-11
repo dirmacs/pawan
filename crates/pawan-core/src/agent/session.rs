@@ -209,4 +209,108 @@ mod tests {
         assert_eq!(restored.id, "abcdef12");
         assert_eq!(restored.message_count, 42);
     }
+
+    // ─── I/O path tests ───────────────────────────────────────────────────
+
+    #[test]
+    fn test_load_nonexistent_id_returns_not_found() {
+        // Use an ID that is guaranteed not to exist on disk.
+        let err = Session::load("__test_nonexistent_id_zzz__").unwrap_err();
+        match err {
+            crate::PawanError::NotFound(msg) => {
+                assert!(msg.contains("Session not found"), "unexpected: {msg}")
+            }
+            other => panic!("expected NotFound, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_save_and_load_roundtrip() {
+        let mut session = Session::new("roundtrip-model");
+        session.total_tokens = 999;
+        session.iteration_count = 3;
+        session.messages.push(Message {
+            role: Role::User,
+            content: "save-load test".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        });
+        let id = session.id.clone();
+
+        let path = session.save().expect("save must succeed");
+        assert!(path.exists(), "saved file must exist at {:?}", path);
+
+        let loaded = Session::load(&id).expect("load by id must succeed");
+        assert_eq!(loaded.id, id);
+        assert_eq!(loaded.model, "roundtrip-model");
+        assert_eq!(loaded.total_tokens, 999);
+        assert_eq!(loaded.iteration_count, 3);
+        assert_eq!(loaded.messages.len(), 1);
+
+        // cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_save_updates_updated_at() {
+        let mut session = Session::new("timestamp-model");
+        let original_updated = session.updated_at.clone();
+        // Small sleep to ensure clock advances
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let path = session.save().expect("save must succeed");
+        // updated_at must be >= created_at (may be equal if sub-ms precision)
+        let updated = chrono::DateTime::parse_from_rfc3339(&session.updated_at)
+            .expect("updated_at must be valid RFC3339");
+        let orig = chrono::DateTime::parse_from_rfc3339(&original_updated)
+            .expect("original_updated must be valid RFC3339");
+        assert!(
+            updated >= orig,
+            "updated_at after save must be >= created_at"
+        );
+        // cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_list_includes_saved_session() {
+        let mut session = Session::new("list-test-model");
+        let id = session.id.clone();
+        let path = session.save().expect("save must succeed");
+
+        let summaries = Session::list().expect("list must succeed");
+        let found = summaries.iter().any(|s| s.id == id);
+        assert!(found, "newly saved session must appear in list()");
+
+        // cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_list_sorted_newest_first() {
+        // Create two sessions and force different updated_at values.
+        let mut older = Session::new("older-model");
+        older.updated_at = "2020-01-01T00:00:00Z".to_string();
+        let path_older = older.save().expect("save older");
+
+        let mut newer = Session::new("newer-model");
+        newer.updated_at = "2030-01-01T00:00:00Z".to_string();
+        let path_newer = newer.save().expect("save newer");
+
+        let summaries = Session::list().expect("list must succeed");
+
+        // Find positions of our two sessions in the sorted list
+        let pos_older = summaries.iter().position(|s| s.id == older.id);
+        let pos_newer = summaries.iter().position(|s| s.id == newer.id);
+
+        if let (Some(po), Some(pn)) = (pos_older, pos_newer) {
+            assert!(
+                pn < po,
+                "newer session (pos {pn}) must appear before older (pos {po}) in list"
+            );
+        }
+
+        // cleanup
+        let _ = std::fs::remove_file(&path_older);
+        let _ = std::fs::remove_file(&path_newer);
+    }
 }
