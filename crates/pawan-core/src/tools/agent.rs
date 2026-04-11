@@ -396,4 +396,95 @@ mod tests {
         let err = format!("{}", result.unwrap_err());
         assert!(err.contains("tasks"));
     }
+
+    #[tokio::test]
+    async fn test_spawn_agent_prompt_non_string_errors() {
+        // Prompt present but as integer — `.as_str()` returns None so
+        // ok_or_else must fire. Guards against a refactor that silently
+        // coerces numeric prompts (which would then panic or send garbage
+        // to the pawan run subcommand).
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let result = tool.execute(json!({ "prompt": 42 })).await;
+        assert!(result.is_err(), "non-string prompt must error");
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("prompt"), "error should mention 'prompt', got: {}", err);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agents_tasks_non_array_errors() {
+        // tasks present but as string — `.as_array()` returns None so
+        // ok_or_else must fire. Prevents silent coercion.
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
+        let result = tool.execute(json!({ "tasks": "not an array" })).await;
+        assert!(result.is_err(), "non-array tasks must error");
+        let err = format!("{}", result.unwrap_err());
+        assert!(err.contains("tasks"), "error should mention 'tasks', got: {}", err);
+    }
+
+    #[test]
+    fn test_spawn_agent_schema_lists_all_optional_params() {
+        // All 5 advertised parameters must be declared as schema properties.
+        // If someone adds a new one without updating the schema, consumers
+        // that introspect parameters_schema() will miss it.
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let schema = tool.parameters_schema();
+        let props = schema["properties"].as_object().unwrap();
+        for p in &["prompt", "model", "timeout", "workspace", "retries"] {
+            assert!(props.contains_key(*p), "schema missing '{}'", p);
+        }
+        // Only prompt is required
+        let required = schema["required"].as_array().unwrap();
+        assert_eq!(required.len(), 1);
+        assert_eq!(required[0], "prompt");
+    }
+
+    #[test]
+    fn test_spawn_agents_schema_tasks_items_has_prompt_required() {
+        // The nested items schema inside tasks must mark prompt required —
+        // otherwise the array can hold task objects missing the prompt
+        // field, and each sub-execute() would error one-by-one instead of
+        // validating up front.
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
+        let schema = tool.parameters_schema();
+        let items_required = schema["properties"]["tasks"]["items"]["required"]
+            .as_array()
+            .expect("tasks.items.required should exist");
+        assert!(items_required.iter().any(|v| v == "prompt"));
+    }
+
+    #[test]
+    fn test_spawn_agent_thulp_definition_has_all_5_params() {
+        // thulp_definition() must mirror parameters_schema() — if they drift,
+        // thulp-registry callers will see a different API than MCP callers.
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let def = tool.thulp_definition();
+        assert_eq!(def.name, "spawn_agent");
+        let param_names: Vec<&str> = def.parameters.iter().map(|p| p.name.as_str()).collect();
+        for p in &["prompt", "model", "timeout", "workspace", "retries"] {
+            assert!(param_names.contains(p), "thulp definition missing '{}'", p);
+        }
+        // Only prompt is required
+        let required_count = def.parameters.iter().filter(|p| p.required).count();
+        assert_eq!(required_count, 1, "only prompt should be required");
+    }
+
+    #[test]
+    fn test_spawn_agents_thulp_definition_has_tasks_param() {
+        // spawn_agents' thulp definition should declare exactly one required
+        // parameter: tasks (an array). If this drifts, parallel-agent callers
+        // get confused schemas.
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
+        let def = tool.thulp_definition();
+        assert_eq!(def.name, "spawn_agents");
+        assert_eq!(def.parameters.len(), 1);
+        let tasks_param = &def.parameters[0];
+        assert_eq!(tasks_param.name, "tasks");
+        assert!(tasks_param.required);
+    }
 }
