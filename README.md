@@ -229,6 +229,7 @@ Full triage: [dirmacs.github.io/pawan/triage/](https://dirmacs.github.io/pawan/t
 
 | Project | What |
 |---------|------|
+| [openeruka](https://github.com/dirmacs/openeruka) | OSS self-hosted memory server — SQLite-backed, runs alongside pawan locally |
 | [ares](https://github.com/dirmacs/ares) | Agentic retrieval-enhanced server (RAG, embeddings, multi-provider LLM) |
 | [eruka](https://eruka.dirmacs.com) | Context intelligence engine (knowledge graph, memory tiers, decay) |
 | [aegis](https://github.com/dirmacs/aegis) | Config management + WireGuard mesh overlay (aegis-net) |
