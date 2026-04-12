@@ -7,7 +7,7 @@
 <p align="center">
   <strong>A Rust runtime for vibe coding and agentic engineering.</strong><br>
   Self-healing CLI coding agent with AST + LSP powers. Runs on your hardware.<br>
-  No subscription. No telemetry. No vendor lock-in.
+  MIT licensed. BYO inference endpoint. Zero telemetry.
 </p>
 
 <p align="center">
