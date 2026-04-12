@@ -76,13 +76,13 @@ integration is opt-in and degrades gracefully when missing:
 
 | Component | Crate / Path | Purpose | Graceful Fallback |
 |-----------|--------------|---------|-------------------|
-| **[ares-server](https://github.com/dirmacs/ares-server)** (0.7.5) | `agent/backend/ares_backend.rs` | LLM proxy with routing, NIM/Groq/Anthropic fan-out | OpenAI-compat backend |
-| **[eruka](https://github.com/dirmacs/eruka)** | `eruka_bridge.rs` | Context memory (core + archival) | Short-circuit when disabled |
+| **[ares-server](https://github.com/dirmacs/ares)** (0.7.5) | `agent/backend/ares_backend.rs` | LLM proxy with routing, NIM/Groq/Anthropic fan-out | OpenAI-compat backend |
+| **[eruka](https://eruka.dirmacs.com)** | `eruka_bridge.rs` | Context memory (core + archival) | Short-circuit when disabled |
 | **[thulp-skills](https://github.com/dirmacs/thulp)** (0.3.1) | `skills.rs` (`PawanTransport`) | Multi-step skill workflows over `ToolRegistry` | Uses built-in prompts |
 | **[thulpoff](https://github.com/dirmacs/thulp)** | `skill_distillation.rs` | Refine skills via eval loop | Skill stays as-is |
 | **[deagle](https://github.com/dirmacs/deagle)** (0.1.5, embedded) | `tools/deagle.rs` | Graph + FTS5 + AST search via `deagle-core` / `deagle-parse` library deps (no subprocess) | Falls back to ripgrep |
 | **[daedra](https://dirmacs.github.io/daedra) (MCP)** | `pawan-mcp` | Web search + external tools | Skipped if unreachable |
-| **[eruka-mcp](https://github.com/dirmacs/eruka)** | Auto-discovered | 13 context tools | Uses direct eruka REST |
+| **[eruka-mcp](https://eruka.dirmacs.com)** | Auto-discovered | 13 context tools | Uses direct eruka REST |
 
 The eruka_bridge exposes 5 lifecycle/caching/export methods that the agent
 loop calls directly without going through MCP — `sync_turn`,
