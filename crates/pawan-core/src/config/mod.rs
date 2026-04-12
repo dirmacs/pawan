@@ -140,6 +140,21 @@ pub struct PawanConfig {
     ///   4. None (no skill discovery beyond the project SKILL.md)
     #[serde(default)]
     pub skills_repo: Option<PathBuf>,
+
+    /// Prefer local inference over cloud when a local model server is reachable.
+    /// Before each session pawan probes `local_endpoint` (or the Ollama default
+    /// `http://localhost:11434/v1`) with a 100 ms TCP timeout.
+    /// If the server responds, it is used instead of the configured cloud provider.
+    /// If the server is unreachable the configured provider is used as normal.
+    /// Default: false (always use configured provider).
+    #[serde(default)]
+    pub local_first: bool,
+
+    /// Local inference endpoint URL for the `local_first` probe.
+    /// Must be an OpenAI-compatible `/v1` endpoint (Ollama, llama.cpp, LM Studio, …).
+    /// Defaults to `http://localhost:11434/v1` (Ollama) when not set.
+    #[serde(default)]
+    pub local_endpoint: Option<String>,
 }
 
 /// Task-type model routing — use different models for different task categories.
@@ -295,6 +310,8 @@ impl Default for PawanConfig {
             eruka: crate::eruka_bridge::ErukaConfig::default(),
             use_ares_backend: false,
             skills_repo: None,
+            local_first: false,
+            local_endpoint: None,
         }
     }
 }
