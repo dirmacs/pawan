@@ -25,8 +25,8 @@ thulp-skills = "0.3"
 thulp-query = "0.3"
 
 # Thulpoff — skill distillation from agent sessions
-thulpoff-core = { version = "0.1", path = "/opt/thulpoff/crates/thulpoff-core" }
-thulpoff-engine = { version = "0.1", path = "/opt/thulpoff/crates/thulpoff-engine" }
+thulpoff-core = { version = "0.1" }
+thulpoff-engine = { version = "0.1" }
 
 # Ares — composable LLM backends, tool coordination, agent primitives.
 # Lean feature set: openai + ollama only, no postgres / no web server.

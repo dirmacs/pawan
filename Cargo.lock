@@ -5811,6 +5811,8 @@ dependencies = [
 [[package]]
 name = "thulpoff-core"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ca8e0885f55e60aa8ca6860bf47e050d2ca936f4e2787d0bfab2576c8680452"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5822,6 +5824,8 @@ dependencies = [
 [[package]]
 name = "thulpoff-engine"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31c0631fcb26eeea1fbdca6e49e316b60d50de08a2ad1aa7aa81c0a4e1ce74d9"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5835,6 +5839,8 @@ dependencies = [
 [[package]]
 name = "thulpoff-provider"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f122c4d0d6d7eead608c1a4bb74d1e1bb2c9357c28984dbb0a64c4cf14d8092d"
 dependencies = [
  "async-trait",
  "reqwest 0.12.28",
