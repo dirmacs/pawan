@@ -76,3 +76,12 @@ cd /opt/ares && cargo tree -i lru
 deagle rg "Claims" /opt/ares/src
 deagle rg "IterMut|iter_mut" /opt/ares/src
 ```
+
+## Resolution (2026-04-12)
+
+Both Dependabot alerts dismissed via `gh api PATCH`:
+
+- Alert #2 (`jsonwebtoken` medium) — dismissed as `not_used`. Lockfile orphan, not compiled.
+- Alert #1 (`lru` low) — dismissed as `tolerable_risk`. Already patched version; vulnerable IterMut path never called.
+
+Task #32 complete. Zero open Dependabot alerts on dirmacs/ares.
