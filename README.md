@@ -78,6 +78,9 @@ PAWAN_PROVIDER=mlx pawan
 
 # Local Ollama
 PAWAN_PROVIDER=ollama PAWAN_MODEL=llama3.2 pawan
+
+# Local llama.cpp via lancor (feature-gated, compile with --features lancor)
+PAWAN_PROVIDER=lancor PAWAN_MODEL=./model.gguf pawan
 ```
 
 ## What it does
@@ -96,7 +99,7 @@ pawan tasks ready      # show actionable unblocked beads
 pawan doctor           # diagnose setup issues
 ```
 
-## Tools (29)
+## Tools (34)
 
 | Category | Tools |
 |----------|-------|
@@ -125,7 +128,7 @@ Matches by syntax tree structure, not text. `$VAR` for single-node wildcards, `$
 ```
 pawan/
   crates/
-    pawan-core/    # library — agent engine, 29 tools, config, healing
+    pawan-core/    # library — agent engine, 34 tools, config, healing
     pawan-cli/     # binary — CLI + ratatui TUI + AI workflows
     pawan-web/     # HTTP API — Axum SSE server (port 3300)
     pawan-mcp/     # MCP client (rmcp 0.12, stdio transport)
@@ -166,7 +169,7 @@ pawan/
 
 **Token budget** — `reasoning_tokens` / `action_tokens` tracked per call. `thinking_budget` config caps thinking. TUI shows `think:N act:N` split.
 
-**Auto-install + tiered registry** — missing CLI tools auto-install via mise. 29 tools in 3 tiers (Core/Standard/Extended).
+**Auto-install + tiered registry** — missing CLI tools auto-install via mise. 34 tools in 3 tiers (Core/Standard/Extended).
 
 ## Configuration
 
