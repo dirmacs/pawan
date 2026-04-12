@@ -326,6 +326,15 @@ pub struct HealingConfig {
 
     /// Maximum fix attempts per issue
     pub max_attempts: usize,
+
+    /// Optional shell command to run after `cargo check` passes (stage 2 gate).
+    /// If this command exits non-zero the heal loop treats the output as a
+    /// remaining failure and retries.  Useful values:
+    ///   - `"cargo test --workspace"` — run full test suite
+    ///   - `"cargo clippy -- -D warnings"` — enforce zero warnings
+    /// Leave unset (default) to skip the second stage.
+    #[serde(default)]
+    pub verify_cmd: Option<String>,
 }
 
 impl Default for HealingConfig {
@@ -338,6 +347,7 @@ impl Default for HealingConfig {
             generate_docs: false,
             fix_security: false,
             max_attempts: 3,
+            verify_cmd: None,
         }
     }
 }
