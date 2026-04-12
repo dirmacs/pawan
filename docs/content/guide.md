@@ -37,6 +37,8 @@ NVIDIA_API_KEY=nvapi-...
 
 The `mlx` provider runs a model locally on Mac via [mlx_lm.server](https://github.com/ml-explore/mlx-examples/tree/main/llms). No API key needed, $0/token. Optional — pawan defaults to Qwen3.5 122B on NVIDIA NIM.
 
+The `lancor` provider runs [llama.cpp](https://github.com/ggerganov/llama.cpp) models locally on any platform (Linux, Mac, Windows). Build with `--features lancor` and point it at a GGUF model file. No API key, $0/token.
+
 ```toml
 provider = "mlx"
 model = "mlx-community/Qwen3.5-9B-OptiQ-4bit"
@@ -80,7 +82,7 @@ Priority: CLI flags > environment variables > pawan.toml > defaults
 | Variable | Description |
 |----------|-------------|
 | `PAWAN_MODEL` | Model override (e.g., `minimaxai/minimax-m2.5`) |
-| `PAWAN_PROVIDER` | Provider: `nvidia`, `ollama`, `openai`, `mlx` |
+| `PAWAN_PROVIDER` | Provider: `nvidia`, `ollama`, `openai`, `mlx`, `lancor` |
 | `PAWAN_TEMPERATURE` | Temperature (0.0-2.0) |
 | `PAWAN_MAX_TOKENS` | Max output tokens |
 | `PAWAN_MAX_ITERATIONS` | Max tool-calling iterations |
@@ -126,7 +128,7 @@ args = ["serve", "--transport", "stdio", "--quiet"]
 Pawan is built on top of the dirmacs Rust stack for maximum reuse:
 
 - **ares-server**: LLM client abstraction, tool coordination, agent primitives (opt-in via `--features ares`)
-- **deagle**: graph-backed code intelligence (5 subprocess tools: search, keyword, sg, stats, map)
+- **deagle**: graph-backed code intelligence — embedded as library deps (`deagle-core` + `deagle-parse`), no external binary needed; 5 tools: search, keyword, sg, stats, map
 - **thulp-core / thulp-skill-files**: typed tool definitions, SKILL.md parsing
 - **thulp-skills**: multi-step skill workflow execution with timeout/retry
 - **thulp-query**: DSL for dynamic tool filtering (`name:git`, `has:path`, etc.)

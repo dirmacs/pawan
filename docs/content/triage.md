@@ -4,7 +4,7 @@ title = "Model Triage"
 
 Pawan is model-agnostic — it works with any OpenAI-compatible API. We've triaged models on NVIDIA NIM and local inference for real-world coding agent tasks: tool calling, multi-step reasoning, code generation, and self-healing.
 
-## Triage Results (updated 2026-04-08)
+## Triage Results (updated 2026-04-12)
 
 Tested across 1000+ cumulative tool calls, 16 data structure builds, and 372 tests across the workspace. 12 NIM models benchmarked via latency (nimakai) and real-world dogfooding (pawan task).
 
@@ -52,7 +52,7 @@ Pawan's state machine includes guardrails that boost success rates across all mo
 
 ## Hybrid Local + Cloud Routing
 
-Pawan supports hybrid routing — use a local model first (via MLX, Ollama, or llama.cpp), fall back to NIM cloud:
+Pawan supports hybrid routing — use a local model first (via MLX, Ollama, or llama.cpp/lancor), fall back to NIM cloud:
 
 ```toml
 # pawan.toml
@@ -103,14 +103,14 @@ Front-load prompts with all context the model would otherwise explore: exact fil
 
 ## Dogfood Stats
 
-Updated 2026-04-08:
+Updated 2026-04-12:
 
 - **12 NIM models** benchmarked via nimakai latency + real-world pawan task dogfooding
 - **Fastest task completion**: Qwen3.5 122B (13.6s for healing module review)
 - **Highest SWE-bench**: MiniMax M2.5 (80.2%)
 - **16 data structures** in grind workspace
-- **31 pawan-core tests** passing, zero clippy warnings
-- **29 tools** in 3 tiers (Core/Standard/Extended) with auto-install via mise
+- **643+ workspace tests** passing, zero clippy warnings
+- **34 tools** in 3 tiers (Core/Standard/Extended) with auto-install via mise
 - **Multi-model thinking support**: Qwen (`enable_thinking`), Gemma (`enable_thinking`), GLM (`enable_thinking` + `clear_thinking`), Mistral Small 4 (`reasoning_effort`), DeepSeek (`thinking`)
 - **Token budget tracking**: thinking vs action token split visible in TUI and CLI
 
