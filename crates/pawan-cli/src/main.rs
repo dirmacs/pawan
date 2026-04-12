@@ -288,6 +288,21 @@ enum Commands {
         action: LoopAction,
     },
 
+    /// Execute the current POM sprint via pawan's agent loop
+    Pom {
+        /// POM API base URL (overrides $POM_URL, default: http://localhost:3002)
+        #[arg(long)]
+        pom_url: Option<String>,
+
+        /// Mark the sprint complete in POM after successful execution
+        #[arg(long)]
+        complete: bool,
+
+        /// Proceed even when the sprint has no dissues assigned
+        #[arg(long)]
+        force: bool,
+    },
+
     /// Headless single-prompt execution (for scripting and orchestration)
     Run {
         /// The prompt to execute
@@ -594,6 +609,9 @@ async fn run() -> Result<()> {
             .await
         }
         Some(Commands::Loop { action }) => run_loop(config, workspace, action, cli.verbose).await,
+        Some(Commands::Pom { pom_url, complete, force }) => {
+            run_pom(config, workspace, pom_url, complete, force, cli.verbose).await
+        }
     }
 }
 
@@ -3091,6 +3109,186 @@ async fn run_loop_start(
             }
         }
     }
+
+    Ok(())
+}
+
+// ─── POM sprint execution ─────────────────────────────────────────────────────
+
+/// Fetch the first sprint from a POM paginated JSON endpoint.
+/// Returns `(id, number, title, status)` or None if empty.
+async fn fetch_pom_sprint(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<Option<(String, i64, String, String)>> {
+    let body: serde_json::Value = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| PawanError::Config(format!("POM unreachable: {e}")))?
+        .json()
+        .await
+        .map_err(|e| PawanError::Config(format!("POM response parse error: {e}")))?;
+
+    let first = body["data"].as_array().and_then(|a| a.first().cloned());
+    Ok(first.and_then(|s| {
+        let id = s["id"].as_str()?.to_string();
+        let number = s["number"].as_i64()?;
+        let title = s["title"].as_str()?.to_string();
+        let status = s["status"].as_str()?.to_string();
+        Some((id, number, title, status))
+    }))
+}
+
+/// Execute the current POM sprint: fetch → task → optionally complete.
+async fn run_pom(
+    config: PawanConfig,
+    workspace: PathBuf,
+    pom_url_arg: Option<String>,
+    complete: bool,
+    force: bool,
+    verbose: bool,
+) -> Result<()> {
+    let base = pom_url_arg
+        .or_else(|| std::env::var("POM_URL").ok())
+        .unwrap_or_else(|| "http://localhost:3002".to_string());
+    let base = base.trim_end_matches('/');
+
+    let client = reqwest::Client::new();
+
+    // 1. Resolve sprint: prefer active, fall back to lowest pending.
+    let sprint = {
+        let url = format!("{}/api/sprints?status=active&per_page=1", base);
+        match fetch_pom_sprint(&client, &url).await? {
+            Some(s) => s,
+            None => {
+                let url2 = format!("{}/api/sprints?status=pending&per_page=1", base);
+                fetch_pom_sprint(&client, &url2)
+                    .await?
+                    .ok_or_else(|| PawanError::Config("No active or pending sprint in POM".to_string()))?
+            }
+        }
+    };
+    let (sprint_id, sprint_number, sprint_title, sprint_status) = sprint;
+
+    println!("{}", "Pawan POM Mode".green().bold());
+    println!("{}", "═".repeat(40).dimmed());
+    println!(
+        "{} #{} — {}  [{}]",
+        "Sprint:".cyan().bold(),
+        sprint_number,
+        sprint_title,
+        sprint_status.dimmed()
+    );
+    println!();
+
+    // 2. Fetch markdown content from the current-sprint endpoint.
+    let markdown_resp = client
+        .get(format!("{}/api/current-sprint", base))
+        .send()
+        .await
+        .map_err(|e| PawanError::Config(format!("POM unreachable: {e}")))?;
+
+    if markdown_resp.status() == reqwest::StatusCode::NOT_FOUND {
+        return Err(PawanError::Config(
+            "POM reports no active or pending sprint".to_string(),
+        ));
+    }
+
+    let sprint_markdown = markdown_resp
+        .text()
+        .await
+        .map_err(|e| PawanError::Config(format!("POM response error: {e}")))?;
+
+    // 3. Warn when sprint has no dissues, bail unless --force.
+    if sprint_markdown.contains("No dissues assigned") {
+        if force {
+            println!("{}", "Warning: sprint has no dissues — proceeding anyway (--force)".yellow());
+        } else {
+            return Err(PawanError::Config(
+                "Sprint has no dissues assigned. Use --force to execute anyway.".to_string(),
+            ));
+        }
+    }
+
+    if verbose {
+        println!("{}", "Sprint content:".dimmed());
+        println!("{}", sprint_markdown.dimmed());
+        println!();
+    }
+
+    // 4. Build the task prompt.
+    let prompt = format!(
+        "Execute the following sprint. Complete every task listed, \
+commit your work with meaningful messages, and leave the project in a clean state.\n\n\
+{}",
+        sprint_markdown
+    );
+
+    // 5. Run pawan agent.
+    let config_ref = config.clone();
+    let mut agent = PawanAgent::new(config, workspace);
+
+    #[cfg(feature = "mcp")]
+    setup_mcp_tools(&mut agent, &config_ref).await;
+
+    let response = agent
+        .task(&prompt)
+        .await
+        .map_err(|e| PawanError::Config(format!("Agent error: {e}")))?;
+
+    println!("{}", response.content);
+
+    if verbose && !response.tool_calls.is_empty() {
+        println!("\n{}", "Tool calls made:".dimmed());
+        for tc in &response.tool_calls {
+            if tc.success {
+                println!("  {} {} ({}ms)", "✓".green(), tc.name.cyan(), tc.duration_ms);
+            } else {
+                println!("  {} {} ({}ms)", "✗".red(), tc.name.cyan(), tc.duration_ms);
+            }
+        }
+    }
+
+    // 6. Optionally mark sprint complete.
+    if complete {
+        println!("\n{}", "Marking sprint complete in POM…".dimmed());
+        let url = format!("{}/api/sprints/{}/complete", base, sprint_id);
+        let resp = client
+            .post(&url)
+            .send()
+            .await
+            .map_err(|e| PawanError::Config(format!("POM complete call failed: {e}")))?;
+        if resp.status().is_success() {
+            let body: serde_json::Value = resp.json().await.unwrap_or_default();
+            println!("{}", "Sprint marked complete.".green().bold());
+            if let Some(next) = body.get("next").and_then(|n| n.as_object()) {
+                if let (Some(num), Some(title)) =
+                    (next.get("number"), next.get("title"))
+                {
+                    println!(
+                        "{} #{} — {}",
+                        "Next sprint:".cyan(),
+                        num,
+                        title.as_str().unwrap_or("")
+                    );
+                }
+            }
+        } else {
+            eprintln!(
+                "{} Failed to mark sprint complete (HTTP {})",
+                "Warning:".yellow(),
+                resp.status()
+            );
+        }
+    }
+
+    println!();
+    println!(
+        "  {} iterations  {} tool calls",
+        response.iterations.to_string().cyan(),
+        response.tool_calls.len().to_string().cyan()
+    );
 
     Ok(())
 }
