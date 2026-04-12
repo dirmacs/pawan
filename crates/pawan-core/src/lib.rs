@@ -26,6 +26,7 @@ pub mod bootstrap;
 pub mod config;
 pub mod coordinator;
 pub mod eruka_bridge;
+pub mod init;
 pub mod healing;
 pub mod skill_distillation;
 pub mod skills;
