@@ -1,18 +1,17 @@
-# Pawan — NIM cloud primary (Qwen3.5 122B + MiniMax M2.5 fallback)
-# Qwen3.5 122B: 122B MoE (10B active), 383ms, S tier, thinking mode, tool calling
-# MiniMax M2.5: 230B, 374ms, SWE 80.2% — highest coding benchmark on NIM
+# Pawan — NIM cloud primary (MiniMax M2.7)
+# MiniMax M2.7: 1M context, SWE-bench top tier, agent-optimized
 provider = "nvidia"
-model = "qwen/qwen3.5-122b-a10b"
-temperature = 0.6
+model = "minimaxai/minimax-m2.7"
+temperature = 1
 top_p = 0.95
-max_tokens = 16384
+max_tokens = 8192
 max_tool_iterations = 20
 thinking_budget = 0
 reasoning_mode = false
 
 [cloud]
 provider = "nvidia"
-model = "minimaxai/minimax-m2.5"
+model = "minimaxai/minimax-m2.7"
 
 [eruka]
 enabled = true
