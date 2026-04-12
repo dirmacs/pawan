@@ -1204,8 +1204,17 @@ Fix each issue one at a time. Verify with cargo check after each fix.");
     ///   Stage 2 — `healing.verify_cmd` (optional): a user-supplied shell command
     ///             (e.g. `cargo test --workspace`).  If it exits non-zero the loop
     ///             continues so the LLM can address the reported failures.
+    ///
+    /// Anti-thrash guard: each Stage-1 error is fingerprinted (kind + code +
+    /// message prefix).  If the same fingerprint survives `max_attempts`
+    /// consecutive rounds unchanged the loop halts rather than spinning
+    /// indefinitely on an error the LLM cannot fix.
     pub async fn heal_with_retries(&mut self, max_attempts: usize) -> Result<AgentResponse> {
+        use std::collections::{HashMap, HashSet};
+
         let mut last_response = self.heal().await?;
+        // fingerprint → consecutive rounds this error has survived unchanged
+        let mut stuck_counts: HashMap<u64, usize> = HashMap::new();
 
         for attempt in 1..max_attempts {
             // Stage 1: cargo check must be error-free
@@ -1217,6 +1226,31 @@ Fix each issue one at a time. Verify with cargo check after each fix.");
                 .collect();
 
             if !errors.is_empty() {
+                // Update fingerprint counts.
+                // Drop entries for errors that were fixed; increment survivors.
+                let current_fps: HashSet<u64> = errors.iter().map(|d| d.fingerprint()).collect();
+                stuck_counts.retain(|fp, _| current_fps.contains(fp));
+                for fp in &current_fps {
+                    *stuck_counts.entry(*fp).or_insert(0) += 1;
+                }
+
+                // Anti-thrash: halt if any error fingerprint has not budged
+                // after max_attempts consecutive rounds.
+                let thrashing: Vec<u64> = stuck_counts
+                    .iter()
+                    .filter_map(|(&fp, &count)| if count >= max_attempts { Some(fp) } else { None })
+                    .collect();
+                if !thrashing.is_empty() {
+                    tracing::warn!(
+                        stuck_fingerprints = thrashing.len(),
+                        attempt,
+                        "Anti-thrash: {} error(s) unchanged after {} attempts, halting heal loop",
+                        thrashing.len(),
+                        max_attempts
+                    );
+                    return Ok(last_response);
+                }
+
                 tracing::warn!(
                     errors = errors.len(),
                     attempt,
@@ -1225,6 +1259,9 @@ Fix each issue one at a time. Verify with cargo check after each fix.");
                 last_response = self.heal().await?;
                 continue;
             }
+
+            // All Stage-1 errors cleared — reset thrash counters.
+            stuck_counts.clear();
 
             // Stage 2: optional verify_cmd
             let verify_cmd = self.config.healing.verify_cmd.clone();
