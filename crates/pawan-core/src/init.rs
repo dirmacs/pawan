@@ -166,6 +166,43 @@ mod tests {
     }
 
     #[test]
+    fn pawan_agent_skeleton_includes_pawan_toml_in_file_list() {
+        let sk = pawan_agent_skeleton("demo");
+        let has_pawan_toml = sk.files.iter().any(|(p, _)| p == "pawan.toml");
+        assert!(has_pawan_toml, "pawan_agent_skeleton must include pawan.toml");
+    }
+
+    #[test]
+    fn write_to_creates_nested_directories() {
+        let dir = tempfile::tempdir().unwrap();
+        let sk = rust_binary_skeleton("nested");
+        sk.write_to(dir.path()).unwrap();
+        // src/ directory must have been created for src/main.rs
+        assert!(dir.path().join("src").is_dir(), "src/ directory not created");
+        assert!(dir.path().join("src/main.rs").is_file());
+    }
+
+    #[test]
+    fn skeleton_names_set_correctly() {
+        assert_eq!(rust_binary_skeleton("alpha").name, "alpha");
+        assert_eq!(rust_library_skeleton("beta").name, "beta");
+        assert_eq!(pawan_agent_skeleton("gamma").name, "gamma");
+    }
+
+    #[test]
+    fn generated_cargo_toml_contains_edition_and_rust_version() {
+        for (sk, expected_name) in [
+            (rust_binary_skeleton("x"), "x"),
+            (rust_library_skeleton("y"), "y"),
+            (pawan_agent_skeleton("z"), "z"),
+        ] {
+            let cargo = &sk.files.iter().find(|(p, _)| p == "Cargo.toml").unwrap().1;
+            assert!(cargo.contains("edition = \"2021\""), "{expected_name} missing edition");
+            assert!(cargo.contains("rust-version = \"1.75\""), "{expected_name} missing rust-version");
+        }
+    }
+
+    #[test]
     fn agent_skeleton_has_pawan_toml() {
         let dir = tempfile::tempdir().unwrap();
         let sk = pawan_agent_skeleton("agent1");
