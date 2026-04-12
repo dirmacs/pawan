@@ -67,6 +67,29 @@ pub enum DiagnosticKind {
     Help,
 }
 
+impl Diagnostic {
+    /// Return a stable 64-bit fingerprint for this diagnostic.
+    ///
+    /// Two diagnostics with the same fingerprint represent the same
+    /// underlying problem.  Used by the anti-thrash guard in
+    /// `heal_with_retries` to detect when the LLM is not making
+    /// progress.
+    ///
+    /// The fingerprint covers `kind`, `code`, and the first 120 chars
+    /// of `message` — enough to distinguish issues without being
+    /// sensitive to trailing whitespace or minor formatting differences.
+    pub fn fingerprint(&self) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        (self.kind as u8).hash(&mut hasher);
+        self.code.as_deref().unwrap_or("").hash(&mut hasher);
+        let msg_prefix: String = self.message.chars().take(120).collect();
+        msg_prefix.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
 /// Result from a healing operation containing remaining issues and a summary.
 #[derive(Debug)]
 pub struct HealingResult {
@@ -1258,6 +1281,67 @@ mod tests {
         let d = &diagnostics[0];
         assert_eq!(d.code.as_deref(), Some("unknown"));
         assert!(d.message.contains("unknown"));
+    }
+
+    // ─── Diagnostic::fingerprint tests ───────────────────────────────────
+
+    fn make_diag(kind: DiagnosticKind, code: Option<&str>, message: &str) -> Diagnostic {
+        Diagnostic {
+            kind,
+            message: message.to_string(),
+            file: None,
+            line: None,
+            column: None,
+            code: code.map(str::to_string),
+            suggestion: None,
+            raw: String::new(),
+        }
+    }
+
+    #[test]
+    fn test_fingerprint_same_diag_is_stable() {
+        let d = make_diag(DiagnosticKind::Error, Some("E0425"), "cannot find value `x`");
+        assert_eq!(d.fingerprint(), d.fingerprint(), "fingerprint must be deterministic");
+    }
+
+    #[test]
+    fn test_fingerprint_different_code_differs() {
+        let d1 = make_diag(DiagnosticKind::Error, Some("E0425"), "msg");
+        let d2 = make_diag(DiagnosticKind::Error, Some("E0308"), "msg");
+        assert_ne!(d1.fingerprint(), d2.fingerprint(), "different codes must differ");
+    }
+
+    #[test]
+    fn test_fingerprint_different_kind_differs() {
+        let d1 = make_diag(DiagnosticKind::Error, Some("E0001"), "msg");
+        let d2 = make_diag(DiagnosticKind::Warning, Some("E0001"), "msg");
+        assert_ne!(d1.fingerprint(), d2.fingerprint(), "different kinds must differ");
+    }
+
+    #[test]
+    fn test_fingerprint_ignores_raw_field() {
+        // raw captures full compiler output; it must not affect the fingerprint
+        // so that the same logical error seen twice (with different raw context)
+        // is still identified as the same fingerprint.
+        let mut d1 = make_diag(DiagnosticKind::Error, Some("E0001"), "msg");
+        let mut d2 = d1.clone();
+        d1.raw = "first run output".to_string();
+        d2.raw = "second run output (different)".to_string();
+        assert_eq!(d1.fingerprint(), d2.fingerprint(), "raw must not affect fingerprint");
+    }
+
+    #[test]
+    fn test_fingerprint_long_message_truncated_to_120_chars() {
+        // Two diagnostics that share the same first 120 chars but differ after
+        // must produce the same fingerprint (truncation at 120).
+        let prefix = "x".repeat(120);
+        let d1 = make_diag(DiagnosticKind::Error, None, &format!("{prefix}suffix_A"));
+        let d2 = make_diag(DiagnosticKind::Error, None, &format!("{prefix}suffix_B"));
+        assert_eq!(
+            d1.fingerprint(),
+            d2.fingerprint(),
+            "messages differing only beyond 120 chars must share a fingerprint"
+        );
     }
 
     // ─── run_verify_cmd tests ──────────────────────────────────────────────
