@@ -237,4 +237,76 @@ mod tests {
         let lm = LancorBackend::to_lancor_messages(&[]);
         assert!(lm.is_empty());
     }
+
+    #[test]
+    fn test_to_lancor_messages_tool_role_without_tool_result_falls_back_to_content() {
+        // When role=Tool but tool_result is None (e.g. incomplete message),
+        // the conversion must fall back to m.content rather than panicking.
+        let messages = vec![Message {
+            role: Role::Tool,
+            content: "fallback text".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        }];
+        let lm = LancorBackend::to_lancor_messages(&messages);
+        assert_eq!(lm.len(), 1);
+        assert_eq!(lm[0].role, "user", "Tool role must still flatten to user");
+        assert_eq!(
+            lm[0].content, "fallback text",
+            "content must fall back to m.content when tool_result is None"
+        );
+    }
+
+    #[test]
+    fn test_temperature_zero_is_stored_not_dropped() {
+        // 0.0 is a valid temperature — must be preserved as Some(0.0), not treated as falsy.
+        let backend = LancorBackend::new("http://localhost:8080", "m")
+            .unwrap()
+            .temperature(0.0);
+        assert_eq!(
+            backend.temperature,
+            Some(0.0),
+            "temperature(0.0) must set Some(0.0), not None"
+        );
+    }
+
+    #[test]
+    fn test_max_tokens_zero_is_stored_not_dropped() {
+        // Callers may set max_tokens=0 as an explicit "no limit" signal.
+        // Must be preserved as Some(0), not silently cleared.
+        let backend = LancorBackend::new("http://localhost:8080", "m")
+            .unwrap()
+            .max_tokens(0);
+        assert_eq!(
+            backend.max_tokens,
+            Some(0),
+            "max_tokens(0) must set Some(0), not None"
+        );
+    }
+
+    #[test]
+    fn test_to_lancor_messages_preserves_order_across_all_four_roles() {
+        let messages = vec![
+            Message { role: Role::System, content: "sys".into(), tool_calls: vec![], tool_result: None },
+            Message { role: Role::User, content: "usr".into(), tool_calls: vec![], tool_result: None },
+            Message { role: Role::Assistant, content: "asst".into(), tool_calls: vec![], tool_result: None },
+            Message {
+                role: Role::Tool,
+                content: "raw".into(),
+                tool_calls: vec![],
+                tool_result: Some(ToolResultMessage {
+                    tool_call_id: "id".into(),
+                    content: json!({"k": "v"}),
+                    success: true,
+                }),
+            },
+        ];
+        let lm = LancorBackend::to_lancor_messages(&messages);
+        assert_eq!(lm.len(), 4);
+        assert_eq!(lm[0].role, "system");
+        assert_eq!(lm[1].role, "user");
+        assert_eq!(lm[2].role, "assistant");
+        assert_eq!(lm[3].role, "user", "Tool must become user");
+        assert!(lm[3].content.contains("[tool result]"));
+    }
 }
