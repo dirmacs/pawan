@@ -7,7 +7,7 @@
   <img src="{{ get_url(path='pawan-logo.svg') }}" alt="Pawan" width="200" style="margin-bottom: 1rem;">
   <h1>पवन pawan</h1>
   <p class="tagline">Self-healing CLI coding agent</p>
-  <p class="sub">Rust-native. 27 tools. 18 commands. No subscription.</p>
+  <p class="sub">Rust-native. 34 tools. 18 commands. No subscription.</p>
   <div class="cta">
     <a href="{{ get_url(path='@/guide.md') }}" class="btn primary">Get Started</a>
     <a href="{{ config.extra.repo }}" class="btn secondary">GitHub</a>
@@ -40,6 +40,14 @@
       <h3>Streaming TUI</h3>
       <p>Markdown rendering, vim keybindings, live token streaming, tool progress indicators.</p>
     </div>
+    <div class="card">
+      <h3>Compiler as Auditor</h3>
+      <p>Every iteration is type-checked. <code>cargo check</code> runs in the loop — the Rust compiler catches hallucinations before they land.</p>
+    </div>
+    <div class="card">
+      <h3>Local Inference</h3>
+      <p>MLX on Apple Silicon, Ollama on Linux, llama.cpp via lancor anywhere. $0/token. Falls back to NIM cloud automatically.</p>
+    </div>
   </div>
 </section>
 
@@ -54,6 +62,12 @@
   <h2>Install</h2>
   <pre><code>cargo install pawan
 export NVIDIA_API_KEY=nvapi-...
-pawan doctor  # verify setup</code></pre>
+pawan doctor  # verify setup
+
+# Or go local ($0/token):
+# MLX on Mac:  PAWAN_PROVIDER=mlx pawan
+# Ollama:      PAWAN_PROVIDER=ollama PAWAN_MODEL=llama3.2 pawan
+# llama.cpp:   cargo install pawan --features lancor
+#              PAWAN_PROVIDER=lancor PAWAN_MODEL=./model.gguf pawan</code></pre>
 </section>
 {% endblock %}
