@@ -3,75 +3,16 @@
 //! Start with: `pawan mcp serve`
 //! Connect from doltdot/OpenClaw: add to mcp.json as a stdio server
 
+use async_trait::async_trait;
 use pawan::agent::PawanAgent;
 use pawan::config::PawanConfig;
 use pawan::healing::Healer;
-use pawan::PawanError;
-use rmcp::handler::server::tool::ToolRouter;
-use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::*;
-use rmcp::service::{RequestContext, RoleServer, ServiceExt};
-use rmcp::{tool, tool_router, ErrorData as McpError, ServerHandler};
-use schemars::JsonSchema;
 use serde::Deserialize;
+use serde_json::Value;
 use std::path::PathBuf;
-
-/// Request parameters for pawan_run tool
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct RunRequest {
-    /// The prompt to execute
-    pub prompt: String,
-    /// Working directory (defaults to current dir)
-    pub workspace: Option<String>,
-}
-
-/// Request parameters for pawan_task tool
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct TaskRequest {
-    /// Description of the coding task
-    pub task: String,
-    /// Working directory (defaults to current dir)
-    pub workspace: Option<String>,
-}
-
-/// Request parameters for pawan_heal tool
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct HealRequest {
-    /// Working directory to heal (defaults to current dir)
-    pub workspace: Option<String>,
-}
-
-/// Request parameters for pawan_review tool
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct ReviewRequest {
-    /// File path to review
-    pub file: String,
-    /// Working directory (defaults to current dir)
-    pub workspace: Option<String>,
-}
-
-/// Request parameters for pawan_explain tool
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct ExplainRequest {
-    /// What to explain: file path, function name, or concept
-    pub query: String,
-    /// Working directory (defaults to current dir)
-    pub workspace: Option<String>,
-}
-
-/// Request parameters for pawan_status tool
-#[derive(Debug, Deserialize, JsonSchema)]
-pub struct StatusRequest {
-    /// Working directory (defaults to current dir)
-    pub workspace: Option<String>,
-}
-/// Pawan MCP Server — wraps PawanAgent as MCP tools
-#[derive(Clone)]
-pub struct PawanServer {
-    config: PawanConfig,
-    #[allow(dead_code)]
-    tool_router: ToolRouter<Self>,
-}
+use std::sync::Arc;
+use thulp_core::{Parameter, ToolDefinition, ToolResult};
+use thulp_mcp::{McpServer, ToolHandler};
 
 fn workspace_path(workspace: Option<&str>) -> PathBuf {
     workspace
@@ -84,187 +25,255 @@ fn create_agent(config: &PawanConfig, workspace: Option<&str>) -> PawanAgent {
     PawanAgent::new(config.clone(), ws)
 }
 
-#[tool_router]
-impl PawanServer {
-    pub fn new(config: PawanConfig) -> Self {
-        Self {
-            config,
-            tool_router: Self::tool_router(),
-        }
-    }
+// ─── Handler types ────────────────────────────────────────────────────────────
 
-    #[tool(
-        name = "pawan_run",
-        description = "Execute a prompt through pawan's agent loop with tool calling. The agent can read/write files, run shell commands, search code, and use git."
-    )]
-    async fn run(
-        &self,
-        params: Parameters<RunRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let mut agent = create_agent(&self.config, params.0.workspace.as_deref());
+struct RunHandler {
+    config: Arc<PawanConfig>,
+}
 
-        match agent.execute(&params.0.prompt).await {
-            Ok(response) => Ok(CallToolResult::success(vec![Content::text(format!(
+#[derive(Deserialize)]
+struct RunArgs {
+    prompt: String,
+    workspace: Option<String>,
+}
+
+#[async_trait]
+impl ToolHandler for RunHandler {
+    async fn call(&self, arguments: Value) -> ToolResult {
+        let args: RunArgs = match serde_json::from_value(arguments) {
+            Ok(a) => a,
+            Err(e) => return ToolResult::failure(format!("invalid arguments: {e}")),
+        };
+        let mut agent = create_agent(&self.config, args.workspace.as_deref());
+        match agent.execute(&args.prompt).await {
+            Ok(r) => ToolResult::success(Value::String(format!(
                 "{}\n\n---\n{} iterations, {} tool calls",
-                response.content,
-                response.iterations,
-                response.tool_calls.len()
-            ))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
-                "pawan error: {}",
-                e
-            ))])),
-        }
-    }
-
-    #[tool(
-        name = "pawan_task",
-        description = "Execute a coding task. Pawan will explore the codebase, make changes, and verify they compile."
-    )]
-    async fn task(
-        &self,
-        params: Parameters<TaskRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let mut agent = create_agent(&self.config, params.0.workspace.as_deref());
-
-        match agent.task(&params.0.task).await {
-            Ok(response) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "{}\n\n---\n{} iterations, {} tool calls",
-                response.content,
-                response.iterations,
-                response.tool_calls.len()
-            ))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
-                "pawan error: {}",
-                e
-            ))])),
-        }
-    }
-
-    #[tool(
-        name = "pawan_heal",
-        description = "Self-heal a Rust project: fix compilation errors, clippy warnings, and failing tests."
-    )]
-    async fn heal(
-        &self,
-        params: Parameters<HealRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let mut agent = create_agent(&self.config, params.0.workspace.as_deref());
-
-        match agent.heal().await {
-            Ok(response) => Ok(CallToolResult::success(vec![Content::text(format!(
-                "{}\n\n---\n{} iterations, {} tool calls",
-                response.content,
-                response.iterations,
-                response.tool_calls.len()
-            ))])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!(
-                "pawan error: {}",
-                e
-            ))])),
-        }
-    }
-
-    #[tool(
-        name = "pawan_review",
-        description = "AI-powered code review of a specific file. Returns suggestions for improvements."
-    )]
-    async fn review(
-        &self,
-        params: Parameters<ReviewRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let mut agent = create_agent(&self.config, params.0.workspace.as_deref());
-        let prompt = format!("Review the file at {} and provide feedback on code quality, bugs, and improvements.", params.0.file);
-
-        match agent.execute(&prompt).await {
-            Ok(response) => Ok(CallToolResult::success(vec![Content::text(response.content)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("pawan error: {}", e))])),
-        }
-    }
-
-    #[tool(
-        name = "pawan_explain",
-        description = "AI-powered explanation of a file, function, or concept in the codebase."
-    )]
-    async fn explain(
-        &self,
-        params: Parameters<ExplainRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let mut agent = create_agent(&self.config, params.0.workspace.as_deref());
-        let prompt = format!("Explain: {}", params.0.query);
-
-        match agent.execute(&prompt).await {
-            Ok(response) => Ok(CallToolResult::success(vec![Content::text(response.content)])),
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("pawan error: {}", e))])),
-        }
-    }
-
-    #[tool(
-        name = "pawan_status",
-        description = "Show project status: compilation errors, warnings, test failures, and git status."
-    )]
-    async fn status(
-        &self,
-        params: Parameters<StatusRequest>,
-    ) -> Result<CallToolResult, McpError> {
-        let ws = workspace_path(params.0.workspace.as_deref());
-        let healer = Healer::new(ws, self.config.healing.clone());
-
-        match healer.count_issues().await {
-            Ok((errors, warnings, failed_tests)) => {
-                Ok(CallToolResult::success(vec![Content::text(format!(
-                    "Project Status:\n  Errors: {}\n  Warnings: {}\n  Failed tests: {}",
-                    errors, warnings, failed_tests
-                ))]))
-            }
-            Err(e) => Ok(CallToolResult::error(vec![Content::text(format!("pawan error: {}", e))])),
+                r.content,
+                r.iterations,
+                r.tool_calls.len()
+            ))),
+            Err(e) => ToolResult::failure(format!("pawan error: {e}")),
         }
     }
 }
 
-impl ServerHandler for PawanServer {
-    async fn initialize(
-        &self,
-        request: InitializeRequestParam,
-        context: RequestContext<RoleServer>,
-    ) -> Result<InitializeResult, McpError> {
-        context.peer.set_peer_info(request);
-        Ok(InitializeResult {
-            protocol_version: ProtocolVersion::V_2024_11_05,
-            capabilities: ServerCapabilities {
-                tools: Some(ToolsCapability {
-                    list_changed: None,
-                }),
-                ..Default::default()
-            },
-            server_info: Implementation {
-                name: "pawan".into(),
-                title: Some("Pawan CLI Coding Agent".into()),
-                version: env!("CARGO_PKG_VERSION").into(),
-                icons: None,
-                website_url: Some("https://github.com/dirmacs/pawan".into()),
-            },
-            instructions: Some(
-                "Pawan is a self-healing CLI coding agent. Use pawan_run for general prompts, pawan_task for coding tasks, pawan_heal to fix compilation errors, pawan_review for code review, pawan_explain for explanations, pawan_status for project health.".into(),
-            ),
-        })
+struct TaskHandler {
+    config: Arc<PawanConfig>,
+}
+
+#[derive(Deserialize)]
+struct TaskArgs {
+    task: String,
+    workspace: Option<String>,
+}
+
+#[async_trait]
+impl ToolHandler for TaskHandler {
+    async fn call(&self, arguments: Value) -> ToolResult {
+        let args: TaskArgs = match serde_json::from_value(arguments) {
+            Ok(a) => a,
+            Err(e) => return ToolResult::failure(format!("invalid arguments: {e}")),
+        };
+        let mut agent = create_agent(&self.config, args.workspace.as_deref());
+        match agent.task(&args.task).await {
+            Ok(r) => ToolResult::success(Value::String(format!(
+                "{}\n\n---\n{} iterations, {} tool calls",
+                r.content,
+                r.iterations,
+                r.tool_calls.len()
+            ))),
+            Err(e) => ToolResult::failure(format!("pawan error: {e}")),
+        }
     }
+}
+
+struct HealHandler {
+    config: Arc<PawanConfig>,
+}
+
+#[derive(Deserialize)]
+struct HealArgs {
+    workspace: Option<String>,
+}
+
+#[async_trait]
+impl ToolHandler for HealHandler {
+    async fn call(&self, arguments: Value) -> ToolResult {
+        let args: HealArgs = match serde_json::from_value(arguments) {
+            Ok(a) => a,
+            Err(e) => return ToolResult::failure(format!("invalid arguments: {e}")),
+        };
+        let mut agent = create_agent(&self.config, args.workspace.as_deref());
+        match agent.heal().await {
+            Ok(r) => ToolResult::success(Value::String(format!(
+                "{}\n\n---\n{} iterations, {} tool calls",
+                r.content,
+                r.iterations,
+                r.tool_calls.len()
+            ))),
+            Err(e) => ToolResult::failure(format!("pawan error: {e}")),
+        }
+    }
+}
+
+struct ReviewHandler {
+    config: Arc<PawanConfig>,
+}
+
+#[derive(Deserialize)]
+struct ReviewArgs {
+    file: String,
+    workspace: Option<String>,
+}
+
+#[async_trait]
+impl ToolHandler for ReviewHandler {
+    async fn call(&self, arguments: Value) -> ToolResult {
+        let args: ReviewArgs = match serde_json::from_value(arguments) {
+            Ok(a) => a,
+            Err(e) => return ToolResult::failure(format!("invalid arguments: {e}")),
+        };
+        let mut agent = create_agent(&self.config, args.workspace.as_deref());
+        let prompt = format!(
+            "Review the file at {} and provide feedback on code quality, bugs, and improvements.",
+            args.file
+        );
+        match agent.execute(&prompt).await {
+            Ok(r) => ToolResult::success(Value::String(r.content)),
+            Err(e) => ToolResult::failure(format!("pawan error: {e}")),
+        }
+    }
+}
+
+struct ExplainHandler {
+    config: Arc<PawanConfig>,
+}
+
+#[derive(Deserialize)]
+struct ExplainArgs {
+    query: String,
+    workspace: Option<String>,
+}
+
+#[async_trait]
+impl ToolHandler for ExplainHandler {
+    async fn call(&self, arguments: Value) -> ToolResult {
+        let args: ExplainArgs = match serde_json::from_value(arguments) {
+            Ok(a) => a,
+            Err(e) => return ToolResult::failure(format!("invalid arguments: {e}")),
+        };
+        let mut agent = create_agent(&self.config, args.workspace.as_deref());
+        let prompt = format!("Explain: {}", args.query);
+        match agent.execute(&prompt).await {
+            Ok(r) => ToolResult::success(Value::String(r.content)),
+            Err(e) => ToolResult::failure(format!("pawan error: {e}")),
+        }
+    }
+}
+
+struct StatusHandler {
+    config: Arc<PawanConfig>,
+}
+
+#[derive(Deserialize)]
+struct StatusArgs {
+    workspace: Option<String>,
+}
+
+#[async_trait]
+impl ToolHandler for StatusHandler {
+    async fn call(&self, arguments: Value) -> ToolResult {
+        let args: StatusArgs = match serde_json::from_value(arguments) {
+            Ok(a) => a,
+            Err(e) => return ToolResult::failure(format!("invalid arguments: {e}")),
+        };
+        let ws = workspace_path(args.workspace.as_deref());
+        let healer = Healer::new(ws, self.config.healing.clone());
+        match healer.count_issues().await {
+            Ok((errors, warnings, failed_tests)) => ToolResult::success(Value::String(format!(
+                "Project Status:\n  Errors: {}\n  Warnings: {}\n  Failed tests: {}",
+                errors, warnings, failed_tests
+            ))),
+            Err(e) => ToolResult::failure(format!("pawan error: {e}")),
+        }
+    }
+}
+
+// ─── Server builder ───────────────────────────────────────────────────────────
+
+/// Build a Pawan MCP server from a config.
+pub fn build_server(config: PawanConfig) -> McpServer {
+    let config = Arc::new(config);
+    let version = env!("CARGO_PKG_VERSION").to_string();
+
+    McpServer::builder("pawan", version)
+        .tool(
+            "pawan_run",
+            ToolDefinition::builder("pawan_run")
+                .description("Execute a prompt through pawan's agent loop with tool calling. The agent can read/write files, run shell commands, search code, and use git.")
+                .parameter(Parameter::required_string("prompt"))
+                .parameter(Parameter::optional_string("workspace"))
+                .build(),
+            Box::new(RunHandler { config: Arc::clone(&config) }),
+        )
+        .tool(
+            "pawan_task",
+            ToolDefinition::builder("pawan_task")
+                .description("Execute a coding task. Pawan will explore the codebase, make changes, and verify they compile.")
+                .parameter(Parameter::required_string("task"))
+                .parameter(Parameter::optional_string("workspace"))
+                .build(),
+            Box::new(TaskHandler { config: Arc::clone(&config) }),
+        )
+        .tool(
+            "pawan_heal",
+            ToolDefinition::builder("pawan_heal")
+                .description("Self-heal a Rust project: fix compilation errors, clippy warnings, and failing tests.")
+                .parameter(Parameter::optional_string("workspace"))
+                .build(),
+            Box::new(HealHandler { config: Arc::clone(&config) }),
+        )
+        .tool(
+            "pawan_review",
+            ToolDefinition::builder("pawan_review")
+                .description("AI-powered code review of a specific file. Returns suggestions for improvements.")
+                .parameter(Parameter::required_string("file"))
+                .parameter(Parameter::optional_string("workspace"))
+                .build(),
+            Box::new(ReviewHandler { config: Arc::clone(&config) }),
+        )
+        .tool(
+            "pawan_explain",
+            ToolDefinition::builder("pawan_explain")
+                .description("AI-powered explanation of a file, function, or concept in the codebase.")
+                .parameter(Parameter::required_string("query"))
+                .parameter(Parameter::optional_string("workspace"))
+                .build(),
+            Box::new(ExplainHandler { config: Arc::clone(&config) }),
+        )
+        .tool(
+            "pawan_status",
+            ToolDefinition::builder("pawan_status")
+                .description("Show project status: compilation errors, warnings, test failures, and git status.")
+                .parameter(Parameter::optional_string("workspace"))
+                .build(),
+            Box::new(StatusHandler { config: Arc::clone(&config) }),
+        )
+        .build()
 }
 
 /// Start the MCP server on stdio
 pub async fn serve(config: PawanConfig) -> pawan::Result<()> {
-    let server = PawanServer::new(config);
-    let transport = rmcp::transport::io::stdio();
-
-    let service = server
-        .serve(transport)
+    let server = build_server(config);
+    server
+        .serve_stdio()
         .await
-        .map_err(|e| PawanError::Config(format!("Failed to start MCP server: {}", e)))?;
-
-    service
-        .waiting()
-        .await
-        .map_err(|e| PawanError::Config(format!("MCP server error: {}", e)))?;
-
+        .map_err(|e| pawan::PawanError::Config(format!("MCP server error: {e}")))?;
     Ok(())
 }
+
+// ─── Re-export PawanServer as a type alias for backwards compat ───────────────
+
+/// Legacy type alias kept for callsites that reference `PawanServer`.
+/// The actual server is now built via `build_server()`.
+pub type PawanServer = McpServer;
