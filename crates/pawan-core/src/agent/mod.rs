@@ -186,6 +186,45 @@ pub struct PawanAgent {
     arch_context: Option<String>,
 }
 
+/// Probe whether a local inference server is reachable at `url`.
+///
+/// Parses `host:port` from the URL and attempts a TCP connect with a 100 ms
+/// timeout.  Returns `true` if the port is open, `false` on any error.
+/// This is intentionally cheap (no HTTP round-trip) so it can run at agent
+/// startup without perceptible latency.
+fn probe_local_endpoint(url: &str) -> bool {
+    use std::net::TcpStream;
+    use std::time::Duration;
+
+    // Strip scheme and path — we only need host:port
+    let hostport = url
+        .trim_start_matches("http://")
+        .trim_start_matches("https://")
+        .split('/')
+        .next()
+        .unwrap_or("");
+
+    // Ensure port is present; default http → 80, https → 443
+    let addr = if hostport.contains(':') {
+        hostport.to_string()
+    } else if url.starts_with("https://") {
+        format!("{hostport}:443")
+    } else {
+        format!("{hostport}:80")
+    };
+
+    // Normalise "localhost" → "127.0.0.1" so we don't accidentally resolve
+    // to ::1 (IPv6) when the listener is bound only to IPv4.
+    let addr = addr.replace("localhost", "127.0.0.1");
+
+    let socket_addr = match addr.parse() {
+        Ok(a) => a,
+        Err(_) => return false,
+    };
+
+    TcpStream::connect_timeout(&socket_addr, Duration::from_millis(100)).is_ok()
+}
+
 /// Load per-turn architecture context from `<workspace_root>/.pawan/arch.md`.
 ///
 /// Returns `None` if the file is absent or empty.
@@ -248,6 +287,41 @@ impl PawanAgent {
     /// connection pooling). Otherwise uses pawan's built-in OpenAI-compatible
     /// backend (the original path).
     fn create_backend(config: &PawanConfig, system_prompt: &str) -> Box<dyn LlmBackend> {
+        // Local-inference-first cost guard: if enabled and the local server
+        // responds within 100 ms, route all traffic there instead of cloud.
+        if config.local_first {
+            let local_url = config
+                .local_endpoint
+                .clone()
+                .unwrap_or_else(|| "http://localhost:11434/v1".to_string());
+            if probe_local_endpoint(&local_url) {
+                tracing::info!(
+                    url = %local_url,
+                    model = %config.model,
+                    "local_first: local server reachable, using local inference"
+                );
+                return Box::new(OpenAiCompatBackend::new(
+                    backend::openai_compat::OpenAiCompatConfig {
+                        api_url: local_url,
+                        api_key: None,
+                        model: config.model.clone(),
+                        temperature: config.temperature,
+                        top_p: config.top_p,
+                        max_tokens: config.max_tokens,
+                        system_prompt: system_prompt.to_string(),
+                        use_thinking: false,
+                        max_retries: config.max_retries,
+                        fallback_models: Vec::new(),
+                        cloud: None,
+                    },
+                ));
+            }
+            tracing::info!(
+                url = %local_url,
+                "local_first: local server unreachable, falling back to cloud provider"
+            );
+        }
+
         // Try ares backend first if requested and feature is available
         #[cfg(feature = "ares")]
         if config.use_ares_backend {
@@ -1939,6 +2013,34 @@ mod tests {
         assert!(agent.eruka.is_none(), "default config should disable eruka");
         let result = agent.archive_to_eruka().await;
         assert!(result.is_ok(), "archive_to_eruka should be non-fatal when disabled");
+    }
+
+    // ─── probe_local_endpoint tests ──────────────────────────────────────
+
+    #[test]
+    fn test_probe_local_endpoint_closed_port_returns_false() {
+        // Port 19999 is almost never in use — probe must return false quickly.
+        assert!(
+            !probe_local_endpoint("http://localhost:19999/v1"),
+            "closed port should return false"
+        );
+    }
+
+    #[test]
+    fn test_probe_local_endpoint_open_port_returns_true() {
+        // Bind a real listener on a free OS-assigned port, then probe it.
+        use std::net::TcpListener;
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind failed");
+        let port = listener.local_addr().unwrap().port();
+        let url = format!("http://localhost:{port}/v1");
+        assert!(probe_local_endpoint(&url), "open port should return true");
+    }
+
+    #[test]
+    fn test_probe_local_endpoint_url_without_explicit_port() {
+        // Port is absent — probe_local_endpoint must default to 80
+        // which on CI is normally closed, so this just must not panic.
+        let _ = probe_local_endpoint("http://localhost/v1");
     }
 
     // ─── load_arch_context tests ──────────────────────────────────────────
