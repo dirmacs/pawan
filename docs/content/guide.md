@@ -127,13 +127,13 @@ args = ["serve", "--transport", "stdio", "--quiet"]
 
 Pawan is built on top of the dirmacs Rust stack for maximum reuse:
 
-- **[ares-server](https://github.com/dirmacs/ares-server)**: LLM client abstraction, tool coordination, agent primitives (opt-in via `--features ares`)
+- **[ares-server](https://github.com/dirmacs/ares)**: LLM client abstraction, tool coordination, agent primitives (opt-in via `--features ares`)
 - **[deagle](https://github.com/dirmacs/deagle)**: graph-backed code intelligence — embedded as library deps (`deagle-core` + `deagle-parse`), no external binary needed; 5 tools: search, keyword, sg, stats, map
 - **[thulp](https://github.com/dirmacs/thulp)** (thulp-core / thulp-skill-files): typed tool definitions, SKILL.md parsing
 - **[thulp-skills](https://github.com/dirmacs/thulp)**: multi-step skill workflow execution with timeout/retry
 - **[thulp-query](https://github.com/dirmacs/thulp)**: DSL for dynamic tool filtering (`name:git`, `has:path`, etc.)
 - **[thulpoff](https://github.com/dirmacs/thulp)** (thulpoff-core / thulpoff-engine): skill distillation, evaluation, refinement from agent sessions
-- **[eruka-mcp](https://github.com/dirmacs/eruka)**: context memory MCP server (auto-discovered)
+- **[eruka-mcp](https://eruka.dirmacs.com)**: context memory MCP server (auto-discovered)
 - **[daedra](https://dirmacs.github.io/daedra)**: web search MCP server (auto-discovered)
 
 ## Common workflows
