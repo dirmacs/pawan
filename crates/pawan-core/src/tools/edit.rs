@@ -85,9 +85,13 @@ impl Tool for EditFileTool {
             .as_str()
             .ok_or_else(|| crate::PawanError::Tool("old_string is required".into()))?;
 
-        let new_string = args["new_string"]
-            .as_str()
-            .ok_or_else(|| crate::PawanError::Tool("new_string is required".into()))?;
+        let new_string_val = &args["new_string"];
+        let new_string = if let Some(arr) = new_string_val.as_array() {
+            arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n")
+        } else {
+            new_string_val.as_str().ok_or_else(|| crate::PawanError::Tool("new_string is required".into()))?.to_string()
+        };
+        let new_string = &new_string;
 
         let replace_all = args["replace_all"].as_bool().unwrap_or(false);
 
@@ -304,9 +308,13 @@ impl Tool for EditFileLinesTool {
             (start, end)
         };
 
-        let new_content = args["new_content"]
-            .as_str()
-            .ok_or_else(|| crate::PawanError::Tool("new_content is required".into()))?;
+        let new_content_val = &args["new_content"];
+        let new_content = if let Some(arr) = new_content_val.as_array() {
+            arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n")
+        } else {
+            new_content_val.as_str().ok_or_else(|| crate::PawanError::Tool("new_content is required".into()))?.to_string()
+        };
+        let new_content = &new_content;
 
         if start_line == 0 {
             return Err(crate::PawanError::Tool(
