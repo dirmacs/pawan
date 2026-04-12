@@ -736,6 +736,48 @@ impl Healer {
     }
 }
 
+/// Run a user-supplied shell command (stage-2 verify gate) from `workspace_root`.
+///
+/// Returns `Ok(None)` if the command exits 0 (passed).
+/// Returns `Ok(Some(diagnostic))` if it exits non-zero (failed) — the
+/// diagnostic message contains the captured stdout+stderr so the heal loop
+/// can pass it back to the LLM as context.
+/// Returns `Err` only if the command itself cannot be spawned.
+pub async fn run_verify_cmd(workspace_root: &Path, cmd: &str) -> Result<Option<Diagnostic>> {
+    let output = Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .current_dir(workspace_root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| PawanError::Io(e))?;
+
+    if output.status.success() {
+        return Ok(None);
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let combined = match (stdout.trim().is_empty(), stderr.trim().is_empty()) {
+        (false, false) => format!("{stdout}\n{stderr}"),
+        (true, _) => stderr,
+        (_, true) => stdout,
+    };
+
+    Ok(Some(Diagnostic {
+        kind: DiagnosticKind::Error,
+        message: format!("verify_cmd `{cmd}` exited with {}", output.status),
+        file: None,
+        line: None,
+        column: None,
+        code: None,
+        suggestion: None,
+        raw: combined,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1216,5 +1258,46 @@ mod tests {
         let d = &diagnostics[0];
         assert_eq!(d.code.as_deref(), Some("unknown"));
         assert!(d.message.contains("unknown"));
+    }
+
+    // ─── run_verify_cmd tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_healing_config_default_has_no_verify_cmd() {
+        let cfg = HealingConfig::default();
+        assert!(cfg.verify_cmd.is_none(), "verify_cmd must default to None");
+    }
+
+    #[tokio::test]
+    async fn test_run_verify_cmd_success_returns_none() {
+        // `true` always exits 0
+        let result = run_verify_cmd(Path::new("."), "true").await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_none(), "exit 0 should return Ok(None)");
+    }
+
+    #[tokio::test]
+    async fn test_run_verify_cmd_failure_returns_some_diagnostic() {
+        // `false` always exits 1 with no output
+        let result = run_verify_cmd(Path::new("."), "false").await;
+        assert!(result.is_ok());
+        let diag = result.unwrap();
+        assert!(diag.is_some(), "exit non-zero should return Ok(Some(_))");
+        let d = diag.unwrap();
+        assert_eq!(d.kind, DiagnosticKind::Error);
+        assert!(d.message.contains("false"), "message should name the command");
+    }
+
+    #[tokio::test]
+    async fn test_run_verify_cmd_failure_captures_stderr() {
+        // echo to stderr then exit non-zero
+        let result = run_verify_cmd(Path::new("."), "echo 'stage2-failure-marker' >&2; exit 1").await;
+        assert!(result.is_ok());
+        let d = result.unwrap().expect("should be Some on failure");
+        assert!(
+            d.raw.contains("stage2-failure-marker"),
+            "stderr output must appear in raw field, got: {:?}",
+            d.raw
+        );
     }
 }
