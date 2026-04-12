@@ -179,6 +179,40 @@ pub struct PawanAgent {
     /// conversation cluster under the same path. Generated fresh in new(),
     /// overwritten by resume_session() when loading an existing session.
     session_id: String,
+
+    /// Per-turn architecture context loaded from `.pawan/arch.md` at init.
+    /// When present, prepended to every user message so key architectural
+    /// constraints stay visible even as tool-call history grows long.
+    arch_context: Option<String>,
+}
+
+/// Load per-turn architecture context from `<workspace_root>/.pawan/arch.md`.
+///
+/// Returns `None` if the file is absent or empty.
+/// Caps content at 2 000 chars to avoid context bloat from large files;
+/// an ellipsis marker is appended when truncation occurs.
+fn load_arch_context(workspace_root: &std::path::Path) -> Option<String> {
+    let path = workspace_root.join(".pawan").join("arch.md");
+    if !path.exists() {
+        return None;
+    }
+    match std::fs::read_to_string(&path) {
+        Ok(content) if !content.trim().is_empty() => {
+            const MAX_CHARS: usize = 2_000;
+            if content.len() > MAX_CHARS {
+                // Truncate on a char boundary
+                let boundary = content
+                    .char_indices()
+                    .map(|(i, _)| i)
+                    .nth(MAX_CHARS)
+                    .unwrap_or(content.len());
+                Some(format!("{}…(truncated)", &content[..boundary]))
+            } else {
+                Some(content)
+            }
+        }
+        _ => None,
+    }
 }
 
 impl PawanAgent {
@@ -192,6 +226,7 @@ impl PawanAgent {
         } else {
             None
         };
+        let arch_context = load_arch_context(&workspace_root);
 
         Self {
             config,
@@ -202,6 +237,7 @@ impl PawanAgent {
             context_tokens_estimate: 0,
             eruka,
             session_id: uuid::Uuid::new_v4().to_string(),
+            arch_context,
         }
     }
 
@@ -657,9 +693,18 @@ impl PawanAgent {
             }
         }
 
+        // Per-turn architecture context injection: prepend .pawan/arch.md content
+        // so key constraints stay visible even as tool-call history grows long.
+        let effective_prompt = match &self.arch_context {
+            Some(ctx) => format!(
+                "[Workspace Architecture]\n{ctx}\n[/Workspace Architecture]\n\n{user_prompt}"
+            ),
+            None => user_prompt.to_string(),
+        };
+
         self.history.push(Message {
             role: Role::User,
-            content: user_prompt.to_string(),
+            content: effective_prompt,
             tool_calls: vec![],
             tool_result: None,
         });
@@ -1894,5 +1939,50 @@ mod tests {
         assert!(agent.eruka.is_none(), "default config should disable eruka");
         let result = agent.archive_to_eruka().await;
         assert!(result.is_ok(), "archive_to_eruka should be non-fatal when disabled");
+    }
+
+    // ─── load_arch_context tests ──────────────────────────────────────────
+
+    #[test]
+    fn test_load_arch_context_absent_returns_none() {
+        let dir = tempfile::TempDir::new().unwrap();
+        assert!(load_arch_context(dir.path()).is_none());
+    }
+
+    #[test]
+    fn test_load_arch_context_reads_file_content() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let pawan_dir = dir.path().join(".pawan");
+        std::fs::create_dir_all(&pawan_dir).unwrap();
+        std::fs::write(pawan_dir.join("arch.md"), "## Architecture\nUse tokio.\n").unwrap();
+        let result = load_arch_context(dir.path());
+        assert!(result.is_some());
+        assert!(result.unwrap().contains("Use tokio"));
+    }
+
+    #[test]
+    fn test_load_arch_context_empty_file_returns_none() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let pawan_dir = dir.path().join(".pawan");
+        std::fs::create_dir_all(&pawan_dir).unwrap();
+        std::fs::write(pawan_dir.join("arch.md"), "   \n").unwrap();
+        assert!(load_arch_context(dir.path()).is_none(), "whitespace-only file should be None");
+    }
+
+    #[test]
+    fn test_load_arch_context_truncates_at_2000_chars() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let pawan_dir = dir.path().join(".pawan");
+        std::fs::create_dir_all(&pawan_dir).unwrap();
+        // Write a file that is exactly 2500 ASCII chars (safe char boundary)
+        let content = "x".repeat(2_500);
+        std::fs::write(pawan_dir.join("arch.md"), &content).unwrap();
+        let result = load_arch_context(dir.path()).unwrap();
+        assert!(
+            result.len() < 2_100,
+            "truncated result should be close to 2000 chars, got {}",
+            result.len()
+        );
+        assert!(result.ends_with("(truncated)"), "truncated output must end with marker");
     }
 }
