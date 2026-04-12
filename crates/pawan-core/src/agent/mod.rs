@@ -1197,22 +1197,63 @@ Fix each issue one at a time. Verify with cargo check after each fix.");
 
         self.execute(&prompt).await
     }
-    /// Execute healing with retries — calls heal(), checks for remaining errors, retries if needed
+    /// Execute healing with retries — calls heal(), checks for remaining errors, retries if needed.
+    ///
+    /// Two-stage gate:
+    ///   Stage 1 — `cargo check`: must produce zero errors before proceeding.
+    ///   Stage 2 — `healing.verify_cmd` (optional): a user-supplied shell command
+    ///             (e.g. `cargo test --workspace`).  If it exits non-zero the loop
+    ///             continues so the LLM can address the reported failures.
     pub async fn heal_with_retries(&mut self, max_attempts: usize) -> Result<AgentResponse> {
         let mut last_response = self.heal().await?;
 
         for attempt in 1..max_attempts {
+            // Stage 1: cargo check must be error-free
             let fixer = crate::healing::CompilerFixer::new(self.workspace_root.clone());
             let remaining = fixer.check().await?;
-            let errors: Vec<_> = remaining.iter().filter(|d| d.kind == crate::healing::DiagnosticKind::Error).collect();
+            let errors: Vec<_> = remaining
+                .iter()
+                .filter(|d| d.kind == crate::healing::DiagnosticKind::Error)
+                .collect();
 
-            if errors.is_empty() {
-                tracing::info!(attempts = attempt, "Healing complete");
-                return Ok(last_response);
+            if !errors.is_empty() {
+                tracing::warn!(
+                    errors = errors.len(),
+                    attempt,
+                    "Stage 1 (cargo check): errors remain, retrying"
+                );
+                last_response = self.heal().await?;
+                continue;
             }
 
-            tracing::warn!(errors = errors.len(), attempt = attempt, "Errors remain after heal attempt, retrying");
-            last_response = self.heal().await?;
+            // Stage 2: optional verify_cmd
+            let verify_cmd = self.config.healing.verify_cmd.clone();
+            if let Some(ref cmd) = verify_cmd {
+                match crate::healing::run_verify_cmd(&self.workspace_root, cmd).await {
+                    Ok(None) => {
+                        tracing::info!(attempts = attempt, "Stage 2 (verify_cmd) passed, healing complete");
+                        return Ok(last_response);
+                    }
+                    Ok(Some(diag)) => {
+                        tracing::warn!(
+                            attempt,
+                            cmd,
+                            output = diag.raw,
+                            "Stage 2 (verify_cmd) failed, retrying"
+                        );
+                        last_response = self.heal().await?;
+                        continue;
+                    }
+                    Err(e) => {
+                        // Cannot spawn the command — don't block healing on this
+                        tracing::warn!(cmd, error = %e, "verify_cmd could not be run, skipping stage 2");
+                        return Ok(last_response);
+                    }
+                }
+            } else {
+                tracing::info!(attempts = attempt, "Stage 1 (cargo check) passed, healing complete");
+                return Ok(last_response);
+            }
         }
 
         tracing::info!(attempts = max_attempts, "Healing finished (may still have errors)");
