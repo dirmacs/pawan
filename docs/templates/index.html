@@ -58,6 +58,37 @@
   <p>Named after <strong>Power Star Pawan Kalyan</strong> &mdash; black belt martial artist, Telugu cinema cult icon, Deputy CM of Andhra Pradesh. A man who went from action movies to running a state government. That energy: raw power, cult following, fearless execution. पवन means "wind" in Sanskrit, and the name was given to Kalyan by a karate association after a public martial arts demonstration. From <em>powercode</em> to <em>pawan code</em> to just <em>pawan</em> &mdash; born in a dirmacs WhatsApp jam session, built by models operating inside terminal agent harnesses, powered by NVIDIA NIM.</p>
 </section>
 
+<section class="ecosystem">
+  <h2>dirmacs ecosystem</h2>
+  <p>Pawan is one layer of a self-hosted AI infrastructure stack. Every component is open-source, MIT-licensed, and independently usable.</p>
+  <div class="grid">
+    <div class="card">
+      <h3><a href="https://github.com/dirmacs/ares-server">ares-server</a></h3>
+      <p>LLM runtime — multi-provider routing, tool coordination, RAG, and agent orchestration as a self-hosted API server.</p>
+    </div>
+    <div class="card">
+      <h3><a href="https://github.com/dirmacs/eruka">eruka</a></h3>
+      <p>Context memory engine — a structured knowledge graph your agents can read, write, and query to stay oriented across sessions.</p>
+    </div>
+    <div class="card">
+      <h3><a href="https://dirmacs.github.io/daedra">daedra</a></h3>
+      <p>Web search MCP server — 7 backends, automatic fallback, stdio transport. Drop-in search for any MCP-compatible agent.</p>
+    </div>
+    <div class="card">
+      <h3><a href="https://github.com/dirmacs/deagle">deagle</a></h3>
+      <p>Code intelligence — tree-sitter + SQLite graph, BM25 keyword search, AST pattern matching. 9 languages, embeddable as a library.</p>
+    </div>
+    <div class="card">
+      <h3><a href="https://github.com/dirmacs/thulp">thulp</a></h3>
+      <p>Skill framework — typed tool definitions, SKILL.md parsing, multi-step skill execution, distillation and refinement via thulpoff.</p>
+    </div>
+    <div class="card">
+      <h3><a href="https://github.com/dirmacs/aegis">aegis</a></h3>
+      <p>Config manager — declarative system configuration for NIM models and agent settings, with drift detection and auto-sync.</p>
+    </div>
+  </div>
+</section>
+
 <section class="install">
   <h2>Install</h2>
   <pre><code>cargo install pawan
