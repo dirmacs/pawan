@@ -26,15 +26,6 @@ thulp-core = { workspace = true }
 
 futures = { workspace = true }
 
-# MCP client + server (rmcp — current canonical implementation)
-rmcp = { version = "0.12", features = ["client", "server", "transport-io", "transport-child-process"] }
-
-# Phase 11 (#20): thulp-mcp parallel client wrapper. Uses rs-utcp under the
-# hood (different transport from rmcp). Lives alongside rmcp for now —
-# enables consumers to choose; full rmcp removal deferred to a follow-up
-# phase once the thulp-mcp client reaches feature parity (resources,
-# prompts, server-side, child-process transport).
-thulp-mcp = "0.3.1"
-
-schemars = "1.0"
+# MCP client + server (thulp-mcp 0.3.2 — replaced rmcp in task #89)
+thulp-mcp = "0.3.2"
 toon-format = { version = "0.4.4", default-features = false }
