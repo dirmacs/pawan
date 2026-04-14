@@ -1,6 +1,6 @@
 //! Session persistence — save and resume conversations
 
-use crate::agent::Message;
+use crate::agent::{Message, Role};
 use crate::{PawanError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -381,4 +381,143 @@ mod tests {
         let _ = std::fs::remove_file(&path_older);
         let _ = std::fs::remove_file(&path_newer);
     }
+}
+
+// ========== Session Search and Pruning ==========
+
+/// Search result for a session
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SearchResult {
+    pub id: String,
+    pub model: String,
+    pub updated_at: String,
+    pub message_count: usize,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    pub matches: Vec<MessageMatch>,
+}
+
+/// A matching message within a search result
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MessageMatch {
+    pub message_index: usize,
+    pub role: Role,
+    pub preview: String,
+}
+
+/// Retention policy for session cleanup
+#[derive(Debug, Clone, Default)]
+pub struct RetentionPolicy {
+    /// Maximum age in days (None = no limit)
+    pub max_age_days: Option<u32>,
+    /// Maximum number of sessions to keep (None = no limit)
+    pub max_sessions: Option<usize>,
+    /// Tags to always keep
+    pub keep_tags: Vec<String>,
+}
+
+/// Search sessions by content query
+pub fn search_sessions(query: &str) -> Result<Vec<SearchResult>> {
+    let dir = Session::sessions_dir()?;
+    let query_lower = query.to_lowercase();
+    let mut results = Vec::new();
+    
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "json") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(session) = serde_json::from_str::<Session>(&content) {
+                        let mut matches = Vec::new();
+                        for (i, msg) in session.messages.iter().enumerate() {
+                            if msg.content.to_lowercase().contains(&query_lower) {
+                                let preview = msg.content.chars().take(100).collect::<String>();
+                                matches.push(MessageMatch {
+                                    message_index: i,
+                                    role: msg.role.clone(),
+                                    preview,
+                                });
+                            }
+                        }
+                        if !matches.is_empty() {
+                            results.push(SearchResult {
+                                id: session.id,
+                                model: session.model,
+                                updated_at: session.updated_at,
+                                message_count: session.messages.len(),
+                                tags: session.tags,
+                                matches,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    results.sort_by(|a, b| b.matches.len().cmp(&a.matches.len()));
+    Ok(results)
+}
+
+/// Prune sessions based on retention policy
+pub fn prune_sessions(policy: &RetentionPolicy) -> Result<usize> {
+    let dir = Session::sessions_dir()?;
+    let mut sessions_data: Vec<(std::path::PathBuf, Session)> = Vec::new();
+    
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "json") {
+                if let Ok(content) = std::fs::read_to_string(&path) {
+                    if let Ok(session) = serde_json::from_str::<Session>(&content) {
+                        sessions_data.push((path, session));
+                    }
+                }
+            }
+        }
+    }
+    
+    sessions_data.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
+    
+    let mut deleted = 0usize;
+    let now = chrono::Utc::now();
+    
+    // Use enumerate to get index without moving the vector
+    for (i, (path, session)) in sessions_data.into_iter().enumerate() {
+        // Skip sessions with protected tags
+        let has_protected = session.tags.iter()
+            .any(|t| policy.keep_tags.iter().any(|kt| kt == t));
+        if has_protected {
+            continue;
+        }
+        
+        let mut should_delete = false;
+        
+        // Check age limit
+        if let Some(max_days) = policy.max_age_days {
+            if let Ok(st) = chrono::DateTime::parse_from_rfc3339(&session.updated_at) {
+                let age = (now - st.with_timezone(&chrono::Utc)).num_days() as u32;
+                if age > max_days {
+                    should_delete = true;
+                }
+            }
+        }
+        
+        // Check max sessions limit (use index from enumerate)
+        if !should_delete {
+            if let Some(max_sess) = policy.max_sessions {
+                if i >= max_sess {
+                    should_delete = true;
+                }
+            }
+        }
+        
+        if should_delete {
+            std::fs::remove_file(&path)
+                .map_err(|e| PawanError::Config(format!("Delete failed: {}", e)))?;
+            deleted += 1;
+        }
+    }
+    
+    Ok(deleted)
 }
