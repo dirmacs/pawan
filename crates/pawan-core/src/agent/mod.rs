@@ -19,6 +19,7 @@ use backend::LlmBackend;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
+use std::time::Instant;
 
 /// A message in the conversation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -184,6 +185,8 @@ pub struct PawanAgent {
     /// When present, prepended to every user message so key architectural
     /// constraints stay visible even as tool-call history grows long.
     arch_context: Option<String>,
+    /// Timestamp of last tool call completion for idle timeout tracking
+    last_tool_call_time: Option<Instant>,
 }
 
 /// Probe whether a local inference server is reachable at `url`.
@@ -277,6 +280,7 @@ impl PawanAgent {
             eruka,
             session_id: uuid::Uuid::new_v4().to_string(),
             arch_context,
+        last_tool_call_time: None,
         }
     }
 
@@ -1267,6 +1271,9 @@ impl PawanAgent {
                 }
             }
         }
+            
+            // Update idle timeout tracker after all tool calls in this iteration
+        self.last_tool_call_time = Some(Instant::now());
     }
 
     /// Execute a healing task with real diagnostics
