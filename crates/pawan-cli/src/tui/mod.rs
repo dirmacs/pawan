@@ -10,7 +10,7 @@ use crossterm::{
 };
 use pawan::agent::{AgentResponse, Message, PawanAgent, Role, ToolCallRecord};
 use pawan::config::TuiConfig;
-use pawan::agent::session::{Session, SessionSummary};
+use pawan::agent::session::{Session, SessionSummary, SearchResult, RetentionPolicy};
 use pawan::{PawanError, Result};
 use ratatui::{
     backend::CrosstermBackend,
@@ -1032,6 +1032,56 @@ impl<'a> App<'a> {
                 self.session_browser_open = true;
                 self.session_browser_query.clear();
                 self.session_browser_selected = 0;
+            }
+            "/ss" | "/searchsessions" => {
+                // Search saved sessions
+                if arg.is_empty() {
+                    self.messages.push(DisplayMessage::new_text(Role::System, "Usage: /ss <query> - search saved sessions".to_string()));
+                } else {
+let results: Vec<SearchResult> = pawan::agent::session::search_sessions(arg).unwrap_or_default();
+                    if results.is_empty() {
+                        self.messages.push(DisplayMessage::new_text(Role::System, format!("No sessions found matching: {}", arg)));
+                                self.messages.push(DisplayMessage::new_text(Role::System, format!("No sessions found matching: {}", arg)));
+                            } else {
+                                let mut output = format!("Found {} session(s) matching '{}':\n", results.len(), arg);
+                                for (i, r) in results.iter().take(10).enumerate() {
+                                    let id_short = r.id.chars().take(8).collect::<String>();
+                                    output.push_str(&format!("\n{}. [{}] {} ({} msgs)\n", i + 1, id_short, r.model, r.message_count));
+                                    if !r.tags.is_empty() {
+                                        output.push_str(&format!("   Tags: {}\n", r.tags.join(", ")));
+                                    }
+                                    for m in r.matches.iter().take(2) {
+                                        let preview = m.preview.chars().take(60).collect::<String>();
+                                        output.push_str(&format!("   [...] {}...\n", preview));
+                                    }
+                                }
+                                if results.len() > 10 {
+                                    output.push_str(&format!("\n... and {} more", results.len() - 10));
+                                }
+self.messages.push(DisplayMessage::new_text(Role::System, output));
+                    }
+                }
+            }
+            "/prune" => {
+                // Prune old sessions
+                use pawan::agent::session::Session;
+                let mut max_days: Option<u32> = None;
+                let mut max_sessions: Option<usize> = None;
+                for part in arg.split_whitespace() {
+                    if part.ends_with('d') {
+                        if let Ok(d) = part[..part.len()-1].parse::<u32>() { max_days = Some(d); }
+                    } else if part.ends_with('s') {
+                        if let Ok(s) = part[..part.len()-1].parse::<usize>() { max_sessions = Some(s); }
+                    }
+                }
+let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: vec![] };
+        match pawan::agent::session::prune_sessions(&policy) {
+            Ok(count) => {
+                let msg = if count > 0 { format!("Pruned {} session(s)", count) } else { "No sessions to prune".to_string() };
+                self.messages.push(DisplayMessage::new_text(Role::System, msg));
+            }
+            Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Prune error: {}", e))),
+        }
             }
             "/tag" => {
                 if arg.is_empty() {
