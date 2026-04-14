@@ -144,13 +144,13 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-### TUI (v0.3.0)
+### TUI (v0.3.2)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets
 - **F1 help overlay** — keyboard shortcuts reference, organized by category
 - **Split layout** — activity panel slides in during processing (72/28 split)
-- **Slash commands** — `/model`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`
+- **Slash commands** — `/model`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`, `/sessions`, `/save`, `/load`, `/resume`, `/new`
 - **Message timestamps** — relative time (now, 5s, 2m, 1h) on each message
 - **Scroll position** — `[2/5]` indicator in messages title bar
 - **Session stats** — tool calls, files edited, message count in status bar
@@ -158,7 +158,10 @@ pawan/
 - **Dynamic input** — auto-resizes 3-10 lines based on content
 - **Streaming markdown** — bold, code, italic, headers, lists rendered in real-time
 - **vim-like navigation** — `j/k`, `g/G`, `Ctrl+U/D`, `/search`, `n/N`
-
+- **Model selector** — interactive model selection with search and filtering
+- **Session browser** — browse, load, and manage saved sessions
+- **Auto-save** — automatic session saving at configurable intervals
+- **Comprehensive testing** — 79 tests covering all TUI functionality
 ### Intelligence (2026-04-08)
 
 **Qwen3.5 122B A10B** — primary model. 383ms latency, 13.6s task completion, solid tool calling. MiniMax M2.5 (SWE 80.2%) as cloud fallback. 12 NIM models benchmarked.
