@@ -18,8 +18,8 @@ Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split lay
 | `/search <query>` | `/s` | Web search via Daedra MCP |
 | `/tools` | `/t` | List available tools by tier |
 | `/heal` | `/h` | Auto-fix build errors |
+| `/handoff` | | Generate focused context for new session |
 | `/export [path]` | `/e` | Export conversation to markdown |
-| `/sessions` | | Open session browser |
 | `/save` | | Save current session |
 | `/load` | | Load a saved session |
 | `/resume` | | Resume a saved session |
