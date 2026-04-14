@@ -16,6 +16,9 @@ Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split lay
 |---------|-----------|-------------|
 | `/model [name]` | `/m` | Show or switch LLM model |
 | `/search <query>` | `/s` | Web search via Daedra MCP |
+| `/ss <query>` | | Search saved sessions by content |
+| `/prune [args]` | | Prune old sessions (e.g., 30d, 100s) |
+| `/tag <cmd>` | | Manage session tags (add/rm/list/clear) |
 | `/tools` | `/t` | List available tools by tier |
 | `/heal` | `/h` | Auto-fix build errors |
 | `/handoff` | | Generate focused context for new session |
