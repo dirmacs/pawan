@@ -108,9 +108,7 @@ auto_commit = false
 
 ## Integration with Pawan
 
-This crate is used internally by Pawan to integrate with Aegis-based configuration management. It follows the same pattern as `aegis-opencode` for consistency across the Dirmacs ecosystem.
-
-## Error Handling
+This crate is used internally by Pawan to integrate with Aegis-based configuration management. It provides a clean interface for reading Aegis manifests and generating Pawan configuration files.
 
 The crate provides comprehensive error handling via the `AegisError` enum:
 
@@ -148,4 +146,3 @@ MIT
 
 - [Pawan](https://github.com/dirmacs/pawan) — Main CLI coding agent
 - [Aegis](https://github.com/dirmacs/aegis) — Configuration management system
-- [aegis-opencode](https://github.com/dirmacs/aegis-opencode) — Similar integration pattern
