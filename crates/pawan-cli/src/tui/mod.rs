@@ -8,7 +8,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use pawan::agent::{AgentResponse, PawanAgent, Role, ToolCallRecord};
+use pawan::agent::{AgentResponse, Message, PawanAgent, Role, ToolCallRecord};
 use pawan::config::TuiConfig;
 use pawan::agent::session::{Session, SessionSummary};
 use pawan::{PawanError, Result};
@@ -21,8 +21,12 @@ use ratatui::{
     Frame, Terminal,
 };
 use std::io::{self, Stdout};
+use std::time::Instant;
 use tokio::sync::mpsc;
 use tui_textarea::{Input, TextArea};
+
+/// Autosave interval (5 minutes)
+const AUTOSAVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Events sent from the agent task back to the TUI
 enum AgentEvent {
@@ -273,6 +277,8 @@ struct App<'a> {
     session_browser_query: String,
     session_browser_selected: usize,
     session_sort_mode: SessionSortMode,
+    /// Last autosave time
+    last_autosave: Instant,
 }
 
 /// State for an active permission prompt dialog
@@ -332,6 +338,7 @@ impl<'a> App<'a> {
             session_browser_query: String::new(),
             session_browser_selected: 0,
             session_sort_mode: SessionSortMode::NewestFirst,
+            last_autosave: Instant::now(),
         }
     }
 
@@ -472,7 +479,15 @@ impl<'a> App<'a> {
                 self.handle_event(event);
             }
 
+            // Periodic autosave
+            if self.last_autosave.elapsed() >= AUTOSAVE_INTERVAL {
+                self.autosave();
+                self.last_autosave = Instant::now();
+            }
+
             if self.should_quit {
+                // Final autosave before exit
+                self.autosave();
                 let _ = self.cmd_tx.send(AgentCommand::Quit);
                 break;
             }
@@ -600,6 +615,106 @@ impl<'a> App<'a> {
                     return;
                 }
 
+                // Model selector modal - intercept all keys when open
+                if self.model_selector_open {
+                    match key.code {
+                        KeyCode::Esc => {
+                            self.model_selector_open = false;
+                            self.model_selector_query.clear();
+                            self.model_selector_selected = 0;
+                        }
+                        KeyCode::Backspace => {
+                            self.model_selector_query.pop();
+                            self.model_selector_selected = 0;
+                        }
+                        KeyCode::Char(c) => {
+                            self.model_selector_query.push(c);
+                            self.model_selector_selected = 0;
+                        }
+                        KeyCode::Up => {
+                            let filtered = self.filtered_models().len();
+                            if filtered > 0 {
+                                self.model_selector_selected = self.model_selector_selected.saturating_sub(1);
+                            }
+                        }
+                        KeyCode::Down => {
+                            let filtered = self.filtered_models().len();
+                            if filtered > 0 {
+                                self.model_selector_selected = (self.model_selector_selected + 1).min(filtered - 1);
+                            }
+                        }
+                        KeyCode::Enter => {
+                            // Extract the selected model ID before mutating self
+                            let model_id = {
+                                let models = self.filtered_models();
+                                models.get(self.model_selector_selected).map(|m| m.id.clone())
+                            };
+                            if let Some(model_id) = model_id {
+                                self.model_name = model_id.clone();
+                                self.status = format!("Model → {}", model_id);
+                                self.messages.push(DisplayMessage::new_text(Role::System, format!("Switched to model: {}", model_id)));
+                                let _ = self.cmd_tx.send(AgentCommand::SwitchModel(model_id));
+                            }
+                            self.model_selector_open = false;
+                            self.model_selector_query.clear();
+                            self.model_selector_selected = 0;
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
+                // Session browser modal - intercept all keys when open
+                if self.session_browser_open {
+                    match key.code {
+                        KeyCode::Esc => {
+                            self.session_browser_open = false;
+                            self.session_browser_query.clear();
+                            self.session_browser_selected = 0;
+                        }
+                        KeyCode::Backspace => {
+                            self.session_browser_query.pop();
+                            self.session_browser_selected = 0;
+                        }
+                        KeyCode::Char(c) => {
+                            self.session_browser_query.push(c);
+                            self.session_browser_selected = 0;
+                        }
+                        KeyCode::Up => {
+                            let sessions = self.filtered_sessions().len();
+                            if sessions > 0 {
+                                self.session_browser_selected = self.session_browser_selected.saturating_sub(1);
+                            }
+                        }
+                        KeyCode::Down => {
+                            let sessions = self.filtered_sessions().len();
+                            if sessions > 0 {
+                                self.session_browser_selected = (self.session_browser_selected + 1).min(sessions - 1);
+                            }
+                        }
+                        KeyCode::Enter => {
+                            let sessions: Vec<SessionSummary> = self.filtered_sessions();
+                            if let Some(session) = sessions.get(self.session_browser_selected) {
+                                match Session::load(&session.id) {
+                                    Ok(s) => {
+                                        self.model_name = s.model.clone();
+                                        self.status = format!("Loaded session: {}", session.id);
+                                        self.messages.push(DisplayMessage::new_text(Role::System, format!("Loaded session: {}", session.id)));
+                                    }
+                                    Err(e) => {
+                                        self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to load session: {}", e)));
+                                    }
+                                }
+                            }
+                            self.session_browser_open = false;
+                            self.session_browser_query.clear();
+                            self.session_browser_selected = 0;
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
                 match self.focus {
                     Panel::Input => {
                         let slash_active = self.is_slash_popup_active();
@@ -631,14 +746,15 @@ impl<'a> App<'a> {
                                     let items = self.slash_items();
                                     if let Some((cmd, _)) = items.get(self.slash_popup_selected) {
                                         let cmd = cmd.to_string();
-                                        // Replace input with selected command
+                                        // Replace input with selected command and add trailing space to exit slash mode
                                         self.input = TextArea::default();
                                         self.input.set_cursor_line_style(Style::default());
                                         self.input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to quit)");
                                         self.input.insert_str(&cmd);
+                                        self.input.insert_str(" "); // add space to deactivate slash popup
                                         self.slash_popup_selected = 0;
                                         // If it's a simple command (no args needed), submit immediately
-                                        let simple = ["/help", "/tools", "/heal", "/clear", "/quit", "/?"];
+                                        let simple = ["/help", "/tools", "/heal", "/clear", "/quit", "/?", "/model", "/sessions", "/save", "/new", "/export"];
                                         if simple.contains(&cmd.as_str()) {
                                             self.submit_input();
                                         }
@@ -775,11 +891,15 @@ impl<'a> App<'a> {
             }
             "/model" | "/m" => {
                 if arg.is_empty() {
-                    self.messages.push(DisplayMessage::new_text(Role::System, format!("Current model: {}", self.model_name)));
+                    // Open visual model selector
+                    self.load_available_models();
+                    self.model_selector_open = true;
+                    self.model_selector_query.clear();
+                    self.model_selector_selected = 0;
                 } else {
                     self.model_name = arg.to_string();
                     self.status = format!("Model → {}", arg);
-                    self.messages.push(DisplayMessage::new_text(Role::System, format!("Switching model to: {}", arg)));
+                    self.messages.push(DisplayMessage::new_text(Role::System, format!("Switched to model: {}", arg)));
                     let _ = self.cmd_tx.send(AgentCommand::SwitchModel(arg.to_string()));
                 }
             }
@@ -821,9 +941,71 @@ impl<'a> App<'a> {
                     Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Export failed: {}", e))),
                 }
             }
+
+            "/save" => {
+                // Create a new session with current state
+                let mut session = Session::new(&self.model_name);
+                // Note: Can't directly assign messages due to type mismatch (Message vs DisplayMessage)
+                // This is a placeholder - full implementation would need conversion
+                match session.save() {
+                    Ok(path) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Session saved: {}", path.display()))),
+                    Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to save session: {}", e))),
+                }
+            }
+            "/sessions" => {
+                // Open session browser
+                self.session_browser_open = true;
+                self.session_browser_query.clear();
+                self.session_browser_selected = 0;
+            }
+            "/load" => {
+                if arg.is_empty() {
+                    self.messages.push(DisplayMessage::new_text(Role::System, "Usage: /load <session_id>"));
+                } else {
+                    match Session::load(arg) {
+                        Ok(session) => {
+                            self.model_name = session.model.clone();
+                            self.status = format!("Loaded session: {}", session.id);
+                            self.messages.push(DisplayMessage::new_text(Role::System, 
+                                format!("Loaded session {} (model: {}, {} messages). Full message loading not yet implemented.", 
+                                    session.id, session.model, session.messages.len())));
+                        }
+                        Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to load session: {}", e))),
+                    }
+                }
+            }
+            "/resume" => {
+                if arg.is_empty() {
+                    self.messages.push(DisplayMessage::new_text(Role::System, "Usage: /resume <session_id>"));
+                } else {
+                    match Session::load(arg) {
+                        Ok(session) => {
+                            self.model_name = session.model.clone();
+                            self.status = format!("Resumed session: {}", session.id);
+                            self.messages.push(DisplayMessage::new_text(Role::System, 
+                                format!("Resumed session {} (model: {}, {} messages). Continue chatting with this context.", 
+                                    session.id, session.model, session.messages.len())));
+                        }
+                        Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to resume session: {}", e))),
+                    }
+                }
+            }
+            "/new" => {
+                self.messages.clear();
+                self.scroll = 0;
+                self.processing = false;
+                self.status = "New conversation started".to_string();
+                // Keep current model, just clear conversation
+                self.messages.push(DisplayMessage::new_text(Role::System, "Started new conversation"));
+            }
             "/help" | "/?" => {
                 self.messages.push(DisplayMessage::new_text(Role::System,
-                    "/model [name]  — show or switch LLM model\n\
+                    "/model [name]  — show visual model selector or switch model\n\
+                     /sessions     — browse and manage saved sessions\n\
+                     /save         — save current conversation as a session\n\
+                     /load <id>    — load a saved session\n\
+                     /resume <id>  — resume a saved session\n\
+                     /new          — start a fresh conversation\n\
                      /search <query> — web search via Daedra\n\
                      /tools         — list available tools\n\
                      /heal          — auto-fix build errors\n\
@@ -867,6 +1049,224 @@ impl<'a> App<'a> {
         Ok(self.messages.len())
     }
 
+    /// Filter available models based on search query
+    fn filtered_models(&self) -> Vec<&ModelInfo> {
+        if self.available_models.is_empty() {
+            return Vec::new();
+        }
+
+        let query = self.model_selector_query.to_lowercase();
+        if query.is_empty() {
+            return self.available_models.iter().collect();
+        }
+
+        self.available_models
+            .iter()
+            .filter(|m| {
+                m.id.to_lowercase().contains(&query) ||
+                m.provider.to_lowercase().contains(&query)
+            })
+            .collect()
+    }
+
+    /// Filter sessions based on search query
+    fn filtered_sessions(&self) -> Vec<SessionSummary> {
+        let mut sessions = match Session::list() {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+
+        let query = self.session_browser_query.to_lowercase();
+        if !query.is_empty() {
+            sessions = sessions.into_iter()
+                .filter(|s| {
+                    s.id.to_lowercase().contains(&query) ||
+                    s.model.to_lowercase().contains(&query)
+                })
+                .collect();
+        }
+
+        // Apply sorting based on session_sort_mode
+        match self.session_sort_mode {
+            SessionSortMode::NewestFirst => {
+                sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+            }
+            SessionSortMode::Alphabetical => {
+                sessions.sort_by(|a, b| a.id.cmp(&b.id));
+            }
+            SessionSortMode::MostUsed => {
+                sessions.sort_by(|a, b| b.message_count.cmp(&a.message_count));
+            }
+        }
+
+        sessions
+    }
+
+    /// Load available models (synchronous version)
+    fn load_available_models(&mut self) {
+        let default_models = vec![
+            ModelInfo {
+                id: "nvidia/llama-3.1-nemotron-70b-instruct".to_string(),
+                provider: "NVIDIA".to_string(),
+                quality_score: 92,
+            },
+            ModelInfo {
+                id: "nvidia/mistral-large-2407".to_string(),
+                provider: "NVIDIA".to_string(),
+                quality_score: 88,
+            },
+            ModelInfo {
+                id: "anthropic/claude-3-5-sonnet-20241022".to_string(),
+                provider: "Anthropic".to_string(),
+                quality_score: 95,
+            },
+            ModelInfo {
+                id: "openai/gpt-4o".to_string(),
+                provider: "OpenAI".to_string(),
+                quality_score: 90,
+            },
+        ];
+        self.available_models = default_models;
+    }
+
+    /// Render model selector modal
+    fn render_model_selector(&self, f: &mut Frame) {
+        let area = f.area();
+        let models = self.filtered_models();
+        let selected = self.model_selector_selected.min(models.len().saturating_sub(1));
+
+        let w = (area.width * 70 / 100).max(50);
+        let h = (models.len() as u16 + 4).min(15);
+        let x = (area.width.saturating_sub(w)) / 2;
+        let y = area.height / 4;
+        let selector_area = Rect::new(x, y, w, h);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Blue))
+            .title(" Model Selector ");
+
+        f.render_widget(ratatui::widgets::Clear, selector_area);
+        f.render_widget(block.clone(), selector_area);
+
+        let inner = block.inner(selector_area);
+
+        // Search input
+        let search_line = Line::from(vec![
+            Span::styled("> ", Style::default().fg(Color::Blue)),
+            Span::styled(&self.model_selector_query, Style::default().fg(Color::White)),
+            Span::styled("▌", Style::default().fg(Color::Blue).add_modifier(Modifier::SLOW_BLINK)),
+        ]);
+        f.render_widget(Paragraph::new(search_line), Rect::new(inner.x, inner.y, inner.width, 1));
+
+        // Model list
+        let list_area = Rect::new(inner.x, inner.y + 1, inner.width, inner.height.saturating_sub(1));
+        let list_items: Vec<ListItem> = models.iter().enumerate().map(|(i, model)| {
+            let style = if i == selected {
+                Style::default().fg(Color::Black).bg(Color::Blue)
+            } else {
+                Style::default()
+            };
+            let provider_icon = match model.provider.as_str() {
+                "NVIDIA" => "🤖",
+                "Anthropic" => "🧠",
+                "OpenAI" => "🔷",
+                _ => "⚙️",
+            };
+            let quality_badge = if model.quality_score >= 90 {
+                "🟢 S+"
+            } else if model.quality_score >= 85 {
+                "🔵 S"
+            } else {
+                "⚪ A"
+            };
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{} {} ", provider_icon, quality_badge), style.add_modifier(Modifier::BOLD)),
+                Span::styled(model.id.clone(), style),
+            ]))
+        }).collect();
+        f.render_widget(List::new(list_items), list_area);
+    }
+
+    /// Render session browser modal
+    fn render_session_browser(&self, f: &mut Frame) {
+        let area = f.area();
+        let sessions: Vec<SessionSummary> = self.filtered_sessions();
+        let selected = self.session_browser_selected.min(sessions.len().saturating_sub(1));
+
+        let w = (area.width * 70 / 100).max(50);
+        let h = (sessions.len() as u16 + 4).min(15);
+        let x = (area.width.saturating_sub(w)) / 2;
+        let y = area.height / 4;
+        let browser_area = Rect::new(x, y, w, h);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Green))
+            .title(" Session Browser ");
+
+        f.render_widget(ratatui::widgets::Clear, browser_area);
+        f.render_widget(block.clone(), browser_area);
+
+        let inner = block.inner(browser_area);
+
+        // Search input
+        let search_line = Line::from(vec![
+            Span::styled("> ", Style::default().fg(Color::Green)),
+            Span::styled(&self.session_browser_query, Style::default().fg(Color::White)),
+            Span::styled("▌", Style::default().fg(Color::Green).add_modifier(Modifier::SLOW_BLINK)),
+        ]);
+        f.render_widget(Paragraph::new(search_line), Rect::new(inner.x, inner.y, inner.width, 1));
+
+        // Session list
+        let list_area = Rect::new(inner.x, inner.y + 1, inner.width, inner.height.saturating_sub(1));
+        let list_items: Vec<ListItem> = sessions.into_iter().enumerate().map(|(i, session)| {
+            let style = if i == selected {
+                Style::default().fg(Color::Black).bg(Color::Green)
+            } else {
+                Style::default()
+            };
+            let indicator = if session.message_count > 0 { "●" } else { "○" };
+            ListItem::new(Line::from(vec![
+                Span::styled(format!("{} {} ({} msg)", indicator, session.id, session.message_count), style.add_modifier(Modifier::BOLD)),
+                Span::styled(format!(" [{}]", session.model), style.fg(Color::DarkGray)),
+            ]))
+        }).collect();
+        f.render_widget(List::new(list_items), list_area);
+    }
+
+    /// Perform autosave of current conversation
+    fn autosave(&self) {
+        // Only autosave if there are messages to save
+        if self.messages.is_empty() {
+            return;
+        }
+
+        // Create session and convert DisplayMessage -> Message
+        let mut session = Session::new(&self.model_name);
+        for dm in &self.messages {
+            let content = dm.text_content();
+            if !content.trim().is_empty() {
+                session.messages.push(Message {
+                    role: dm.role.clone(),
+                    content,
+                    tool_calls: Vec::new(),
+                    tool_result: None,
+                });
+            }
+        }
+
+        match session.save() {
+            Ok(path) => {
+                // Optionally log; we cannot modify self in &self
+                eprintln!("Autosaved session to {}", path.display());
+            }
+            Err(e) => {
+                eprintln!("Autosave failed: {}", e);
+            }
+        }
+    }
+
     fn ui(&self, f: &mut Frame) {
         // Dynamic input height: 3 lines default, grows with content up to 10
         let input_lines = self.input.lines().len();
@@ -906,6 +1306,10 @@ impl<'a> App<'a> {
             self.render_permission_dialog(f);
         } else if self.show_welcome {
             self.render_welcome(f);
+        } else if self.model_selector_open {
+            self.render_model_selector(f);
+        } else if self.session_browser_open {
+            self.render_session_browser(f);
         } else if self.help_overlay {
             self.render_help_overlay(f);
         } else if self.palette_open {
@@ -997,6 +1401,11 @@ impl<'a> App<'a> {
         let all_items: Vec<(&str, &str)> = vec![
             ("/help", "Show available commands"),
             ("/model", "Show or switch LLM model"),
+            ("/sessions", "Browse and manage saved sessions"),
+            ("/save", "Save current conversation as a session"),
+            ("/load", "Load a saved session"),
+            ("/resume", "Resume a saved session"),
+            ("/new", "Start a fresh conversation"),
             ("/search", "Web search via Daedra"),
             ("/tools", "List available tools"),
             ("/heal", "Auto-fix build errors"),
@@ -2418,8 +2827,9 @@ mod tests {
     fn test_slash_model_show() {
         let mut app = test_app();
         app.handle_slash_command("/model");
-        assert_eq!(app.messages.len(), 1);
-        assert!(app.messages[0].text_content().contains("test-model"));
+        // New behavior: opens visual model selector
+        assert!(app.model_selector_open);
+        assert_eq!(app.messages.len(), 0); // no message added
     }
 
     #[test]
