@@ -646,6 +646,7 @@ core_max_tokens = 1000
             updated_at: "2026-04-09T00:00:00Z".into(),
             total_tokens: 0,
             iteration_count: 0,
+            tags: Vec::new(),
         };
         // Should succeed without making HTTP calls
         client.archive_session(&session).await.unwrap();
@@ -765,6 +766,7 @@ core_max_tokens = 1000
             updated_at: "2026-04-10T00:00:00Z".into(),
             total_tokens: 0,
             iteration_count: 0,
+            tags: Vec::new(),
         };
         // If this ever tries to connect to 127.0.0.1:1 it'll take >50ms and
         // likely Err — we expect it to return Ok instantly via the early

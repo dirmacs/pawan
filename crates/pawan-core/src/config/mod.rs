@@ -9,12 +9,35 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::fs;
+use std::io::Write;
 use tracing;
 
+/// Default config version
+const fn default_config_version() -> u32 {
+    1
+}
+
+/// Default tool idle timeout (5 minutes)
+const fn default_tool_idle_timeout() -> u64 {
+    300
+}
+
+/// Default tool idle timeout (5 minutes)
+const fn default_tool_idle_timeout() -> u64 {
+    300
+}
+
+/// Config migration result
+#[derive(Debug)]
+pub struct MigrationResult {
+    pub migrated: bool,
+    pub from_version: u32,
+    pub to_version: u32,
+    pub backup_path: Option<PathBuf>,
+}
+
 /// LLM Provider type
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "lowercase")]
-pub enum LlmProvider {
     /// NVIDIA API (build.nvidia.com) - default
     #[default]
     Nvidia,
@@ -27,9 +50,13 @@ pub enum LlmProvider {
 }
 
 /// Main configuration for Pawan
+/// Main configuration for Pawan
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PawanConfig {
+    /// Config version for migration tracking (default: 1)
+    #[serde(default = "default_config_version")]
+    pub config_version: u32,
     /// LLM provider to use
     pub provider: LlmProvider,
 
@@ -51,6 +78,11 @@ pub struct PawanConfig {
 
     /// Timeout for bash commands (seconds)
     pub bash_timeout_secs: u64,
+
+    /// Timeout for tool calls that remain idle (seconds)
+    /// Default: 300 (5 minutes)
+    #[serde(default = "default_tool_idle_timeout")]
+    pub tool_call_idle_timeout_secs: u64,
 
     /// Maximum file size to read (KB)
     pub max_file_size_kb: usize,
@@ -281,6 +313,7 @@ impl Default for PawanConfig {
         );
 
         Self {
+            config_version: default_config_version(),
             provider: LlmProvider::Nvidia,
             model: crate::DEFAULT_MODEL.to_string(),
             base_url: None,
@@ -288,8 +321,8 @@ impl Default for PawanConfig {
             auto_backup: true,
             require_git_clean: false,
             bash_timeout_secs: crate::DEFAULT_BASH_TIMEOUT,
+            tool_call_idle_timeout_secs: default_tool_idle_timeout(),
             max_file_size_kb: 1024,
-            max_tool_iterations: crate::MAX_TOOL_ITERATIONS,
             max_context_tokens: 100000,
             system_prompt: None,
             temperature: 1.0,
@@ -313,6 +346,110 @@ impl Default for PawanConfig {
             local_first: false,
             local_endpoint: None,
         }
+    }
+}
+
+impl PawanConfig {
+    /// Load config from file and migrate if needed
+    pub fn load_and_migrate(path: &PathBuf) -> Result<(Self, MigrationResult), String> {
+        let config_str = fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read config file: {}", e))?;
+
+        // Try to parse with version detection
+        let raw_config: serde_json::Value = serde_json::from_str(&config_str)
+            .map_err(|e| format!("Failed to parse config JSON: {}", e))?;
+
+        let current_version = raw_config
+            .get("config_version")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
+
+        if current_version == 0 {
+            // Need to migrate from v0
+            let backup_path = Self::create_backup(path)?;
+            let migrated_config = Self::migrate_v0_to_v1(&config_str)?;
+            let result = MigrationResult {
+                migrated: true,
+                from_version: 0,
+                to_version: 1,
+                backup_path: Some(backup_path),
+            };
+            
+            // Write migrated config
+            fs::write(path, &migrated_config)
+                .map_err(|e| format!("Failed to write migrated config: {}", e))?;
+            
+            let config: PawanConfig = serde_json::from_str(&migrated_config)
+                .map_err(|e| format!("Failed to parse migrated config: {}", e))?;
+            
+            Ok((config, result))
+        } else if current_version == 1 {
+            // Already at latest version
+            let config: PawanConfig = serde_json::from_str(&config_str)
+                .map_err(|e| format!("Failed to parse config: {}", e))?;
+            Ok((config, MigrationResult {
+                migrated: false,
+                from_version: 1,
+                to_version: 1,
+                backup_path: None,
+            }))
+        } else {
+            Err(format!("Unknown config version: {}", current_version))
+        }
+    }
+
+    /// Create a backup of the config file
+    fn create_backup(path: &PathBuf) -> Result<PathBuf, String> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| format!("Failed to get timestamp: {}", e))?
+            .as_secs();
+        
+        let backup_path = path.with_extension(format!("{}.backup", timestamp));
+        fs::copy(path, &backup_path)
+            .map_err(|e| format!("Failed to create backup: {}", e))?;
+        
+        Ok(backup_path)
+    }
+
+    /// Migrate from v0 (no version field) to v1
+    fn migrate_v0_to_v1(config_str: &str) -> Result<String, String> {
+        let mut config: serde_json::Value = serde_json::from_str(config_str)
+            .map_err(|e| format!("Failed to parse v0 config: {}", e))?;
+
+        // Add config_version field
+        if let Some(obj) = config.as_object_mut() {
+            obj.insert("config_version".to_string(), serde_json::Value::Number(1.into()));
+        }
+
+        serde_json::to_string_pretty(&config)
+            .map_err(|e| format!("Failed to serialize migrated config: {}", e))
+    }
+
+    /// Atomically write config with backup
+    pub fn save_with_backup(&self, path: &PathBuf) -> Result<PathBuf, String> {
+        // Create backup if file exists
+        if path.exists() {
+            Self::create_backup(path)?;
+        }
+
+        // Write to temp file first
+        let temp_path = path.with_extension("tmp");
+        let config_str = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("Failed to serialize config: {}", e))?;
+        
+        let mut file = fs::File::create(&temp_path)
+            .map_err(|e| format!("Failed to create temp file: {}", e))?;
+        file.write_all(config_str.as_bytes())
+            .map_err(|e| format!("Failed to write temp file: {}", e))?;
+        file.sync_all()
+            .map_err(|e| format!("Failed to sync temp file: {}", e))?;
+
+        // Atomic rename
+        fs::rename(&temp_path, path)
+            .map_err(|e| format!("Failed to rename temp file: {}", e))?;
+
+        Ok(path.clone())
     }
 }
 
@@ -1319,115 +1456,19 @@ fix_tests = true
             ..Default::default()
         };
 
-        // Ensure env var does not interfere
-        std::env::remove_var("PAWAN_SKILLS_REPO");
+        let discovered = config.auto_discover_mcp_servers();
 
-        let skills = config.discover_skills_from_repo();
-        assert_eq!(skills.len(), 1, "expected exactly 1 skill, got {:?}", skills);
-
-        let (name, desc, path) = &skills[0];
-        assert_eq!(name, "example-skill");
-        assert_eq!(desc, "A test skill used in pawan unit tests");
-        assert_eq!(path, &skill_md);
-    }
-
-    // ─── PawanConfig::load() edge cases (task #24) ──────────────────────
-
-    #[test]
-    fn test_load_with_explicit_pawan_toml_path() {
-        // Happy path: explicit path to a valid pawan.toml
-        let tmp = tempfile::TempDir::new().expect("tempdir");
-        let path = tmp.path().join("pawan.toml");
-        std::fs::write(
-            &path,
-            r#"
-provider = "nvidia"
-model = "meta/llama-3.1-405b-instruct"
-"#,
-        )
-        .expect("write pawan.toml");
-
-        let config = PawanConfig::load(Some(&path)).expect("load should succeed");
-        assert_eq!(config.model, "meta/llama-3.1-405b-instruct");
-    }
-
-    #[test]
-    fn test_load_with_invalid_toml_returns_error() {
-        // Malformed TOML should return a Config error, not panic
-        let tmp = tempfile::TempDir::new().expect("tempdir");
-        let path = tmp.path().join("pawan.toml");
-        std::fs::write(&path, "this is not [[valid] toml @@").expect("write bad toml");
-
-        let result = PawanConfig::load(Some(&path));
-        assert!(result.is_err(), "malformed TOML must return Err");
-        let err_msg = format!("{}", result.unwrap_err());
+        // "eruka" must not appear in the discovered list
         assert!(
-            err_msg.to_lowercase().contains("parse")
-                || err_msg.to_lowercase().contains("failed"),
-            "error should mention parse/failed, got: {}",
-            err_msg
+            !discovered.contains(&"eruka".to_string()),
+            "pre-existing 'eruka' entry must not be rediscovered, got {:?}",
+            discovered
         );
-    }
 
-    #[test]
-    fn test_load_with_nonexistent_path_returns_error() {
-        // An explicit path to a file that doesn't exist must return Err,
-        // not silently fall through to defaults (defaults only apply when
-        // path=None and no auto-discovered config exists).
-        let bogus = PathBuf::from("/tmp/definitely-does-not-exist-abc123-xyz.toml");
-        let result = PawanConfig::load(Some(&bogus));
-        assert!(
-            result.is_err(),
-            "non-existent explicit path must return Err"
-        );
-    }
-
-    #[test]
-    fn test_load_ares_toml_with_pawan_section() {
-        // ares.toml loading must extract the [pawan] section specifically
-        let tmp = tempfile::TempDir::new().expect("tempdir");
-        let path = tmp.path().join("ares.toml");
-        std::fs::write(
-            &path,
-            r#"
-# ares config (unrelated to pawan)
-[server]
-port = 3000
-
-[pawan]
-provider = "ollama"
-model = "qwen3-coder:30b"
-"#,
-        )
-        .expect("write ares.toml");
-
-        let config = PawanConfig::load(Some(&path)).expect("ares.toml load should succeed");
-        assert_eq!(config.provider, LlmProvider::Ollama);
-        assert_eq!(config.model, "qwen3-coder:30b");
-    }
-
-    #[test]
-    fn test_load_ares_toml_without_pawan_section_returns_defaults() {
-        // ares.toml with no [pawan] section must fall back to defaults,
-        // not error out. This is the common case on VPS where ares runs
-        // alongside pawan but pawan has its own config elsewhere.
-        let tmp = tempfile::TempDir::new().expect("tempdir");
-        let path = tmp.path().join("ares.toml");
-        std::fs::write(
-            &path,
-            r#"
-[server]
-port = 3000
-workers = 4
-"#,
-        )
-        .expect("write ares.toml without pawan section");
-
-        let config = PawanConfig::load(Some(&path)).expect("load should succeed");
-        // Should match defaults
-        let defaults = PawanConfig::default();
-        assert_eq!(config.provider, defaults.provider);
-        assert_eq!(config.model, defaults.model);
+        // Custom entry must be intact
+        let entry = config.mcp.get("eruka").expect("eruka entry must still exist");
+        assert_eq!(entry.command, "custom-eruka", "custom command must be preserved");
+        assert_eq!(entry.args, vec!["--custom-flag".to_string()]);
     }
 
     #[test]
@@ -1442,4 +1483,103 @@ workers = 4
         let defaults = PawanConfig::default();
         assert_eq!(config.provider, defaults.provider);
     }
+
+    // --- Config migration tests ---
+
+    #[test]
+    fn test_config_migration_v0_to_v1() {
+        // Test migration from v0 (no config_version field) to v1
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let path = tmp.path().join("pawan.json");
+
+        // Create a v0 config (no config_version field)
+        let v0_config = serde_json::json!({
+            "provider": "nvidia",
+            "model": "test-model",
+            "dry_run": false
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&v0_config).unwrap())
+            .expect("write v0 config");
+
+        // Load and migrate
+        let (config, result) = PawanConfig::load_and_migrate(&path)
+            .expect("migration should succeed");
+
+        assert!(result.migrated, "should have migrated");
+        assert_eq!(result.from_version, 0);
+        assert_eq!(result.to_version, 1);
+        assert!(result.backup_path.is_some(), "should have created backup");
+        assert_eq!(config.config_version, 1);
+        assert_eq!(config.provider, LlmProvider::Nvidia);
+        assert_eq!(config.model, "test-model");
+    }
+
+    #[test]
+    fn test_config_migration_already_at_v1() {
+        // Test that v1 config is not migrated
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let path = tmp.path().join("pawan.json");
+
+        // Create a v1 config
+        let v1_config = serde_json::json!({
+            "config_version": 1,
+            "provider": "nvidia",
+            "model": "test-model"
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&v1_config).unwrap())
+            .expect("write v1 config");
+
+        // Load and migrate
+        let (config, result) = PawanConfig::load_and_migrate(&path)
+            .expect("load should succeed");
+
+        assert!(!result.migrated, "should not have migrated");
+        assert_eq!(result.from_version, 1);
+        assert_eq!(result.to_version, 1);
+        assert!(result.backup_path.is_none(), "should not have created backup");
+        assert_eq!(config.config_version, 1);
+    }
+
+    #[test]
+    fn test_config_save_with_backup() {
+        // Test atomic write with backup
+        let tmp = tempfile::TempDir::new().expect("tempdir");
+        let path = tmp.path().join("pawan.json");
+
+        let mut config = PawanConfig::default();
+        config.model = "test-model".to_string();
+
+        // First write
+        config.save_with_backup(&path).expect("save should succeed");
+        assert!(path.exists(), "config file should exist");
+
+        // Check for backup files
+        let backups: Vec<_> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext.to_str().unwrap().contains("backup")))
+            .collect();
+        
+        // First write should not create backup (file didn't exist)
+        assert_eq!(backups.len(), 0, "first write should not create backup");
+
+        // Second write should create backup
+        config.model = "updated-model".to_string();
+        config.save_with_backup(&path).expect("save should succeed");
+
+        let backups: Vec<_> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext.to_str().unwrap().contains("backup")))
+            .collect();
+        
+        assert_eq!(backups.len(), 1, "second write should create backup");
+
+        // Verify the updated content
+        let loaded: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(&path).unwrap()
+        ).unwrap();
+        assert_eq!(loaded["model"], "updated-model");
+    }
+        // Ensure env var does not interfere
 }

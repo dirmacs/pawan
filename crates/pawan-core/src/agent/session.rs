@@ -24,11 +24,19 @@ pub struct Session {
     /// Number of iterations completed
     #[serde(default)]
     pub iteration_count: u32,
+    /// User-defined tags for this session
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 impl Session {
     /// Create a new session
     pub fn new(model: &str) -> Self {
+        Self::new_with_tags(model, Vec::new())
+    }
+
+    /// Create a new session with tags
+    pub fn new_with_tags(model: &str, tags: Vec<String>) -> Self {
         let id = uuid::Uuid::new_v4().to_string()[..8].to_string();
         let now = chrono::Utc::now().to_rfc3339();
         Self {
@@ -39,6 +47,7 @@ impl Session {
             messages: Vec::new(),
             total_tokens: 0,
             iteration_count: 0,
+            tags,
         }
     }
 
@@ -78,6 +87,60 @@ impl Session {
             .map_err(|e| PawanError::Config(format!("Failed to parse session: {}", e)))
     }
 
+    /// Add a tag to the session (validates and prevents duplicates)
+    pub fn add_tag(&mut self, tag: &str) -> Result<()> {
+        let sanitized = Self::sanitize_tag(tag)?;
+        if self.tags.contains(&sanitized) {
+            return Err(PawanError::Config(format!("Tag already exists: {}", sanitized)));
+        }
+        self.tags.push(sanitized);
+        Ok(())
+    }
+
+    /// Remove a tag from the session
+    pub fn remove_tag(&mut self, tag: &str) -> Result<()> {
+        let sanitized = Self::sanitize_tag(tag)?;
+        if let Some(pos) = self.tags.iter().position(|t| t == &sanitized) {
+            self.tags.remove(pos);
+            Ok(())
+        } else {
+            Err(PawanError::NotFound(format!("Tag not found: {}", sanitized)))
+        }
+    }
+
+    /// Clear all tags from the session
+    pub fn clear_tags(&mut self) {
+        self.tags.clear();
+    }
+
+    /// Check if session has a specific tag
+    pub fn has_tag(&self, tag: &str) -> bool {
+        match Self::sanitize_tag(tag) {
+            Ok(sanitized) => self.tags.contains(&sanitized),
+            Err(_) => false,
+        }
+    }
+
+    /// Sanitize and validate a tag name
+    fn sanitize_tag(tag: &str) -> Result<String> {
+        let trimmed = tag.trim();
+        if trimmed.is_empty() {
+            return Err(PawanError::Config("Tag name cannot be empty".to_string()));
+        }
+        if trimmed.len() > 50 {
+            return Err(PawanError::Config("Tag name too long (max 50 characters)".to_string()));
+        }
+        // Allow alphanumeric, hyphen, underscore, and space
+        let sanitized: String = trimmed
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == ' ')
+            .collect();
+        if sanitized.is_empty() {
+            return Err(PawanError::Config("Tag contains invalid characters".to_string()));
+        }
+        Ok(sanitized)
+    }
+
     /// List all saved sessions (sorted by updated_at, newest first)
     pub fn list() -> Result<Vec<SessionSummary>> {
         let dir = Self::sessions_dir()?;
@@ -95,6 +158,7 @@ impl Session {
                                 created_at: session.created_at,
                                 updated_at: session.updated_at,
                                 message_count: session.messages.len(),
+                                tags: session.tags,
                             });
                         }
                     }
@@ -115,6 +179,9 @@ pub struct SessionSummary {
     pub created_at: String,
     pub updated_at: String,
     pub message_count: usize,
+    /// User-defined tags for this session
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 #[cfg(test)]
@@ -201,6 +268,7 @@ mod tests {
             created_at: "2026-04-10T12:00:00Z".into(),
             updated_at: "2026-04-10T13:00:00Z".into(),
             message_count: 42,
+            tags: Vec::new(),
         };
         let json = serde_json::to_string(&summary).unwrap();
         assert!(json.contains("\"id\":\"abcdef12\""));

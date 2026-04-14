@@ -520,8 +520,9 @@ mod tests {
                     }),
                 },
             ],
-            total_tokens: 1500,
-            iteration_count: 2,
+        total_tokens: 1500,
+        iteration_count: 2,
+        tags: Vec::new(),
         }
     }
 
@@ -643,9 +644,10 @@ mod tests {
                     tool_result: None,
                 },
             ],
-            total_tokens: 100,
-            iteration_count: 1,
-        };
+        total_tokens: 100,
+        iteration_count: 1,
+        tags: Vec::new(),
+    };
         assert!(!is_distillable(&session));
     }
 
@@ -740,9 +742,10 @@ mod tests {
                     }),
                 },
             ],
-            total_tokens: 100,
-            iteration_count: 1,
-        };
+        total_tokens: 100,
+        iteration_count: 1,
+        tags: Vec::new(),
+    };
         // Has user + tools but only 3 messages < min_messages (4)
         assert!(!is_distillable(&session), "sessions with <4 messages must not be distillable");
     }
@@ -764,6 +767,7 @@ mod tests {
             }],
             total_tokens: 0,
             iteration_count: 0,
+        tags: Vec::new(),
         };
         let teacher = session_to_teacher(&session, &make_usage());
         assert_eq!(teacher.task_description, "Unknown task");
@@ -860,6 +864,7 @@ mod tests {
             messages: vec![],
             total_tokens: 0,
             iteration_count: 0,
+        tags: Vec::new(),
         };
         assert!(
             !is_distillable(&session),
@@ -909,6 +914,7 @@ mod tests {
             ],
             total_tokens: 0,
             iteration_count: 0,
+        tags: Vec::new(),
         };
         assert!(
             !is_distillable(&session),
@@ -962,6 +968,7 @@ mod tests {
             ],
             total_tokens: 100,
             iteration_count: 2,
+        tags: Vec::new(),
         };
         let usage = PawanUsage {
             prompt_tokens: 50,
@@ -999,6 +1006,7 @@ mod tests {
             }],
             total_tokens: 0,
             iteration_count: 0,
+        tags: Vec::new(),
         };
         let usage = PawanUsage::default();
         let teacher = session_to_teacher(&session, &usage);

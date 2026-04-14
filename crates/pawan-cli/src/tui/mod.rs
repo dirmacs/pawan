@@ -78,8 +78,59 @@ pub enum SessionSortMode {
     MostUsed,
 }
 
+/// Export format options
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+
+pub enum ExportFormat {
+
+    Markdown,
+
+    Html,
+
+    Json,
+
+    Txt,
+}
+
+/// Export format options
+
+impl ExportFormat {
+
+    /// Parse format from string, defaulting to Markdown
+
+    pub fn from_str(s: &str) -> Self {
+
+        match s.to_lowercase().as_str() {
+
+            "html" => ExportFormat::Html,
+
+            "json" => ExportFormat::Json,
+
+            "txt" | "text" => ExportFormat::Txt,
+
+            "md" | "markdown" => ExportFormat::Markdown,
+
+            _ => ExportFormat::Markdown,
+        }
+    }
+
+    /// Get file extension for this format
+    pub fn extension(&self) -> &str {
+        match self {
+            ExportFormat::Markdown => ".md",
+            ExportFormat::Html => ".html",
+            ExportFormat::Json => ".json",
+            ExportFormat::Txt => ".txt",
+        }
+    }
+
+    /// Get all valid format names for error messages
+    pub fn valid_formats() -> &'static [&'static str] {
+        &["markdown", "html", "json", "txt"]
+    }
+}
+
 /// Model info for visual model selector
-#[derive(Debug, Clone)]
 pub struct ModelInfo {
     pub id: String,
     pub provider: String,
@@ -277,6 +328,8 @@ struct App<'a> {
     session_browser_query: String,
     session_browser_selected: usize,
     session_sort_mode: SessionSortMode,
+    /// Tags for the current session
+    session_tags: Vec<String>,
     /// Last autosave time
     last_autosave: Instant,
 }
@@ -325,6 +378,7 @@ impl<'a> App<'a> {
             help_overlay: false,
             session_tool_calls: 0,
             session_files_edited: 0,
+            session_tags: Vec::new(),
             slash_popup_selected: 0,
             show_welcome: true,
             permission_dialog: None,
@@ -923,6 +977,18 @@ impl<'a> App<'a> {
                     let _ = self.cmd_tx.send(AgentCommand::Execute(search_prompt));
                 }
             }
+            "/handoff" => {
+                if self.messages.is_empty() {
+                    self.messages.push(DisplayMessage::new_text(Role::System, "No conversation to handoff. Start chatting first."));
+                    self.status = "Nothing to handoff".to_string();
+                } else {
+                    let handoff_prompt = self.generate_handoff_prompt();
+                    self.messages.clear();
+                    self.scroll = 0;
+                    self.messages.push(DisplayMessage::new_text(Role::System, handoff_prompt));
+                    self.status = "Handoff complete".to_string();
+                }
+            }
             "/heal" | "/h" => {
                 self.messages.push(DisplayMessage::new_text(Role::User, "/heal"));
                 self.processing = true;
@@ -935,8 +1001,17 @@ impl<'a> App<'a> {
                 self.should_quit = true;
             }
             "/export" | "/e" => {
-                let path = if arg.is_empty() { "pawan-session.md" } else { arg };
-                match self.export_conversation(path) {
+                let (path, format) = if arg.contains("--format") {
+                    let parts: Vec<&str> = arg.splitn(3, ' ').collect();
+                    let format_str = parts.get(2).unwrap_or(&"md");
+                    let path = parts.get(1).unwrap_or(&"pawan-session");
+                    (path.to_string(), ExportFormat::from_str(format_str))
+                } else if arg.is_empty() {
+                    ("pawan-session.md".to_string(), ExportFormat::Markdown)
+                } else {
+                    (arg.to_string(), ExportFormat::Markdown)
+                };
+                match self.export_conversation(&path, format) {
                     Ok(n) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Exported {} messages to {}", n, path))),
                     Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Export failed: {}", e))),
                 }
@@ -944,7 +1019,7 @@ impl<'a> App<'a> {
 
             "/save" => {
                 // Create a new session with current state
-                let mut session = Session::new(&self.model_name);
+                let mut session = Session::new_with_tags(&self.model_name, self.session_tags.clone()); // tags included
                 // Note: Can't directly assign messages due to type mismatch (Message vs DisplayMessage)
                 // This is a placeholder - full implementation would need conversion
                 match session.save() {
@@ -958,6 +1033,42 @@ impl<'a> App<'a> {
                 self.session_browser_query.clear();
                 self.session_browser_selected = 0;
             }
+            "/tag" => {
+                if arg.is_empty() {
+                    self.messages.push(DisplayMessage::new_text(Role::System, "Usage: /tag add <tags> | rm <tag> | list | clear".to_string()));
+                } else if arg.starts_with("add ") {
+                    let tags_str = arg["add ".len()..].trim();
+                    let mut added = Vec::new();
+                    for raw in tags_str.split_whitespace() {
+                        let sanitized = raw.trim().to_string();
+                        if !self.session_tags.contains(&sanitized) && !sanitized.is_empty() {
+                            self.session_tags.push(sanitized.clone());
+                            added.push(sanitized);
+                        }
+                    }
+                    if !added.is_empty() {
+                        self.messages.push(DisplayMessage::new_text(Role::System, format!("Added tags: {}", added.join(", "))));
+                    } else {
+                        self.messages.push(DisplayMessage::new_text(Role::System, "No new tags added".to_string()));
+                    }
+                } else if arg.starts_with("rm ") {
+                    let tag = arg["rm ".len()..].trim();
+                    if let Some(pos) = self.session_tags.iter().position(|t| t == tag) {
+                        self.session_tags.remove(pos);
+                        self.messages.push(DisplayMessage::new_text(Role::System, format!("Removed tag: {}", tag)));
+                    } else {
+                        self.messages.push(DisplayMessage::new_text(Role::System, format!("Tag not found: {}", tag)));
+                    }
+                } else if arg == "list" {
+                    let list = if self.session_tags.is_empty() { "No tags".to_string() } else { self.session_tags.join(", ") };
+                    self.messages.push(DisplayMessage::new_text(Role::System, format!("Current tags: {}", list)));
+                } else if arg == "clear" {
+                    self.session_tags.clear();
+                    self.messages.push(DisplayMessage::new_text(Role::System, "All tags cleared".to_string()));
+                } else {
+                    self.messages.push(DisplayMessage::new_text(Role::System, "Usage: /tag add <tags> | rm <tag> | list | clear".to_string()));
+                }
+            }
             "/load" => {
                 if arg.is_empty() {
                     self.messages.push(DisplayMessage::new_text(Role::System, "Usage: /load <session_id>"));
@@ -966,6 +1077,7 @@ impl<'a> App<'a> {
                         Ok(session) => {
                             self.model_name = session.model.clone();
                             self.status = format!("Loaded session: {}", session.id);
+                            self.session_tags = session.tags.clone();
                             self.messages.push(DisplayMessage::new_text(Role::System, 
                                 format!("Loaded session {} (model: {}, {} messages). Full message loading not yet implemented.", 
                                     session.id, session.model, session.messages.len())));
@@ -1008,8 +1120,9 @@ impl<'a> App<'a> {
                      /new          — start a fresh conversation\n\
                      /search <query> — web search via Daedra\n\
                      /tools         — list available tools\n\
-                     /heal          — auto-fix build errors\n\
-                     /export [path] — export conversation to markdown\n\
+                     /heal          — auto-fix build errors\n
+                     /handoff       — generate focused context for new session\n
+                     /export [path] — export conversation to markdown\n
                      /clear         — clear chat history\n\
                      /quit          — exit pawan\n\
                      /help          — show this help"));
@@ -1021,7 +1134,16 @@ impl<'a> App<'a> {
     }
 
     /// Export conversation to a markdown file
-    fn export_conversation(&self, path: &str) -> std::result::Result<usize, String> {
+    fn export_conversation(&self, path: &str, format: ExportFormat) -> std::result::Result<usize, String> {
+        match format {
+            ExportFormat::Markdown => self.export_as_markdown(path),
+            ExportFormat::Html => self.export_as_html(path),
+            ExportFormat::Json => self.export_as_json(path),
+            ExportFormat::Txt => self.export_as_txt(path),
+        }
+    }
+
+    fn export_as_markdown(&self, path: &str) -> std::result::Result<usize, String> {
         use std::io::Write;
         let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
         writeln!(f, "# Pawan Session\n").map_err(|e| e.to_string())?;
@@ -1049,6 +1171,241 @@ impl<'a> App<'a> {
         Ok(self.messages.len())
     }
 
+    fn export_as_html(&self, path: &str) -> std::result::Result<usize, String> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
+        writeln!(f, "<!DOCTYPE html>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "<html lang='en'>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "<head>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "  <meta charset='UTF-8'>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "  <meta name='viewport' content='width=device-width, initial-scale=1.0'>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "  <title>Pawan Session</title>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "  <style>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }}\n").map_err(|e| e.to_string())?;
+        writeln!(f, "    .message {{ margin: 20px 0; padding: 15px; border-radius: 8px; }}\n").map_err(|e| e.to_string())?;
+        writeln!(f, "    .user {{ background-color: #e3f2fd; }}\n").map_err(|e| e.to_string())?;
+        writeln!(f, "    .assistant {{ background-color: #f3e5f5; }}\n").map_err(|e| e.to_string())?;
+        writeln!(f, "    .system {{ background-color: #f5f5f5; }}\n").map_err(|e| e.to_string())?;
+        writeln!(f, "    .role {{ font-weight: bold; margin-bottom: 10px; }}\n").map_err(|e| e.to_string())?;
+        writeln!(f, "    .content {{ white-space: pre-wrap; }}\n").map_err(|e| e.to_string())?;
+        writeln!(f, "    .tool-calls {{ margin-top: 10px; padding: 10px; background-color: #fff3cd; border-radius: 4px; }}\n").map_err(|e| e.to_string())?;
+        writeln!(f, "    .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; }}\n").map_err(|e| e.to_string())?;
+        writeln!(f, "  </style>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "</head>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "<body>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "  <h1>Pawan Session</h1>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "  <p><strong>Model:</strong> {}</p>\n", self.model_name).map_err(|e| e.to_string())?;
+        for msg in &self.messages {
+            let class = match msg.role {
+                Role::User => "user",
+                Role::Assistant => "assistant",
+                _ => "system",
+            };
+            let role_name = match msg.role {
+                Role::User => "You",
+                Role::Assistant => "Pawan",
+                _ => "System",
+            };
+            writeln!(f, "  <div class='message {}'>\n", class).map_err(|e| e.to_string())?;
+            writeln!(f, "    <div class='role'>{}</div>\n", role_name).map_err(|e| e.to_string())?;
+            writeln!(f, "    <div class='content'>{}</div>\n", Self::html_escape(&msg.text_content())).map_err(|e| e.to_string())?;
+            let tool_records = msg.tool_records();
+            if !tool_records.is_empty() {
+                writeln!(f, "    <div class='tool-calls'>\n").map_err(|e| e.to_string())?;
+                writeln!(f, "      <strong>Tool calls ({}):</strong>\n", tool_records.len()).map_err(|e| e.to_string())?;
+                for tc in tool_records {
+                    let status = if tc.success { "✓" } else { "✗" };
+                    writeln!(f, "      {} `{}` — {}ms\n", status, tc.name, tc.duration_ms).map_err(|e| e.to_string())?;
+                }
+                writeln!(f, "    </div>\n").map_err(|e| e.to_string())?;
+            }
+            writeln!(f, "  </div>\n").map_err(|e| e.to_string())?;
+        }
+        writeln!(f, "  <div class='footer'>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "    Tokens: {} total ({} prompt, {} completion)\n",
+            self.total_tokens, self.total_prompt_tokens, self.total_completion_tokens).map_err(|e| e.to_string())?;
+        writeln!(f, "  </div>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "</body>\n").map_err(|e| e.to_string())?;
+        writeln!(f, "</html>\n").map_err(|e| e.to_string())?;
+        Ok(self.messages.len())
+    }
+    fn export_as_json(&self, path: &str) -> std::result::Result<usize, String> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
+        let mut output = serde_json::json!({
+            "model": self.model_name,
+            "total_tokens": self.total_tokens,
+            "prompt_tokens": self.total_prompt_tokens,
+            "completion_tokens": self.total_completion_tokens,
+            "messages": []
+        });
+        for msg in &self.messages {
+            let msg_obj = serde_json::json!({
+                "role": format!("{:?}", msg.role),
+                "content": msg.text_content(),
+                "tool_calls": msg.tool_records().iter()
+                    .map(|tc| serde_json::json!({
+                        "name": tc.name,
+                        "success": tc.success,
+                        "duration_ms": tc.duration_ms,
+                    }))
+                    .collect::<Vec<_>>(),
+            });
+            if let Some(messages) = output.get_mut("messages") {
+                if let Some(messages_array) = messages.as_array_mut() {
+                    messages_array.push(msg_obj);
+                }
+            }
+        }
+        writeln!(f, "{}", serde_json::to_string_pretty(&output).map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
+        Ok(self.messages.len())
+    }
+
+    fn export_as_txt(&self, path: &str) -> std::result::Result<usize, String> {
+        use std::io::Write;
+        let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
+        writeln!(f, "Pawan Session\n").map_err(|e| e.to_string())?;
+        writeln!(f, "Model: {}\n", self.model_name).map_err(|e| e.to_string())?;
+        for msg in &self.messages {
+            let role = match msg.role {
+                Role::User => "You",
+                Role::Assistant => "Pawan",
+                _ => "System",
+            };
+            writeln!(f, "[{}]\n", role).map_err(|e| e.to_string())?;
+            writeln!(f, "{}\n", msg.text_content()).map_err(|e| e.to_string())?;
+            let tool_records = msg.tool_records();
+            if !tool_records.is_empty() {
+                writeln!(f, "Tool calls ({}):\n", tool_records.len()).map_err(|e| e.to_string())?;
+                for tc in tool_records {
+                    let status = if tc.success { "ok" } else { "err" };
+                    writeln!(f, "  - {} ({}) — {}ms\n", tc.name, status, tc.duration_ms).map_err(|e| e.to_string())?;
+                }
+            }
+        }
+        writeln!(f, "---\nTokens: {} total ({} prompt, {} completion)\n",
+            self.total_tokens, self.total_prompt_tokens, self.total_completion_tokens).map_err(|e| e.to_string())?;
+        Ok(self.messages.len())
+    }
+
+    /// Helper function to escape HTML special characters
+    fn html_escape(s: &str) -> String {
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace("\"", "&quot;")
+    }
+    /// This strips noise while preserving file paths, constraints, and key context
+    fn generate_handoff_prompt(&self) -> String {
+        use std::collections::HashSet;
+
+        if self.messages.is_empty() {
+            return "No conversation context available.".to_string();
+        }
+
+        let mut context_parts = Vec::new();
+        let mut file_paths: HashSet<String> = HashSet::new();
+        let mut constraints = Vec::new();
+        let mut key_tasks = Vec::new();
+
+        // Extract key information from messages
+        for msg in &self.messages {
+            let content = msg.text_content();
+            
+            // Extract file paths (common patterns)
+            for line in content.lines() {
+                // Match file paths like src/main.rs, /path/to/file, etc.
+                if line.contains(".rs") || line.contains(".ts") || line.contains(".js") || 
+                   line.contains(".py") || line.contains(".go") || line.contains(".java") ||
+                   line.contains("/") && (line.contains("src") || line.contains("lib") || line.contains("test")) {
+                    // Extract potential file paths
+                    for word in line.split_whitespace() {
+                        if word.ends_with(".rs") || word.ends_with(".ts") || word.ends_with(".js") ||
+                           word.ends_with(".py") || word.ends_with(".go") || word.ends_with(".java") ||
+                           (word.contains("/") && (word.contains("src") || word.contains("lib"))) {
+                            file_paths.insert(word.trim_matches(['\"', '\'', '(', ')', ',', ':']).to_string());
+                        }
+                    }
+                }
+
+                // Extract constraints (MUST, MUST NOT, should, etc.)
+                if line.contains("MUST") || line.contains("MUST NOT") || 
+                   line.contains("should") || line.contains("constraint") ||
+                   line.contains("requirement") {
+                    constraints.push(line.trim().to_string());
+                }
+
+                // Extract key tasks (imperative statements, TODO, etc.)
+                if line.starts_with("-") || line.starts_with("*") || 
+                   line.contains("TODO") || line.contains("implement") ||
+                   line.contains("fix") || line.contains("add") || line.contains("create") {
+                    key_tasks.push(line.trim().to_string());
+                }
+            }
+        }
+
+        // Build the handoff prompt
+        context_parts.push("# Session Handoff".to_string());
+        context_parts.push(String::new());
+        context_parts.push(format!("**Model:** {}", self.model_name));
+        context_parts.push(format!("**Messages:** {}", self.messages.len()));
+        context_parts.push(format!("**Tool calls:** {}", self.session_tool_calls));
+        context_parts.push(format!("**Files edited:** {}", self.session_files_edited));
+        context_parts.push(String::new());
+
+        // Add file paths if any
+        if !file_paths.is_empty() {
+            context_parts.push("## Files Referenced".to_string());
+            let mut paths: Vec<_> = file_paths.into_iter().collect();
+            paths.sort();
+            for path in paths {
+                context_parts.push(format!("- {}", path));
+            }
+            context_parts.push(String::new());
+        }
+
+        // Add constraints if any
+        if !constraints.is_empty() {
+            context_parts.push("## Constraints".to_string());
+            for constraint in constraints.iter().take(10) { // Limit to 10 constraints
+                context_parts.push(format!("- {}", constraint));
+            }
+            if constraints.len() > 10 {
+                context_parts.push(format!("- ... and {} more", constraints.len() - 10));
+            }
+            context_parts.push(String::new());
+        }
+
+        // Add key tasks if any
+        if !key_tasks.is_empty() {
+            context_parts.push("## Key Tasks".to_string());
+            for task in key_tasks.iter().take(15) { // Limit to 15 tasks
+                context_parts.push(format!("- {}", task));
+            }
+            if key_tasks.len() > 15 {
+                context_parts.push(format!("- ... and {} more", key_tasks.len() - 15));
+            }
+            context_parts.push(String::new());
+        }
+
+        // Add summary of last few messages for context
+        context_parts.push("## Recent Context".to_string());
+        let recent_count = self.messages.len().min(3);
+        for msg in self.messages.iter().rev().take(recent_count).rev() {
+            let role = match msg.role {
+                Role::User => "User",
+                Role::Assistant => "Assistant",
+                _ => "System",
+            };
+            let content = msg.text_content();
+            let preview = if content.len() > 200 {
+                format!("{}...", &content[..200])
+            } else {
+                content
+            };
+            context_parts.push(format!("**{}:** {}", role, preview));
+        }
+
+        context_parts.join("\n")
+    }
+
     /// Filter available models based on search query
     fn filtered_models(&self) -> Vec<&ModelInfo> {
         if self.available_models.is_empty() {
@@ -1070,22 +1427,28 @@ impl<'a> App<'a> {
     }
 
     /// Filter sessions based on search query
+    /// Filter sessions based on search query
     fn filtered_sessions(&self) -> Vec<SessionSummary> {
         let mut sessions = match Session::list() {
             Ok(s) => s,
             Err(_) => return Vec::new(),
         };
-
         let query = self.session_browser_query.to_lowercase();
         if !query.is_empty() {
-            sessions = sessions.into_iter()
-                .filter(|s| {
-                    s.id.to_lowercase().contains(&query) ||
-                    s.model.to_lowercase().contains(&query)
-                })
-                .collect();
+            if query.starts_with("tag:") {
+                let tag = query["tag:".len()..].trim();
+                sessions = sessions.into_iter()
+                    .filter(|s| s.tags.iter().any(|t| t.to_lowercase() == tag))
+                    .collect();
+            } else {
+                sessions = sessions.into_iter()
+                    .filter(|s| {
+                        s.id.to_lowercase().contains(&query) ||
+                        s.model.to_lowercase().contains(&query)
+                    })
+                    .collect();
+            }
         }
-
         // Apply sorting based on session_sort_mode
         match self.session_sort_mode {
             SessionSortMode::NewestFirst => {
@@ -1098,33 +1461,89 @@ impl<'a> App<'a> {
                 sessions.sort_by(|a, b| b.message_count.cmp(&a.message_count));
             }
         }
-
         sessions
     }
 
     /// Load available models (synchronous version)
     fn load_available_models(&mut self) {
         let default_models = vec![
-            ModelInfo {
-                id: "nvidia/llama-3.1-nemotron-70b-instruct".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 92,
-            },
-            ModelInfo {
-                id: "nvidia/mistral-large-2407".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 88,
-            },
-            ModelInfo {
-                id: "anthropic/claude-3-5-sonnet-20241022".to_string(),
-                provider: "Anthropic".to_string(),
-                quality_score: 95,
-            },
-            ModelInfo {
-                id: "openai/gpt-4o".to_string(),
-                provider: "OpenAI".to_string(),
-                quality_score: 90,
-            },
+            // DeepSeek models (5)
+            ModelInfo { id: "deepseek-ai/deepseek-coder-6.7b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 85 },
+            ModelInfo { id: "deepseek-ai/deepseek-r1-0528".to_string(), provider: "NVIDIA".to_string(), quality_score: 88 },
+            ModelInfo { id: "deepseek-ai/deepseek-v3.1".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
+            ModelInfo { id: "deepseek-ai/deepseek-v3.1-terminus".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
+            ModelInfo { id: "deepseek-ai/deepseek-v3.2".to_string(), provider: "NVIDIA".to_string(), quality_score: 90 },
+            // Google Gemma models (8)
+            ModelInfo { id: "google/gemma-2-27b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 82 },
+            ModelInfo { id: "google/gemma-2-2b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 80 },
+            ModelInfo { id: "google/gemma-3-12b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 83 },
+            ModelInfo { id: "google/gemma-3-1b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 79 },
+            ModelInfo { id: "google/gemma-3-27b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 84 },
+            ModelInfo { id: "google/gemma-3n-e2b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 81 },
+            ModelInfo { id: "google/gemma-3n-e4b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 82 },
+            ModelInfo { id: "google/gemma-4-31b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 86 },
+            // Meta Llama models (10)
+            ModelInfo { id: "meta/llama-3.1-405b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 91 },
+            ModelInfo { id: "meta/llama-3.1-70b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
+            ModelInfo { id: "meta/llama-3.2-11b-vision-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 84 },
+            ModelInfo { id: "meta/llama-3.2-1b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 78 },
+            ModelInfo { id: "meta/llama-3.3-70b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 90 },
+            ModelInfo { id: "meta/llama-4-maverick-17b-128e-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 87 },
+            ModelInfo { id: "meta/llama-4-scout-17b-16e-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 86 },
+            ModelInfo { id: "meta/llama3-70b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 88 },
+            ModelInfo { id: "meta/llama3-8b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 82 },
+            // Microsoft Phi models (8)
+            ModelInfo { id: "microsoft/phi-3-medium-128k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 83 },
+            ModelInfo { id: "microsoft/phi-3-medium-4k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 82 },
+            ModelInfo { id: "microsoft/phi-3-small-128k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 81 },
+            ModelInfo { id: "microsoft/phi-3-small-8k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 80 },
+            ModelInfo { id: "microsoft/phi-3-vision-128k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 83 },
+            ModelInfo { id: "microsoft/phi-3.5-moe-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 85 },
+            ModelInfo { id: "microsoft/phi-3.5-vision-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 84 },
+            ModelInfo { id: "microsoft/phi-4-mini-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 87 },
+            // MiniMax models (3)
+            ModelInfo { id: "minimaxai/minimax-m2".to_string(), provider: "NVIDIA".to_string(), quality_score: 84 },
+            ModelInfo { id: "minimaxai/minimax-m2.1".to_string(), provider: "NVIDIA".to_string(), quality_score: 85 },
+            ModelInfo { id: "minimaxai/minimax-m2.5".to_string(), provider: "NVIDIA".to_string(), quality_score: 86 },
+            // Mistral models (6)
+            ModelInfo { id: "mistralai/codestral-22b-instruct-v0.1".to_string(), provider: "NVIDIA".to_string(), quality_score: 85 },
+            ModelInfo { id: "mistralai/devstral-2-123b-instruct-2512".to_string(), provider: "NVIDIA".to_string(), quality_score: 91 },
+            ModelInfo { id: "mistralai/ministral-14b-instruct-2512".to_string(), provider: "NVIDIA".to_string(), quality_score: 83 },
+            ModelInfo { id: "mistralai/mistral-large-2-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 88 },
+            ModelInfo { id: "mistralai/mistral-large-3-675b-instruct-2512".to_string(), provider: "NVIDIA".to_string(), quality_score: 93 },
+            ModelInfo { id: "mistralai/mistral-small-3.1-24b-instruct-2503".to_string(), provider: "NVIDIA".to_string(), quality_score: 84 },
+            // Moonshot models (4)
+            ModelInfo { id: "moonshotai/kimi-k2-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 86 },
+            ModelInfo { id: "moonshotai/kimi-k2-instruct-0905".to_string(), provider: "NVIDIA".to_string(), quality_score: 86 },
+            ModelInfo { id: "moonshotai/kimi-k2-thinking".to_string(), provider: "NVIDIA".to_string(), quality_score: 87 },
+            ModelInfo { id: "moonshotai/kimi-k2.5".to_string(), provider: "NVIDIA".to_string(), quality_score: 88 },
+            // NVIDIA models (8)
+            ModelInfo { id: "nvidia/llama-3.1-nemotron-51b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 90 },
+            ModelInfo { id: "nvidia/llama-3.1-nemotron-70b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 92 },
+            ModelInfo { id: "nvidia/llama-3.1-nemotron-ultra-253b-v1".to_string(), provider: "NVIDIA".to_string(), quality_score: 94 },
+            ModelInfo { id: "nvidia/llama3-chatqa-1.5-70b".to_string(), provider: "NVIDIA".to_string(), quality_score: 91 },
+            ModelInfo { id: "nvidia/mistral-nemo-minitron-8b-8k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 82 },
+            ModelInfo { id: "nvidia/nemotron-3-nano-30b-a3b".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
+            ModelInfo { id: "nvidia/nemotron-3-super-120b-a12b".to_string(), provider: "NVIDIA".to_string(), quality_score: 93 },
+            ModelInfo { id: "nvidia/nemotron-4-340b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 95 },
+            ModelInfo { id: "nvidia/nvidia-nemotron-nano-9b-v2".to_string(), provider: "NVIDIA".to_string(), quality_score: 85 },
+            // Qwen models (7)
+            ModelInfo { id: "qwen/qwen2.5-coder-32b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 87 },
+            ModelInfo { id: "qwen/qwen2.5-coder-7b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 83 },
+            ModelInfo { id: "qwen/qwen3-235b-a22b".to_string(), provider: "NVIDIA".to_string(), quality_score: 90 },
+            ModelInfo { id: "qwen/qwen3-coder-480b-a35b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 93 },
+            ModelInfo { id: "qwen/qwen3-next-80b-a3b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
+            ModelInfo { id: "qwen/qwen3-next-80b-a3b-thinking".to_string(), provider: "NVIDIA".to_string(), quality_score: 90 },
+            ModelInfo { id: "qwen/qwen3.5-397b-a17b".to_string(), provider: "NVIDIA".to_string(), quality_score: 94 },
+            // StepFun models (1)
+            ModelInfo { id: "stepfun-ai/step-3.5-flash".to_string(), provider: "NVIDIA".to_string(), quality_score: 88 },
+            // Z-AI models (2)
+            ModelInfo { id: "z-ai/glm4.7".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
+            ModelInfo { id: "z-ai/glm5".to_string(), provider: "NVIDIA".to_string(), quality_score: 92 },
+            // Anthropic models (1)
+            ModelInfo { id: "anthropic/claude-3-5-sonnet-20241022".to_string(), provider: "Anthropic".to_string(), quality_score: 95 },
+            // OpenAI models (1)
+            ModelInfo { id: "openai/gpt-4o".to_string(), provider: "OpenAI".to_string(), quality_score: 90 },
         ];
         self.available_models = default_models;
     }
@@ -2874,12 +3293,120 @@ mod tests {
     }
 
     #[test]
-    fn test_dynamic_input_height() {
+    fn test_slash_handoff_empty() {
+        let mut app = test_app();
+        app.handle_slash_command("/handoff");
+        assert_eq!(app.messages.len(), 1);
+        assert_eq!(app.messages[0].role, Role::System);
+        assert!(app.messages[0].text_content().contains("No conversation to handoff"));
+        assert_eq!(app.status, "Nothing to handoff");
+    }
+
+    #[test]
+    fn test_slash_handoff_with_messages() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "Implement feature X"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "I'll help with that"));
+        app.session_tool_calls = 5;
+        app.session_files_edited = 2;
+        
+        app.handle_slash_command("/handoff");
+        
+        assert_eq!(app.messages.len(), 1);
+        assert_eq!(app.messages[0].role, Role::System);
+        assert!(app.messages[0].text_content().contains("Session Handoff"));
+        assert!(app.messages[0].text_content().contains("Model:"));
+        assert!(app.messages[0].text_content().contains("Messages:"));
+        assert!(app.messages[0].text_content().contains("Tool calls:"));
+        assert!(app.messages[0].text_content().contains("Files edited:"));
+        assert_eq!(app.status, "Handoff complete");
+    }
+
+    #[test]
+    fn test_slash_handoff_clears_messages() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "First message"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "First response"));
+        app.messages.push(DisplayMessage::new_text(Role::User, "Second message"));
+        
+        app.handle_slash_command("/handoff");
+        
+        // Should have only the handoff system message
+        assert_eq!(app.messages.len(), 1);
+        assert_eq!(app.messages[0].role, Role::System);
+        assert!(app.messages[0].text_content().contains("Session Handoff"));
+    }
+
+    #[test]
+    fn test_generate_handoff_prompt_empty() {
         let app = test_app();
-        // Default: 1 line of input → height should be 3 (1 + 2 for border)
-        let input_lines = app.input.lines().len();
-        let height = (input_lines + 2).clamp(3, 10);
-        assert_eq!(height, 3);
+        let prompt = app.generate_handoff_prompt();
+        assert!(prompt.contains("No conversation context available"));
+    }
+
+    #[test]
+    fn test_generate_handoff_prompt_with_content() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "Fix src/main.rs"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "I'll fix it"));
+        app.session_tool_calls = 3;
+        app.session_files_edited = 1;
+        
+        let prompt = app.generate_handoff_prompt();
+        
+        assert!(prompt.contains("Session Handoff"));
+        assert!(prompt.contains("Model:"));
+        assert!(prompt.contains("Messages:"));
+        assert!(prompt.contains("Tool calls:"));
+        assert!(prompt.contains("Files edited:"));
+    }
+
+    #[test]
+    fn test_generate_handoff_prompt_extracts_files() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "Edit src/main.rs and lib/helper.ts"));
+        
+        let prompt = app.generate_handoff_prompt();
+        
+        assert!(prompt.contains("Files Referenced"));
+        assert!(prompt.contains("src/main.rs"));
+        assert!(prompt.contains("lib/helper.ts"));
+    }
+
+    #[test]
+    fn test_generate_handoff_prompt_extracts_constraints() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "MUST use async functions\nMUST NOT break existing tests"));
+        
+        let prompt = app.generate_handoff_prompt();
+        
+        assert!(prompt.contains("Constraints"));
+        assert!(prompt.contains("MUST"));
+    }
+
+    #[test]
+    fn test_generate_handoff_prompt_extracts_tasks() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "- Implement feature X\n- Fix bug Y\n* Add tests"));
+        
+        let prompt = app.generate_handoff_prompt();
+        
+        assert!(prompt.contains("Key Tasks"));
+        assert!(prompt.contains("Implement feature X") || prompt.contains("feature X"));
+    }
+
+    #[test]
+    fn test_generate_handoff_prompt_recent_context() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "First message"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "First response"));
+        app.messages.push(DisplayMessage::new_text(Role::User, "Second message"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "Second response"));
+        
+        let prompt = app.generate_handoff_prompt();
+        
+        assert!(prompt.contains("Recent Context"));
+        assert!(prompt.contains("User") || prompt.contains("Assistant"));
     }
 
     // ===== Command palette tests =====
@@ -3232,7 +3759,7 @@ mod tests {
         app.messages.push(DisplayMessage::new_text(Role::User, "Hello"));
         app.messages.push(DisplayMessage::new_text(Role::Assistant, "Hi there!"));
         let path = "/tmp/pawan_test_export.md";
-        let result = app.export_conversation(path);
+        let result = app.export_conversation(path, ExportFormat::Markdown);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 2);
         let content = std::fs::read_to_string(path).unwrap();
@@ -3254,6 +3781,180 @@ mod tests {
         assert_eq!(last.role, Role::System);
         assert!(last.text_content().contains("Exported"), "Should confirm export: {}", last.text_content());
         std::fs::remove_file("/tmp/pawan_test_slash_export.md").ok();
+    }
+    // ===== Session Tagging Tests =====
+
+    #[test]
+    fn test_tag_add_single_tag() {
+        let mut app = test_app();
+        app.handle_slash_command("/tag add important");
+        assert_eq!(app.session_tags, vec!["important".to_string()]);
+    }
+
+    #[test]
+    fn test_tag_add_multiple_tags() {
+        let mut app = test_app();
+        app.handle_slash_command("/tag add foo bar baz");
+        assert_eq!(app.session_tags.len(), 3);
+        assert!(app.session_tags.contains(&"foo".to_string()));
+        assert!(app.session_tags.contains(&"bar".to_string()));
+        assert!(app.session_tags.contains(&"baz".to_string()));
+    }
+
+    #[test]
+    fn test_tag_add_prevents_duplicates() {
+        let mut app = test_app();
+        app.handle_slash_command("/tag add alpha");
+        app.handle_slash_command("/tag add alpha");
+        assert_eq!(app.session_tags.len(), 1);
+        assert_eq!(app.session_tags, vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    fn test_tag_remove_existing() {
+        let mut app = test_app();
+        app.handle_slash_command("/tag add one two three");
+        app.handle_slash_command("/tag rm two");
+        assert_eq!(app.session_tags.len(), 2);
+        assert!(!app.session_tags.contains(&"two".to_string()));
+    }
+
+    #[test]
+    fn test_tag_remove_nonexistent() {
+        let mut app = test_app();
+        app.handle_slash_command("/tag add alpha");
+        app.handle_slash_command("/tag rm beta");
+        assert_eq!(app.session_tags, vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    fn test_tag_list() {
+        let mut app = test_app();
+        app.handle_slash_command("/tag add tag1 tag2");
+        app.handle_slash_command("/tag list");
+        let last_msg = app.messages.last().unwrap();
+        assert!(last_msg.text_content().contains("tag1"));
+        assert!(last_msg.text_content().contains("tag2"));
+    }
+
+    #[test]
+    fn test_tag_clear() {
+        let mut app = test_app();
+        app.handle_slash_command("/tag add one two three");
+        app.handle_slash_command("/tag clear");
+        assert!(app.session_tags.is_empty());
+    }
+
+    #[test]
+    fn test_tag_empty_command_shows_usage() {
+        let mut app = test_app();
+        app.handle_slash_command("/tag");
+        let last_msg = app.messages.last().unwrap();
+        assert!(last_msg.text_content().contains("Usage"));
+    }
+
+    #[test]
+    fn test_tag_invalid_command_shows_usage() {
+        let mut app = test_app();
+        app.handle_slash_command("/tag invalid_cmd");
+        let last_msg = app.messages.last().unwrap();
+        assert!(last_msg.text_content().contains("Usage"));
+    }
+
+    #[test]
+    fn test_session_tags_persist_on_save() {
+        let mut app = test_app();
+        app.handle_slash_command("/tag add persistent_tag");
+        app.handle_slash_command("/save");
+        let sessions_dir = pawan::agent::session::Session::sessions_dir().unwrap();
+        let mut found = false;
+        if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
+            for entry in entries.flatten() {
+                let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
+                if content.contains("persistent_tag") {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        assert!(found, "Tag not persisted in saved session");
+    }
+
+    #[test]
+    fn test_session_browser_tag_filter() {
+        let mut app = test_app();
+        app.session_browser_query = "tag:important".to_string();
+        assert!(app.session_browser_query.starts_with("tag:"));
+    }
+
+    // ===== Export Format Tests =====
+
+    #[test]
+    fn test_export_html_format() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "HTML test"));
+        let path = "/tmp/pawan_html_test.html";
+        let result = app.export_conversation(path, ExportFormat::Html);
+        assert!(result.is_ok());
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(content.contains("<!DOCTYPE html>"));
+        assert!(content.contains("<html"));
+        assert!(content.contains("HTML test"));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_export_json_format() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "JSON test"));
+        let path = "/tmp/pawan_json_test.json";
+        let result = app.export_conversation(path, ExportFormat::Json);
+        assert!(result.is_ok());
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(content.contains("\"messages\""));
+        assert!(content.contains("JSON test"));
+        let _: serde_json::Value = serde_json::from_str(&content).unwrap();
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_export_txt_format() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "TXT test"));
+        let path = "/tmp/pawan_txt_test.txt";
+        let result = app.export_conversation(path, ExportFormat::Txt);
+        assert!(result.is_ok());
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(content.contains("TXT test"));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_export_empty_conversation() {
+        let app = test_app();
+        let path = "/tmp/pawan_empty_test.md";
+        let result = app.export_conversation(path, ExportFormat::Markdown);
+        assert!(result.is_ok());
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_export_html_escaping() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "<script>alert('xss')</script>"));
+        let path = "/tmp/pawan_escape_test.html";
+        let result = app.export_conversation(path, ExportFormat::Html);
+        assert!(result.is_ok());
+        let content = std::fs::read_to_string(path).unwrap();
+        assert!(!content.contains("<script>"));
+        assert!(content.contains("&lt;script&gt;"));
+        std::fs::remove_file(path).ok();
+    }
+
+    #[test]
+    fn test_export_with_tool_calls() {
+        // TODO: Add test with tool call records once tool call mocking is available
+        // This test would verify tool calls are exported in all formats
     }
 
     // ===== Timestamp tests =====
@@ -3370,6 +4071,7 @@ mod tests {
         app.model_selector_query.clear();
         app.model_selector_selected = 0;
         assert!(!app.model_selector_open);
+    }
 
     // ===== Session Browser Tests =====
     #[test]
@@ -3386,7 +4088,7 @@ mod tests {
     fn test_session_sorting_modes() {
         let modes = [SessionSortMode::NewestFirst, SessionSortMode::Alphabetical, SessionSortMode::MostUsed];
         for mode in modes {
-
+        }
     // ===== Slash Command Tests =====
     #[test]
     fn test_slash_sessions_opens_browser() {
@@ -3758,9 +4460,6 @@ mod tests {
         app.handle_slash_command("/new");
         assert!(app.messages.is_empty());
         app.handle_slash_command("/export");
-    }
-            let _ = format!("{:?}", mode);
-        }
     }
 
     #[test]

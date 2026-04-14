@@ -23,8 +23,8 @@
 
 pub mod agent;
 pub mod bootstrap;
+pub mod compaction;
 pub mod config;
-pub mod coordinator;
 pub mod eruka_bridge;
 pub mod init;
 pub mod healing;
