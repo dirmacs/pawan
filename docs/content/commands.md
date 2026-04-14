@@ -19,10 +19,14 @@ Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split lay
 | `/tools` | `/t` | List available tools by tier |
 | `/heal` | `/h` | Auto-fix build errors |
 | `/export [path]` | `/e` | Export conversation to markdown |
+| `/sessions` | | Open session browser |
+| `/save` | | Save current session |
+| `/load` | | Load a saved session |
+| `/resume` | | Resume a saved session |
+| `/new` | | Start new session |
 | `/clear` | | Clear chat history |
 | `/quit` | `/q` | Exit pawan |
 | `/help` | `/?` | Show help |
-
 ### Keyboard Shortcuts
 
 | Key | Context | Action |
