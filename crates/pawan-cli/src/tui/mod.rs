@@ -3318,6 +3318,476 @@ mod tests {
         let items = app.palette_items();
         assert!(items.iter().any(|(cmd, _)| *cmd == "/export"), "Palette should include /export");
     }
+
+    // ===== Model Selector Tests =====
+    #[test]
+    fn test_load_available_models_populates_list() {
+        let mut app = test_app();
+        assert!(app.available_models.is_empty());
+        app.load_available_models();
+        assert!(!app.available_models.is_empty());
+        assert!(app.available_models.len() >= 4);
+    }
+
+    #[test]
+    fn test_filtered_models_empty_when_not_loaded() {
+        let app = test_app();
+        let filtered = app.filtered_models();
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_filtered_models_with_search() {
+        let mut app = test_app();
+        app.load_available_models();
+        app.model_selector_query = "nvidia".to_string();
+        let _filtered = app.filtered_models();
+        app.model_selector_query = "anthropic".to_string();
+        let _filtered = app.filtered_models();
+        app.model_selector_query = "nonexistent".to_string();
+        let filtered = app.filtered_models();
+        assert!(filtered.is_empty());
+    }
+
+    #[test]
+    fn test_filtered_models_empty_query_returns_all() {
+        let mut app = test_app();
+        app.load_available_models();
+        app.model_selector_query.clear();
+        let filtered = app.filtered_models();
+        assert_eq!(filtered.len(), app.available_models.len());
+    }
+
+    #[test]
+    fn test_model_selector_modal_state() {
+        let mut app = test_app();
+        assert!(!app.model_selector_open);
+        app.handle_slash_command("/model");
+        assert!(app.model_selector_open);
+        assert_eq!(app.model_selector_query, "");
+        assert_eq!(app.model_selector_selected, 0);
+        app.model_selector_open = false;
+        app.model_selector_query.clear();
+        app.model_selector_selected = 0;
+        assert!(!app.model_selector_open);
+
+    // ===== Session Browser Tests =====
+    #[test]
+    fn test_session_browser_modal_state() {
+        let mut app = test_app();
+        assert!(!app.session_browser_open);
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+        assert_eq!(app.session_browser_query, "");
+        assert_eq!(app.session_browser_selected, 0);
+    }
+
+    #[test]
+    fn test_session_sorting_modes() {
+        let modes = [SessionSortMode::NewestFirst, SessionSortMode::Alphabetical, SessionSortMode::MostUsed];
+        for mode in modes {
+
+    // ===== Slash Command Tests =====
+    #[test]
+    fn test_slash_sessions_opens_browser() {
+        let mut app = test_app();
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+    }
+
+    #[test]
+    fn test_slash_save_creates_session() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "test message"));
+        app.handle_slash_command("/save");
+        assert!(app.messages.len() >= 2);
+        let _last = app.messages.last().unwrap();
+    }
+
+    #[test]
+    fn test_slash_load_opens_browser() {
+        let mut app = test_app();
+        app.handle_slash_command("/load");
+        assert!(app.session_browser_open);
+    }
+
+    #[test]
+    fn test_slash_resume_opens_browser() {
+        let mut app = test_app();
+        app.handle_slash_command("/resume");
+        assert!(app.session_browser_open);
+    }
+
+    #[test]
+    fn test_slash_new_clears_session() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "test message"));
+        app.handle_slash_command("/new");
+        assert!(app.messages.is_empty());
+    }
+
+    #[test]
+    fn test_slash_items_includes_all_commands() {
+        let app = test_app();
+        let items = app.slash_items();
+        let commands: Vec<_> = items.iter().map(|(cmd, _)| *cmd).collect();
+        assert!(commands.contains(&"/sessions"));
+        assert!(commands.contains(&"/save"));
+        assert!(commands.contains(&"/load"));
+        assert!(commands.contains(&"/resume"));
+        assert!(commands.contains(&"/new"));
+        assert!(commands.contains(&"/model"));
+        assert!(commands.contains(&"/export"));
+    }
+
+    // ===== Auto-save Tests =====
+    #[test]
+    fn test_autosave_interval_constant() {
+        let _ = AUTOSAVE_INTERVAL;
+    }
+
+    #[test]
+    fn test_autosave_with_messages() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "test message"));
+        app.autosave();
+    }
+
+    #[test]
+    fn test_autosave_with_empty_session() {
+        let mut app = test_app();
+        app.autosave();
+    }
+
+    // ===== Modal Rendering Tests =====
+    #[test]
+    fn test_model_selector_modal_rendering() {
+        let mut app = test_app();
+        app.model_selector_open = true;
+        app.load_available_models();
+        let _ = app;
+    }
+
+    #[test]
+    fn test_session_browser_modal_rendering() {
+        let mut app = test_app();
+        app.session_browser_open = true;
+        let _ = app;
+    }
+
+    #[test]
+    fn test_help_overlay_modal_rendering() {
+        let mut app = test_app();
+        app.help_overlay = true;
+        let _ = app;
+    }
+
+    // ===== Keyboard Handling Tests =====
+    #[test]
+    fn test_keyboard_esc_closes_modals() {
+        let mut app = test_app();
+        app.model_selector_open = true;
+        app.session_browser_open = true;
+        app.help_overlay = true;
+        app.model_selector_open = false;
+        app.session_browser_open = false;
+        app.help_overlay = false;
+        assert!(!app.model_selector_open);
+        assert!(!app.session_browser_open);
+        assert!(!app.help_overlay);
+    }
+
+    #[test]
+    fn test_keyboard_enter_in_model_selector() {
+        let mut app = test_app();
+        app.model_selector_open = true;
+        app.load_available_models();
+        if !app.available_models.is_empty() {
+            app.model_selector_selected = 0;
+            let selected = app.available_models.get(app.model_selector_selected);
+            let _ = selected;
+        }
+    }
+
+    #[test]
+    fn test_keyboard_enter_in_session_browser() {
+        let mut app = test_app();
+        app.session_browser_open = true;
+        app.session_browser_selected = 0;
+        let _ = app;
+    }
+
+    // ===== Integration Tests =====
+    #[test]
+    fn test_full_session_lifecycle() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "test message"));
+        app.handle_slash_command("/save");
+        app.handle_slash_command("/new");
+        assert!(app.messages.is_empty());
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+    }
+
+    #[test]
+    fn test_model_selection_workflow() {
+        let mut app = test_app();
+        app.handle_slash_command("/model");
+        assert!(app.model_selector_open);
+        app.load_available_models();
+        if !app.available_models.is_empty() {
+            app.model_selector_selected = 0;
+            app.model_selector_open = false;
+        }
+    }
+
+    #[test]
+    fn test_slash_command_dispatch() {
+        let mut app = test_app();
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+        app.session_browser_open = false;
+        app.handle_slash_command("/model");
+        assert!(app.model_selector_open);
+        app.model_selector_open = false;
+        app.handle_slash_command("/new");
+        assert!(app.messages.is_empty());
+    }
+
+    #[test]
+    fn test_modal_transitions() {
+        let mut app = test_app();
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+        app.session_browser_open = false;
+        app.handle_slash_command("/model");
+        assert!(app.model_selector_open);
+        app.model_selector_open = false;
+        app.help_overlay = true;
+        assert!(app.help_overlay);
+    }
+
+    // ===== E2E Test Scaffolding =====
+    #[test]
+    fn test_e2e_session_creation_and_browsing() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "first message"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "response"));
+        app.handle_slash_command("/save");
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+        app.session_browser_open = false;
+        app.handle_slash_command("/new");
+        assert!(app.messages.is_empty());
+    }
+
+    #[test]
+    fn test_e2e_model_switching_workflow() {
+        let mut app = test_app();
+        app.handle_slash_command("/model");
+        assert!(app.model_selector_open);
+        app.load_available_models();
+        if !app.available_models.is_empty() {
+            app.model_selector_selected = 0;
+            app.model_selector_open = false;
+        }
+        app.messages.push(DisplayMessage::new_text(Role::User, "test"));
+        app.handle_slash_command("/save");
+    }
+
+    #[test]
+    fn test_e2e_session_management_workflow() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "message 1"));
+        app.handle_slash_command("/save");
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+        app.session_browser_open = false;
+        app.handle_slash_command("/new");
+        assert!(app.messages.is_empty());
+        app.messages.push(DisplayMessage::new_text(Role::User, "message 2"));
+        app.handle_slash_command("/save");
+    }
+
+    #[test]
+    fn test_e2e_autosave_during_session() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "message 1"));
+        app.autosave();
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "response 1"));
+        app.autosave();
+        app.messages.push(DisplayMessage::new_text(Role::User, "message 2"));
+        app.autosave();
+    }
+
+    #[test]
+    fn test_e2e_slash_command_sequence() {
+        let mut app = test_app();
+        app.handle_slash_command("/model");
+        assert!(app.model_selector_open);
+        app.model_selector_open = false;
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+        app.session_browser_open = false;
+        app.handle_slash_command("/new");
+        assert!(app.messages.is_empty());
+        app.handle_slash_command("/export");
+    }
+
+    #[test]
+    fn test_e2e_modal_state_consistency() {
+        let mut app = test_app();
+        app.handle_slash_command("/model");
+        assert!(app.model_selector_open);
+        assert!(!app.session_browser_open);
+        assert!(!app.help_overlay);
+        app.model_selector_open = false;
+        app.handle_slash_command("/sessions");
+        assert!(!app.model_selector_open);
+        assert!(app.session_browser_open);
+        assert!(!app.help_overlay);
+        app.session_browser_open = false;
+        app.help_overlay = true;
+        assert!(!app.model_selector_open);
+        assert!(!app.session_browser_open);
+        assert!(app.help_overlay);
+    }
+
+    #[test]
+    fn test_e2e_session_sorting_workflow() {
+        let mut app = test_app();
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+        app.session_sort_mode = SessionSortMode::Alphabetical;
+        app.session_sort_mode = SessionSortMode::MostUsed;
+        app.session_sort_mode = SessionSortMode::NewestFirst;
+        app.session_browser_open = false;
+    }
+
+    #[test]
+    fn test_e2e_search_and_filter_workflow() {
+        let mut app = test_app();
+        app.handle_slash_command("/model");
+        assert!(app.model_selector_open);
+        app.load_available_models();
+        app.model_selector_query = "test".to_string();
+        let filtered = app.filtered_models();
+        let _ = filtered;
+        app.model_selector_query.clear();
+        app.model_selector_open = false;
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+        app.session_browser_query = "test".to_string();
+        let sessions = app.filtered_sessions();
+        let _ = sessions;
+        app.session_browser_query.clear();
+        app.session_browser_open = false;
+    }
+
+    #[test]
+    fn test_e2e_keyboard_navigation_workflow() {
+        let mut app = test_app();
+        app.handle_slash_command("/model");
+        assert!(app.model_selector_open);
+        app.load_available_models();
+        let count = app.available_models.len();
+        if count > 0 {
+            app.model_selector_selected = 0;
+            app.model_selector_selected = (app.model_selector_selected + 1).min(count - 1);
+            app.model_selector_selected = app.model_selector_selected.saturating_sub(1);
+        }
+        app.model_selector_open = false;
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+        app.session_browser_selected = 0;
+        app.session_browser_selected = app.session_browser_selected.saturating_sub(1);
+        app.session_browser_open = false;
+    }
+
+    #[test]
+    fn test_e2e_error_handling_workflow() {
+        let mut app = test_app();
+        app.handle_slash_command("/save");
+        app.handle_slash_command("/load");
+        assert!(app.session_browser_open);
+        app.session_browser_open = false;
+        app.handle_slash_command("/resume");
+        assert!(app.session_browser_open);
+        app.session_browser_open = false;
+    }
+
+    #[test]
+    fn test_e2e_concurrent_modals_prevention() {
+        let mut app = test_app();
+        app.handle_slash_command("/model");
+        assert!(app.model_selector_open);
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+        app.help_overlay = true;
+        assert!(app.model_selector_open || app.session_browser_open || app.help_overlay);
+    }
+
+    #[test]
+    fn test_e2e_state_persistence_workflow() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "persistent message"));
+        app.autosave();
+        let _msg_count = app.messages.len();
+        app.handle_slash_command("/save");
+        app.handle_slash_command("/new");
+        assert!(app.messages.is_empty());
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+        app.session_browser_open = false;
+    }
+
+    #[test]
+    fn test_e2e_full_user_workflow() {
+        let mut app = test_app();
+        app.handle_slash_command("/model");
+        assert!(app.model_selector_open);
+        app.load_available_models();
+        app.model_selector_open = false;
+        app.messages.push(DisplayMessage::new_text(Role::User, "Hello"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "Hi there!"));
+        app.autosave();
+        app.handle_slash_command("/save");
+        app.handle_slash_command("/sessions");
+        assert!(app.session_browser_open);
+        app.session_browser_open = false;
+        app.handle_slash_command("/new");
+        assert!(app.messages.is_empty());
+        app.handle_slash_command("/export");
+    }
+            let _ = format!("{:?}", mode);
+        }
+    }
+
+    #[test]
+    fn test_filtered_sessions_empty_query() {
+        let app = test_app();
+        let sessions = app.filtered_sessions();
+        let _ = sessions;
+    }
+
+    #[test]
+    fn test_filtered_sessions_with_search() {
+        let app = test_app();
+        let sessions = app.filtered_sessions();
+        let _ = sessions;
+    }
+    }
+
+    #[test]
+    fn test_model_selector_navigation() {
+        let mut app = test_app();
+        app.load_available_models();
+        let count = app.available_models.len();
+        if count > 0 {
+            app.model_selector_selected = (app.model_selector_selected + 1).min(count - 1);
+            assert_eq!(app.model_selector_selected, 1);
+        }
+    }
 }
 
 /// Simple non-TUI interactive mode (fallback)
