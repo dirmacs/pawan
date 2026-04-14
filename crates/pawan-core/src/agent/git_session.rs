@@ -303,6 +303,7 @@ mod tests {
             }],
             total_tokens: 0,
             iteration_count: 0,
+            tags: Vec::new(),
         }
     }
 
@@ -404,6 +405,7 @@ mod tests {
             messages: vec![],
             total_tokens: 0,
             iteration_count: 0,
+            tags: Vec::new(),
         };
         let msg = GitSessionStore::commit_message(&s);
         assert!(
