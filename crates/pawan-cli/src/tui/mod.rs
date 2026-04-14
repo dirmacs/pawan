@@ -10,6 +10,7 @@ use crossterm::{
 };
 use pawan::agent::{AgentResponse, PawanAgent, Role, ToolCallRecord};
 use pawan::config::TuiConfig;
+use pawan::agent::session::{Session, SessionSummary};
 use pawan::{PawanError, Result};
 use ratatui::{
     backend::CrosstermBackend,
@@ -63,6 +64,22 @@ enum ContentBlock {
 enum ToolBlockState {
     Running,
     Done { record: ToolCallRecord, expanded: bool },
+}
+
+/// Session sort modes
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SessionSortMode {
+    NewestFirst,
+    Alphabetical,
+    MostUsed,
+}
+
+/// Model info for visual model selector
+#[derive(Debug, Clone)]
+pub struct ModelInfo {
+    pub id: String,
+    pub provider: String,
+    pub quality_score: u8,
 }
 
 /// Streaming state for the assistant message currently being assembled.
@@ -246,6 +263,16 @@ struct App<'a> {
     cmd_tx: mpsc::UnboundedSender<AgentCommand>,
     /// Channel to receive events from the agent task
     event_rx: mpsc::UnboundedReceiver<AgentEvent>,
+    /// Model selector modal state
+    model_selector_open: bool,
+    model_selector_query: String,
+    model_selector_selected: usize,
+    available_models: Vec<ModelInfo>,
+    /// Session browser state
+    session_browser_open: bool,
+    session_browser_query: String,
+    session_browser_selected: usize,
+    session_sort_mode: SessionSortMode,
 }
 
 /// State for an active permission prompt dialog
@@ -297,6 +324,14 @@ impl<'a> App<'a> {
             permission_dialog: None,
             cmd_tx,
             event_rx,
+            model_selector_open: false,
+            model_selector_query: String::new(),
+            model_selector_selected: 0,
+            available_models: Vec::new(),
+            session_browser_open: false,
+            session_browser_query: String::new(),
+            session_browser_selected: 0,
+            session_sort_mode: SessionSortMode::NewestFirst,
         }
     }
 
