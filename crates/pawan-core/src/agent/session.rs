@@ -35,6 +35,21 @@ impl Session {
         Self::new_with_tags(model, Vec::new())
     }
 
+    /// Create a new session with a specific ID (e.g. for updates)
+    pub fn new_with_id(id: String, model: &str, tags: Vec<String>) -> Self {
+        let now = chrono::Utc::now().to_rfc3339();
+        Self {
+            id,
+            model: model.to_string(),
+            created_at: now.clone(),
+            updated_at: now,
+            messages: Vec::new(),
+            total_tokens: 0,
+            iteration_count: 0,
+            tags,
+        }
+    }
+
     /// Create a new session with tags
     pub fn new_with_tags(model: &str, tags: Vec<String>) -> Self {
         let id = uuid::Uuid::new_v4().to_string()[..8].to_string();
@@ -139,6 +154,21 @@ impl Session {
             return Err(PawanError::Config("Tag contains invalid characters".to_string()));
         }
         Ok(sanitized)
+    }
+
+    /// Import a session from a JSON file
+    pub fn from_json_file(path: impl AsRef<std::path::Path>) -> Result<Self> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| PawanError::Config(format!("Failed to read session file: {}", e)))?;
+        let mut session: Session = serde_json::from_str(&content)
+            .map_err(|e| PawanError::Config(format!("Failed to parse session JSON: {}", e)))?;
+        
+        // Assign a new ID to ensure it doesn't collide with existing sessions
+        // and clearly mark it as a new import in this system.
+        session.id = uuid::Uuid::new_v4().to_string()[..8].to_string();
+        session.updated_at = chrono::Utc::now().to_rfc3339();
+        
+        Ok(session)
     }
 
     /// List all saved sessions (sorted by updated_at, newest first)
@@ -520,4 +550,171 @@ pub fn prune_sessions(policy: &RetentionPolicy) -> Result<usize> {
     }
     
     Ok(deleted)
+}
+
+#[cfg(test)]
+mod search_prune_tests {
+    use super::*;
+    use crate::agent::{Message, Role};
+
+    #[test]
+    fn test_role_serialization_is_lowercase() {
+        assert_eq!(serde_json::to_string(&Role::User).unwrap(), "\"user\"");
+        assert_eq!(serde_json::to_string(&Role::Assistant).unwrap(), "\"assistant\"");
+        assert_eq!(serde_json::to_string(&Role::System).unwrap(), "\"system\"");
+        assert_eq!(serde_json::to_string(&Role::Tool).unwrap(), "\"tool\"");
+    }
+
+    #[test]
+    fn test_search_sessions_logic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        // Create 2 sessions
+        let mut s1 = Session::new("m1");
+        s1.messages.push(Message {
+            role: Role::User,
+            content: "hello world".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        });
+        s1.save().unwrap();
+
+        let mut s2 = Session::new("m2");
+        s2.messages.push(Message {
+            role: Role::User,
+            content: "goodbye world".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        });
+        s2.save().unwrap();
+
+        // Search for "hello"
+        let results = search_sessions("hello").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].id, s1.id);
+        assert_eq!(results[0].matches.len(), 1);
+        assert_eq!(results[0].matches[0].preview, "hello world");
+
+        // Search for "world" (both)
+        let results = search_sessions("world").unwrap();
+        assert_eq!(results.len(), 2);
+
+        // Restore HOME
+        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+    }
+
+    #[test]
+    fn test_prune_sessions_logic() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        // Create 5 sessions with different timestamps manually
+        let dir = Session::sessions_dir().unwrap();
+        for i in 0..5 {
+            let mut s = Session::new("m");
+            s.id = format!("sess{}", i);
+            s.updated_at = format!("2026-04-1{}T12:00:00Z", i);
+            let path = dir.join(format!("{}.json", s.id));
+            let json = serde_json::to_string_pretty(&s).unwrap();
+            std::fs::write(&path, json).unwrap();
+        }
+
+        // Policy: keep 2 most recent
+        let policy = RetentionPolicy {
+            max_age_days: None,
+            max_sessions: Some(2),
+            keep_tags: vec![],
+        };
+        let deleted = prune_sessions(&policy).unwrap();
+        assert_eq!(deleted, 3);
+
+        let list = Session::list().unwrap();
+        assert_eq!(list.len(), 2);
+        // Should be sess4 and sess3 (newest)
+        assert!(list.iter().any(|s| s.id == "sess4"));
+        assert!(list.iter().any(|s| s.id == "sess3"));
+
+        // Restore HOME
+        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+    }
+
+    #[test]
+    fn test_prune_sessions_age_and_tags() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let dir = Session::sessions_dir().unwrap();
+
+        // 1. Old session (30 days ago)
+        let mut s1 = Session::new("m");
+        s1.id = "old".into();
+        s1.updated_at = "2020-01-01T00:00:00Z".into();
+        let path1 = dir.join(format!("{}.json", s1.id));
+        std::fs::write(&path1, serde_json::to_string_pretty(&s1).unwrap()).unwrap();
+
+        // 2. Old but protected by tag
+        let mut s2 = Session::new_with_tags("m", vec!["keep".into()]);
+        s2.id = "protected".into();
+        s2.updated_at = "2020-01-01T00:00:00Z".into();
+        let path2 = dir.join(format!("{}.json", s2.id));
+        std::fs::write(&path2, serde_json::to_string_pretty(&s2).unwrap()).unwrap();
+
+        // 3. New session
+        let mut s3 = Session::new("m");
+        s3.id = "new".into();
+        s3.save().unwrap(); // save() is fine for 'new' session
+
+        let policy = RetentionPolicy {
+            max_age_days: Some(7),
+            max_sessions: None,
+            keep_tags: vec!["keep".into()],
+        };
+        let deleted = prune_sessions(&policy).unwrap();
+        assert_eq!(deleted, 1); // Only 'old' deleted
+
+        let list = Session::list().unwrap();
+        assert_eq!(list.len(), 2);
+        assert!(list.iter().any(|s| s.id == "protected"));
+        assert!(list.iter().any(|s| s.id == "new"));
+
+        // Restore HOME
+        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+    }
+
+    #[test]
+    fn test_search_sessions_no_results() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let results = search_sessions("anything").unwrap();
+        assert!(results.is_empty());
+
+        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+    }
+
+    #[test]
+    fn test_prune_sessions_zero_limits() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let mut s = Session::new("m");
+        s.save().unwrap();
+
+        // Policy: keep 0 sessions
+        let policy = RetentionPolicy {
+            max_age_days: None,
+            max_sessions: Some(0),
+            keep_tags: vec![],
+        };
+        let deleted = prune_sessions(&policy).unwrap();
+        assert_eq!(deleted, 1);
+
+        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+    }
 }
