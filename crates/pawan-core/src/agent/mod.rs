@@ -280,7 +280,7 @@ impl PawanAgent {
             eruka,
             session_id: uuid::Uuid::new_v4().to_string(),
             arch_context,
-        last_tool_call_time: None,
+            last_tool_call_time: None,
         }
     }
 
@@ -748,6 +748,9 @@ impl PawanAgent {
         on_tool_start: Option<ToolStartCallback>,
         on_permission: Option<PermissionCallback>,
     ) -> Result<AgentResponse> {
+        // Reset idle timeout for the new turn
+        self.last_tool_call_time = None;
+
         // Inject Eruka core memory before first LLM call
         if let Some(eruka) = &self.eruka {
             if let Err(e) = eruka.inject_core_memory(&mut self.history).await {
@@ -793,6 +796,17 @@ impl PawanAgent {
         let max_iterations = self.config.max_tool_iterations;
 
         loop {
+            // Check idle timeout
+            if let Some(last_time) = self.last_tool_call_time {
+                let elapsed = last_time.elapsed().as_secs();
+                if elapsed > self.config.tool_call_idle_timeout_secs {
+                    return Err(PawanError::Agent(format!(
+                        "Tool idle timeout exceeded ({}s > {}s)",
+                        elapsed, self.config.tool_call_idle_timeout_secs
+                    )));
+                }
+            }
+
             iterations += 1;
             if iterations > max_iterations {
                 return Err(PawanError::Agent(format!(
@@ -841,6 +855,9 @@ impl PawanAgent {
                 let tool_names: Vec<&str> = tool_defs.iter().map(|t| t.name.as_str()).collect();
                 tracing::info!(tools = ?tool_names, count = tool_defs.len(), "Selected tools for query");
             }
+
+            // Update idle timeout tracker before LLM call to track time spent in generation
+            self.last_tool_call_time = Some(Instant::now());
 
             // --- Resilient LLM call: retry on transient failures instead of crashing ---
             let response = {
@@ -1271,9 +1288,6 @@ impl PawanAgent {
                 }
             }
         }
-            
-            // Update idle timeout tracker after all tool calls in this iteration
-        self.last_tool_call_time = Some(Instant::now());
     }
 
     /// Execute a healing task with real diagnostics
@@ -1515,6 +1529,8 @@ fn truncate_tool_result(value: Value, max_chars: usize) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+    use crate::agent::backend::mock::{MockBackend, MockResponse};
 
     #[test]
     fn test_message_serialization() {
@@ -2026,9 +2042,10 @@ mod tests {
 
     #[test]
     fn test_probe_local_endpoint_closed_port_returns_false() {
-        // Port 19999 is almost never in use — probe must return false quickly.
+        // Port 1999 is almost never in use by Netdata (which uses 19999) 
+        // or other common services.
         assert!(
-            !probe_local_endpoint("http://localhost:19999/v1"),
+            !probe_local_endpoint("http://localhost:1999/v1"),
             "closed port should return false"
         );
     }
@@ -2093,5 +2110,95 @@ mod tests {
             result.len()
         );
         assert!(result.ends_with("(truncated)"), "truncated output must end with marker");
+    }
+
+    #[tokio::test]
+    async fn test_tool_idle_timeout_triggered() {
+        use std::time::Duration;
+        use tokio::time::sleep;
+
+        let mut config = PawanConfig::default();
+        config.tool_call_idle_timeout_secs = 0; // Trigger on any non-zero elapsed seconds
+
+        // Custom backend that is slow on the second call.
+        // With our fix (moving update before LLM call), this will trigger
+        // at the start of the THIRD iteration if the second iteration takes time.
+        struct SlowBackend {
+            index: Arc<std::sync::atomic::AtomicUsize>,
+        }
+
+        #[async_trait::async_trait]
+        impl LlmBackend for SlowBackend {
+            async fn generate(&self, _m: &[Message], _t: &[ToolDefinition], _o: Option<&TokenCallback>) -> Result<LLMResponse> {
+                let idx = self.index.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                if idx == 0 {
+                    // First call: return a tool call to ensure we loop again
+                    Ok(LLMResponse {
+                        content: String::new(),
+                        reasoning: None,
+                        tool_calls: vec![ToolCallRequest {
+                            id: "1".to_string(),
+                            name: "read_file".to_string(),
+                            arguments: json!({"path": "foo"}),
+                        }],
+                        finish_reason: "tool_calls".to_string(),
+                        usage: None,
+                    })
+                } else if idx == 1 {
+                    // Second call: delay then return ANOTHER tool call
+                    // The delay happens AFTER last_tool_call_time is updated for Iteration 2.
+                    // So Iteration 3's check will see this 1.1s delay.
+                    sleep(Duration::from_millis(1100)).await;
+                    Ok(LLMResponse {
+                        content: String::new(),
+                        reasoning: None,
+                        tool_calls: vec![ToolCallRequest {
+                            id: "2".to_string(),
+                            name: "read_file".to_string(),
+                            arguments: json!({"path": "bar"}),
+                        }],
+                        finish_reason: "tool_calls".to_string(),
+                        usage: None,
+                    })
+                } else {
+                    Ok(LLMResponse {
+                        content: "Done".to_string(),
+                        reasoning: None,
+                        tool_calls: vec![],
+                        finish_reason: "stop".to_string(),
+                        usage: None,
+                    })
+                }
+            }
+        }
+
+        let mut agent = PawanAgent::new(config, PathBuf::from("."));
+        agent.backend = Box::new(SlowBackend { index: Arc::new(std::sync::atomic::AtomicUsize::new(0)) });
+
+        let result = agent.execute_with_all_callbacks("test", None, None, None, None).await;
+        
+        match result {
+            Err(PawanError::Agent(msg)) => {
+                assert!(msg.contains("Tool idle timeout exceeded"), "Error message should contain timeout: {}", msg);
+            }
+            Ok(_) => panic!("Expected timeout error, but it succeeded. This means the timeout check didn't catch the delay."),
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_tool_idle_timeout_not_triggered() {
+        let mut config = PawanConfig::default();
+        config.tool_call_idle_timeout_secs = 10;
+
+        let backend = MockBackend::new(vec![
+            MockResponse::text("Done"),
+        ]);
+
+        let mut agent = PawanAgent::new(config, PathBuf::from("."));
+        agent.backend = Box::new(backend);
+
+        let result = agent.execute_with_all_callbacks("test", None, None, None, None).await;
+        assert!(result.is_ok());
     }
 }

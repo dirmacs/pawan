@@ -8,7 +8,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use pawan::agent::{AgentResponse, Message, PawanAgent, Role, ToolCallRecord};
+use pawan::agent::{AgentResponse, Message, PawanAgent, Role, ToolCallRecord, ToolCallRequest, ToolResultMessage};
 use pawan::config::TuiConfig;
 use pawan::agent::session::{Session, SessionSummary, SearchResult, RetentionPolicy};
 use pawan::{PawanError, Result};
@@ -50,6 +50,7 @@ enum AgentEvent {
 enum AgentCommand {
     Execute(String),
     SwitchModel(String),
+    LoadSession(String),
     Quit,
 }
 
@@ -210,6 +211,51 @@ impl DisplayMessage {
             _ => None,
         }).collect()
     }
+
+    /// Convert to pawan-core Message format (may produce multiple messages if tool calls are present)
+    pub fn to_pawan_messages(&self) -> Vec<Message> {
+        let content = self.text_content();
+        let tool_records = self.tool_records();
+        let mut messages = Vec::new();
+
+        if self.role == Role::Assistant && !tool_records.is_empty() {
+            // Assistant message with tool calls
+            let tool_calls: Vec<ToolCallRequest> = tool_records.iter().map(|tr| ToolCallRequest {
+                id: tr.id.clone(),
+                name: tr.name.clone(),
+                arguments: tr.arguments.clone(),
+            }).collect();
+
+            messages.push(Message {
+                role: Role::Assistant,
+                content: content.clone(),
+                tool_calls,
+                tool_result: None,
+            });
+
+            // For each tool call, add a Tool message with the result
+            for tr in tool_records {
+                messages.push(Message {
+                    role: Role::Tool,
+                    content: serde_json::to_string(&tr.result).unwrap_or_default(),
+                    tool_calls: Vec::new(),
+                    tool_result: Some(ToolResultMessage {
+                        tool_call_id: tr.id.clone(),
+                        content: tr.result.clone(),
+                        success: tr.success,
+                    }),
+                });
+            }
+        } else if !content.trim().is_empty() || self.role == Role::User {
+            messages.push(Message {
+                role: self.role.clone(),
+                content,
+                tool_calls: Vec::new(),
+                tool_result: None,
+            });
+        }
+        messages
+    }
 }
 
 /// Summarize JSON arguments to a compact display string.
@@ -328,6 +374,8 @@ struct App<'a> {
     session_browser_query: String,
     session_browser_selected: usize,
     session_sort_mode: SessionSortMode,
+    /// Current session ID (for autosave)
+    current_session_id: Option<String>,
     /// Tags for the current session
     session_tags: Vec<String>,
     /// Last autosave time
@@ -378,6 +426,7 @@ impl<'a> App<'a> {
             help_overlay: false,
             session_tool_calls: 0,
             session_files_edited: 0,
+            current_session_id: None,
             session_tags: Vec::new(),
             slash_popup_selected: 0,
             show_welcome: true,
@@ -752,8 +801,13 @@ impl<'a> App<'a> {
                                 match Session::load(&session.id) {
                                     Ok(s) => {
                                         self.model_name = s.model.clone();
+                                        self.current_session_id = Some(s.id.clone());
+                                        self.session_tags = s.tags.clone();
+                                        self.messages = App::messages_from_session(s.messages);
                                         self.status = format!("Loaded session: {}", session.id);
-                                        self.messages.push(DisplayMessage::new_text(Role::System, format!("Loaded session: {}", session.id)));
+                                        self.scroll = self.messages.len().saturating_sub(1);
+                                        // Update the agent task
+                                        let _ = self.cmd_tx.send(AgentCommand::LoadSession(session.id.clone()));
                                     }
                                     Err(e) => {
                                         self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to load session: {}", e)));
@@ -808,7 +862,7 @@ impl<'a> App<'a> {
                                         self.input.insert_str(" "); // add space to deactivate slash popup
                                         self.slash_popup_selected = 0;
                                         // If it's a simple command (no args needed), submit immediately
-                                        let simple = ["/help", "/tools", "/heal", "/clear", "/quit", "/?", "/model", "/sessions", "/save", "/new", "/export"];
+                                        let simple = ["/help", "/tools", "/heal", "/clear", "/quit", "/?", "/model", "/sessions", "/save", "/new", "/export", "/import"];
                                         if simple.contains(&cmd.as_str()) {
                                             self.submit_input();
                                         }
@@ -1016,12 +1070,31 @@ impl<'a> App<'a> {
                     Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Export failed: {}", e))),
                 }
             }
+            "/import" => {
+                if arg.is_empty() {
+                    self.messages.push(DisplayMessage::new_text(Role::System, "Usage: /import <path>"));
+                } else {
+                    match Session::from_json_file(arg) {
+                        Ok(mut session) => {
+                            match session.save() {
+                                Ok(path) => {
+                                    self.messages.push(DisplayMessage::new_text(Role::System, format!("Imported session from {} as {} ({})", arg, session.id, path.display())));
+                                    self.status = format!("Imported session: {}", session.id);
+                                }
+                                Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to save imported session: {}", e))),
+                            }
+                        }
+                        Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to import session: {}", e))),
+                    }
+                }
+            }
 
             "/save" => {
                 // Create a new session with current state
-                let mut session = Session::new_with_tags(&self.model_name, self.session_tags.clone()); // tags included
-                // Note: Can't directly assign messages due to type mismatch (Message vs DisplayMessage)
-                // This is a placeholder - full implementation would need conversion
+                let mut session = Session::new_with_tags(&self.model_name, self.session_tags.clone());
+                for dm in &self.messages {
+                    session.messages.extend(dm.to_pawan_messages());
+                }
                 match session.save() {
                     Ok(path) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Session saved: {}", path.display()))),
                     Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to save session: {}", e))),
@@ -1038,50 +1111,89 @@ impl<'a> App<'a> {
                 if arg.is_empty() {
                     self.messages.push(DisplayMessage::new_text(Role::System, "Usage: /ss <query> - search saved sessions".to_string()));
                 } else {
-let results: Vec<SearchResult> = pawan::agent::session::search_sessions(arg).unwrap_or_default();
+                    let results: Vec<SearchResult> = pawan::agent::session::search_sessions(arg).unwrap_or_default();
                     if results.is_empty() {
                         self.messages.push(DisplayMessage::new_text(Role::System, format!("No sessions found matching: {}", arg)));
-                                self.messages.push(DisplayMessage::new_text(Role::System, format!("No sessions found matching: {}", arg)));
-                            } else {
-                                let mut output = format!("Found {} session(s) matching '{}':\n", results.len(), arg);
-                                for (i, r) in results.iter().take(10).enumerate() {
-                                    let id_short = r.id.chars().take(8).collect::<String>();
-                                    output.push_str(&format!("\n{}. [{}] {} ({} msgs)\n", i + 1, id_short, r.model, r.message_count));
-                                    if !r.tags.is_empty() {
-                                        output.push_str(&format!("   Tags: {}\n", r.tags.join(", ")));
-                                    }
-                                    for m in r.matches.iter().take(2) {
-                                        let preview = m.preview.chars().take(60).collect::<String>();
-                                        output.push_str(&format!("   [...] {}...\n", preview));
-                                    }
-                                }
-                                if results.len() > 10 {
-                                    output.push_str(&format!("\n... and {} more", results.len() - 10));
-                                }
-self.messages.push(DisplayMessage::new_text(Role::System, output));
+                    } else {
+                        let mut output = format!("Found {} session(s) matching '{}':\n", results.len(), arg);
+                        for (i, r) in results.iter().take(10).enumerate() {
+                            let id_short = r.id.chars().take(8).collect::<String>();
+                            output.push_str(&format!("\n{}. [{}] {} ({} msgs)\n", i + 1, id_short, r.model, r.message_count));
+                            if !r.tags.is_empty() {
+                                output.push_str(&format!("   Tags: {}\n", r.tags.join(", ")));
+                            }
+                            for m in r.matches.iter().take(2) {
+                                let preview = m.preview.chars().take(60).collect::<String>();
+                                output.push_str(&format!("   [...] {}...\n", preview));
+                            }
+                        }
+                        if results.len() > 10 {
+                            output.push_str(&format!("\n... and {} more", results.len() - 10));
+                        }
+                        self.messages.push(DisplayMessage::new_text(Role::System, output));
                     }
                 }
             }
             "/prune" => {
                 // Prune old sessions
-                use pawan::agent::session::Session;
                 let mut max_days: Option<u32> = None;
                 let mut max_sessions: Option<usize> = None;
-                for part in arg.split_whitespace() {
-                    if part.ends_with('d') {
-                        if let Ok(d) = part[..part.len()-1].parse::<u32>() { max_days = Some(d); }
-                    } else if part.ends_with('s') {
-                        if let Ok(s) = part[..part.len()-1].parse::<usize>() { max_sessions = Some(s); }
+                let mut keep_tags = Vec::new();
+
+                let parts: Vec<&str> = arg.split_whitespace().collect();
+                let mut i = 0;
+                while i < parts.len() {
+                    match parts[i] {
+                        "--days" | "-d" if i + 1 < parts.len() => {
+                            if let Ok(d) = parts[i + 1].parse::<u32>() {
+                                max_days = Some(d);
+                            }
+                            i += 2;
+                        }
+                        "--max" | "-m" | "-s" if i + 1 < parts.len() => {
+                            if let Ok(s) = parts[i + 1].parse::<usize>() {
+                                max_sessions = Some(s);
+                            }
+                            i += 2;
+                        }
+                        "--keep" | "-k" if i + 1 < parts.len() => {
+                            keep_tags.push(parts[i + 1].to_string());
+                            i += 2;
+                        }
+                        part => {
+                            if part.ends_with('d') {
+                                if let Ok(d) = part[..part.len() - 1].parse::<u32>() {
+                                    max_days = Some(d);
+                                }
+                            } else if part.ends_with('s') {
+                                if let Ok(s) = part[..part.len() - 1].parse::<usize>() {
+                                    max_sessions = Some(s);
+                                }
+                            }
+                            i += 1;
+                        }
                     }
                 }
-let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: vec![] };
-        match pawan::agent::session::prune_sessions(&policy) {
-            Ok(count) => {
-                let msg = if count > 0 { format!("Pruned {} session(s)", count) } else { "No sessions to prune".to_string() };
-                self.messages.push(DisplayMessage::new_text(Role::System, msg));
-            }
-            Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Prune error: {}", e))),
-        }
+
+                let policy = RetentionPolicy {
+                    max_age_days: max_days,
+                    max_sessions,
+                    keep_tags,
+                };
+                match pawan::agent::session::prune_sessions(&policy) {
+                    Ok(count) => {
+                        let msg = if count > 0 {
+                            format!("Pruned {} session(s)", count)
+                        } else {
+                            "No sessions to prune".to_string()
+                        };
+                        self.messages.push(DisplayMessage::new_text(Role::System, msg));
+                    }
+                    Err(e) => self.messages.push(DisplayMessage::new_text(
+                        Role::System,
+                        format!("Prune error: {}", e),
+                    )),
+                }
             }
             "/tag" => {
                 if arg.is_empty() {
@@ -1173,6 +1285,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
                      /heal          — auto-fix build errors\n
                      /handoff       — generate focused context for new session\n
                      /export [path] — export conversation to markdown\n
+                     /import <path> — import a session from a JSON file\n
                      /clear         — clear chat history\n\
                      /quit          — exit pawan\n\
                      /help          — show this help"));
@@ -1291,7 +1404,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
         });
         for msg in &self.messages {
             let msg_obj = serde_json::json!({
-                "role": format!("{:?}", msg.role),
+                "role": serde_json::to_value(&msg.role).unwrap_or_else(|_| serde_json::json!("user")),
                 "content": msg.text_content(),
                 "tool_calls": msg.tool_records().iter()
                     .map(|tc| serde_json::json!({
@@ -1705,35 +1818,129 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
     }
 
     /// Perform autosave of current conversation
-    fn autosave(&self) {
+    fn autosave(&mut self) {
         // Only autosave if there are messages to save
         if self.messages.is_empty() {
             return;
         }
 
-        // Create session and convert DisplayMessage -> Message
-        let mut session = Session::new(&self.model_name);
-        for dm in &self.messages {
-            let content = dm.text_content();
-            if !content.trim().is_empty() {
-                session.messages.push(Message {
-                    role: dm.role.clone(),
-                    content,
-                    tool_calls: Vec::new(),
-                    tool_result: None,
-                });
+        // Create session with existing ID if available, otherwise new
+        let mut session = if let Some(id) = &self.current_session_id {
+            // Load existing to preserve created_at
+            match Session::load(id) {
+                Ok(mut s) => {
+                    s.model = self.model_name.clone();
+                    s.messages.clear();
+                    s.tags = self.session_tags.clone();
+                    s
+                }
+                Err(_) => Session::new_with_id(id.clone(), &self.model_name, self.session_tags.clone()),
             }
+        } else {
+            Session::new_with_tags(&self.model_name, self.session_tags.clone())
+        };
+
+        // Update current session ID if it was newly generated
+        if self.current_session_id.is_none() {
+            self.current_session_id = Some(session.id.clone());
+        }
+
+        for dm in &self.messages {
+            session.messages.extend(dm.to_pawan_messages());
         }
 
         match session.save() {
-            Ok(path) => {
-                // Optionally log; we cannot modify self in &self
-                eprintln!("Autosaved session to {}", path.display());
+            Ok(_path) => {
+                // Log via status bar since we have &mut self now
+                self.status = format!("Autosaved session: {}", session.id);
             }
-            Err(e) => {
-                eprintln!("Autosave failed: {}", e);
+            Err(_) => {
+                // Silent fail for periodic autosave to avoid interrupting user
             }
         }
+    }
+
+    /// Convert a loaded session's messages into DisplayMessages for the TUI
+    fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
+        let mut display_messages = Vec::new();
+        let mut i = 0;
+        while i < messages.len() {
+            let msg = &messages[i];
+            match msg.role {
+                Role::User | Role::System => {
+                    display_messages.push(DisplayMessage::new_text(msg.role.clone(), &msg.content));
+                    i += 1;
+                }
+                Role::Assistant => {
+                    let mut blocks = Vec::new();
+                    if !msg.content.is_empty() {
+                        blocks.push(ContentBlock::Text {
+                            content: msg.content.clone(),
+                            streaming: false,
+                        });
+                    }
+
+                    // Look for tool calls in this message
+                    for tc in &msg.tool_calls {
+                        // Find the corresponding Tool result in subsequent messages
+                        let mut result = None;
+                        for j in (i + 1)..messages.len() {
+                            let next_msg = &messages[j];
+                            if next_msg.role == Role::Tool {
+                                if let Some(ref tr) = next_msg.tool_result {
+                                    if tr.tool_call_id == tc.id {
+                                        result = Some(tr);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some(tr) = result {
+                            blocks.push(ContentBlock::ToolCall {
+                                name: tc.name.clone(),
+                                args_summary: summarize_args(&tc.arguments),
+                                state: Box::new(ToolBlockState::Done {
+                                    record: ToolCallRecord {
+                                        id: tc.id.clone(),
+                                        name: tc.name.clone(),
+                                        arguments: tc.arguments.clone(),
+                                        result: tr.content.clone(),
+                                        success: tr.success,
+                                        duration_ms: 0,
+                                    },
+                                    expanded: !tr.success,
+                                }),
+                            });
+                        } else {
+                            // No result found
+                            blocks.push(ContentBlock::ToolCall {
+                                name: tc.name.clone(),
+                                args_summary: summarize_args(&tc.arguments),
+                                state: Box::new(ToolBlockState::Running),
+                            });
+                        }
+                    }
+
+                    display_messages.push(DisplayMessage {
+                        role: Role::Assistant,
+                        blocks,
+                        timestamp: std::time::Instant::now(),
+                        cached_block_lines: None,
+                    });
+                    i += 1;
+                    // Skip the tool messages we already processed
+                    while i < messages.len() && messages[i].role == Role::Tool {
+                        i += 1;
+                    }
+                }
+                Role::Tool => {
+                    // Tool messages should have been processed as part of Assistant messages
+                    i += 1;
+                }
+            }
+        }
+        display_messages
     }
 
     fn ui(&self, f: &mut Frame) {
@@ -1846,6 +2053,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             ("/tools", "List available tools"),
             ("/heal", "Auto-fix build errors"),
             ("/export", "Export conversation to markdown"),
+            ("/import", "Import a session from a JSON file"),
             ("/clear", "Clear chat history"),
             ("/quit", "Exit pawan"),
         ];
@@ -1879,6 +2087,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             ("/tools", "List available tools"),
             ("/heal", "Auto-fix build errors"),
             ("/export", "Export conversation to markdown"),
+            ("/import", "Import a session from a JSON file"),
             ("/clear", "Clear chat history"),
             ("/quit", "Exit pawan"),
         ];
@@ -2518,6 +2727,21 @@ async fn agent_task(
                     iterations: 0,
                     usage: pawan::agent::TokenUsage::default(),
                 })));
+            }
+            AgentCommand::LoadSession(id) => {
+                match agent.resume_session(&id) {
+                    Ok(_) => {
+                        let _ = event_tx.send(AgentEvent::Complete(Ok(AgentResponse {
+                            content: format!("Session loaded: {}", id),
+                            tool_calls: vec![],
+                            iterations: 0,
+                            usage: pawan::agent::TokenUsage::default(),
+                        })));
+                    }
+                    Err(e) => {
+                        let _ = event_tx.send(AgentEvent::Complete(Err(e)));
+                    }
+                }
             }
             AgentCommand::Quit => break,
         }
@@ -4537,6 +4761,61 @@ mod tests {
             assert_eq!(app.model_selector_selected, 1);
         }
     }
+
+    #[test]
+    fn test_display_message_to_pawan_messages_text() {
+        let dm = DisplayMessage::new_text(Role::User, "hello");
+        let messages = dm.to_pawan_messages();
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].role, Role::User);
+        assert_eq!(messages[0].content, "hello");
+        assert!(messages[0].tool_calls.is_empty());
+    }
+
+    #[test]
+    fn test_display_message_to_pawan_messages_tool() {
+        let record = ToolCallRecord {
+            id: "call_1".into(),
+            name: "test_tool".into(),
+            arguments: serde_json::json!({"arg": 1}),
+            result: serde_json::json!({"status": "ok"}),
+            success: true,
+            duration_ms: 10,
+        };
+        let dm = DisplayMessage {
+            role: Role::Assistant,
+            blocks: vec![
+                ContentBlock::Text { content: "thinking...".into(), streaming: false },
+                ContentBlock::ToolCall {
+                    name: "test_tool".into(),
+                    args_summary: "arg=1".into(),
+                    state: Box::new(ToolBlockState::Done { record: record.clone(), expanded: false }),
+                }
+            ],
+            timestamp: std::time::Instant::now(),
+            cached_block_lines: None,
+        };
+        
+        let messages = dm.to_pawan_messages();
+        // Should produce 2 messages: Assistant (with tool_calls) and Tool (with result)
+        assert_eq!(messages.len(), 2);
+        
+        assert_eq!(messages[0].role, Role::Assistant);
+        assert_eq!(messages[0].content, "thinking...");
+        assert_eq!(messages[0].tool_calls.len(), 1);
+        assert_eq!(messages[0].tool_calls[0].id, "call_1");
+        
+        assert_eq!(messages[1].role, Role::Tool);
+        assert_eq!(messages[1].tool_result.as_ref().unwrap().tool_call_id, "call_1");
+        assert_eq!(messages[1].tool_result.as_ref().unwrap().content, serde_json::json!({"status": "ok"}));
+    }
+
+    #[test]
+    fn test_display_message_to_pawan_messages_empty_assistant_ignored() {
+        let dm = DisplayMessage::new_text(Role::Assistant, "  ");
+        let messages = dm.to_pawan_messages();
+        assert!(messages.is_empty());
+    }
 }
 
 /// Simple non-TUI interactive mode (fallback)
@@ -4590,3 +4869,4 @@ pub async fn run_simple(mut agent: PawanAgent) -> Result<()> {
 
     Ok(())
 }
+
