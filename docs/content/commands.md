@@ -21,8 +21,12 @@ Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split lay
 | `/tag <cmd>` | | Manage session tags (add/rm/list/clear) |
 | `/tools` | `/t` | List available tools by tier |
 | `/heal` | `/h` | Auto-fix build errors |
+| `/fork` | | Clone current session to a new one |
+| `/dump` | | Copy conversation to clipboard |
+| `/share` | | Export session and print shareable path |
 | `/handoff` | | Generate focused context for new session |
 | `/export [path]` | `/e` | Export conversation to markdown |
+| `/import <path>` | | Import session from JSON file |
 | `/save` | | Save current session |
 | `/load` | | Load a saved session |
 | `/resume` | | Resume a saved session |
