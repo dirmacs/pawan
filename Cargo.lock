@@ -3963,11 +3963,12 @@ checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
 name = "pawan"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "arboard",
  "assert_cmd",
  "atty",
+ "chrono",
  "clap",
  "clap_complete",
  "crossterm 0.28.1",
@@ -3988,12 +3989,13 @@ dependencies = [
  "tokio",
  "toml 0.8.23",
  "tui-textarea",
+ "uuid",
  "which",
 ]
 
 [[package]]
 name = "pawan-aegis"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4004,7 +4006,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-core"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "ares-server",
  "async-trait",
@@ -4044,7 +4046,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-mcp"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -4061,7 +4063,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-web"
-version = "0.3.2"
+version = "0.4.0"
 dependencies = [
  "axum 0.8.8",
  "axum-extra",

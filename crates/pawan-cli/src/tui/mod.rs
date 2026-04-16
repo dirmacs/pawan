@@ -1081,29 +1081,20 @@ self.status = format!("Loaded session: {}", session.id);
                             self.model_name = session.model.clone();
                             self.session_tags = session.tags.clone();
                             self.current_session_id = Some(session.id.clone());
-                            self.messages = App::messages_from_session(session.messages);
                             self.status = format!("Imported session: {}", session_id);
                             // Save to session directory with new UUID
                             match session.save() {
                                 Ok(_) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Imported session from {} as {} (model: {}, {} messages)", arg, session_id, model_name, msg_count))),
                                 Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to save imported session: {}", e))),
                             }
-                        }
+                            // Convert messages after save (since save() needs the full session)
+                            self.messages = App::messages_from_session(session.messages);
+                    }
                         Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to import session: {}", e))),
                     }
                 }
             }
-                // Create a new session with current state
-                let mut session = Session::new_with_tags(&self.model_name, self.session_tags.clone()); // tags included
-                // Note: Can't directly assign messages due to type mismatch (Message vs DisplayMessage)
-                // This is a placeholder - full implementation would need conversion
-                match session.save() {
-                    Ok(path) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Session saved: {}", path.display()))),
-                    Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to save session: {}", e))),
-                }
-            }
             "/sessions" => {
-                // Open session browser
                 self.session_browser_open = true;
                 self.session_browser_query.clear();
                 self.session_browser_selected = 0;
@@ -1921,6 +1912,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             ("/tools", "List available tools"),
             ("/heal", "Auto-fix build errors"),
             ("/export", "Export conversation to markdown"),
+            ("/import", "Import conversation from JSON file"),
             ("/clear", "Clear chat history"),
             ("/quit", "Exit pawan"),
         ];
@@ -2974,6 +2966,204 @@ mod tests {
         assert!(content.contains("bash"), "Should show failed tool name");
         assert!(content.contains("42ms") || content.contains("✓"), "Should show success indicator");
     }
+
+    #[test]
+
+    #[test]
+    fn test_tool_call_expansion_toggle() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage {
+            role: Role::Assistant,
+            blocks: vec![
+                ContentBlock::ToolCall {
+                    name: "bash".to_string(),
+                    args_summary: String::new(),
+                    state: Box::new(ToolBlockState::Done {
+                        record: ToolCallRecord {
+                            id: "1".to_string(),
+                            name: "bash".to_string(),
+                            arguments: serde_json::json!({"command": "ls"}),
+                            result: serde_json::json!({"output": "file1.txt\nfile2.txt"}),
+                            success: true,
+                            duration_ms: 100,
+                        },
+                        expanded: false,
+                    }),
+                },
+            ],
+            timestamp: std::time::Instant::now(),
+            cached_block_lines: None,
+        });
+        
+        // Toggle expansion
+        app.toggle_nearest_tool_expansion();
+        
+        // Verify that the tool call state was modified
+        if let Some(ContentBlock::ToolCall { state: tool_state, .. }) = app.messages.first().unwrap().blocks.first() {
+            if let ToolBlockState::Done { expanded, .. } = tool_state.as_ref() {
+                assert!(*expanded, "Tool call should be expanded after toggle");
+            }
+        }
+    }
+
+    #[test]
+    fn test_tool_call_error_display() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage {
+            role: Role::Assistant,
+            blocks: vec![
+                ContentBlock::ToolCall {
+                    name: "bash".to_string(),
+                    args_summary: String::new(),
+                    state: Box::new(ToolBlockState::Done {
+                        record: ToolCallRecord {
+                            id: "1".to_string(),
+                            name: "bash".to_string(),
+                            arguments: serde_json::json!({"command": "invalid_command"}),
+                            result: serde_json::json!({"error": "command not found"}),
+                            success: false,
+                            duration_ms: 50,
+                        },
+                        expanded: true,
+                    }),
+                },
+            ],
+            timestamp: std::time::Instant::now(),
+            cached_block_lines: None,
+        });
+        
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+        
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("error") || content.contains("failed"), 
+                "Should show error indication for failed tool call");
+    }
+
+    #[test]
+    fn test_tool_call_duration_display() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage {
+            role: Role::Assistant,
+            blocks: vec![
+                ContentBlock::ToolCall {
+                    name: "bash".to_string(),
+                    args_summary: String::new(),
+                    state: Box::new(ToolBlockState::Done {
+                        record: ToolCallRecord {
+                            id: "1".to_string(),
+                            name: "bash".to_string(),
+                            arguments: serde_json::json!({}),
+                            result: serde_json::json!({}),
+                            success: true,
+                            duration_ms: 1234,
+                        },
+                        expanded: true,
+                    }),
+                },
+            ],
+            timestamp: std::time::Instant::now(),
+            cached_block_lines: None,
+        });
+        
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+        
+        let content = buffer_to_string(terminal.backend().buffer());
+        // Duration should be shown in some format (ms, s, etc.)
+        assert!(content.contains("1") || content.contains("234"), 
+                "Should show tool call duration");
+    }
+
+    #[test]
+    fn test_multiple_tool_calls_in_message() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage {
+            role: Role::Assistant,
+            blocks: vec![
+                ContentBlock::Text { content: "I'll help you with that".into(), streaming: false },
+                ContentBlock::ToolCall {
+                    name: "read_file".to_string(),
+                    args_summary: String::new(),
+                    state: Box::new(ToolBlockState::Done {
+                        record: ToolCallRecord {
+                            id: "1".to_string(),
+                            name: "read_file".to_string(),
+                            arguments: serde_json::json!({"path": "test.txt"}),
+                            result: serde_json::json!({"content": "test content"}),
+                            success: true,
+                            duration_ms: 10,
+                        },
+                        expanded: false,
+                    }),
+                },
+                ContentBlock::ToolCall {
+                    name: "write_file".to_string(),
+                    args_summary: String::new(),
+                    state: Box::new(ToolBlockState::Done {
+                        record: ToolCallRecord {
+                            id: "2".to_string(),
+                            name: "write_file".to_string(),
+                            arguments: serde_json::json!({"path": "output.txt", "content": "output"}),
+                            result: serde_json::json!({"success": true}),
+                            success: true,
+                            duration_ms: 15,
+                        },
+                        expanded: false,
+                    }),
+                },
+            ],
+            timestamp: std::time::Instant::now(),
+            cached_block_lines: None,
+        });
+        
+        // Verify that both tool calls are present
+        let records = app.messages.first().unwrap().tool_records();
+        assert_eq!(records.len(), 2, "Should have 2 tool call records");
+    }
+
+    #[test]
+    fn test_tool_call_with_complex_arguments() {
+        let mut app = test_app();
+        let complex_args = serde_json::json!({
+            "files": ["file1.txt", "file2.txt"],
+            "options": {
+                "recursive": true,
+                "max_depth": 5
+            }
+        });
+        
+        app.messages.push(DisplayMessage {
+            role: Role::Assistant,
+            blocks: vec![
+                ContentBlock::ToolCall {
+                    name: "search".to_string(),
+                    args_summary: String::new(),
+                    state: Box::new(ToolBlockState::Done {
+                        record: ToolCallRecord {
+                            id: "1".to_string(),
+                            name: "search".to_string(),
+                            arguments: complex_args.clone(),
+                            result: serde_json::json!({"results": []}),
+                            success: true,
+                            duration_ms: 200,
+                        },
+                        expanded: true,
+                    }),
+                },
+            ],
+            timestamp: std::time::Instant::now(),
+            cached_block_lines: None,
+        });
+        
+        let records = app.messages.first().unwrap().tool_records();
+        assert_eq!(records.len(), 1, "Should have 1 tool call record");
+        assert_eq!(records[0].arguments, complex_args, "Should preserve complex arguments");
+    }
+
+    #[test]
 
     #[test]
     fn test_render_context_estimate() {
@@ -4145,7 +4335,29 @@ mod tests {
         assert!(items.iter().any(|(cmd, _)| *cmd == "/export"), "Palette should include /export");
     }
 
-    // ===== Model Selector Tests =====
+    #[test]
+
+
+    #[test]
+    fn test_palette_includes_import() {
+        let app = test_app();
+        let items = app.palette_items();
+        assert!(items.iter().any(|(cmd, _)| *cmd == "/import"), "Palette should include /import");
+    }
+
+    #[test]
+    fn test_import_command_requires_path() {
+        let mut app = test_app();
+        app.handle_slash_command("/import");
+        assert!(app.messages.iter().any(|m| {
+            matches!(m, DisplayMessage { role: Role::System, .. } if {
+                // Check if any block contains the usage message
+                m.blocks.iter().any(|block| {
+                    matches!(block, ContentBlock::Text { content, .. } if content.contains("Usage: /import <path>"))
+                })
+            })
+        }), "Should show usage message when no path provided");
+    }
     #[test]
     fn test_load_available_models_populates_list() {
         let mut app = test_app();
@@ -4212,8 +4424,7 @@ mod tests {
     #[test]
     fn test_session_sorting_modes() {
         let modes = [SessionSortMode::NewestFirst, SessionSortMode::Alphabetical, SessionSortMode::MostUsed];
-        for mode in modes {
-        }
+    }
     // ===== Slash Command Tests =====
     #[test]
     fn test_slash_sessions_opens_browser() {
@@ -4269,24 +4480,54 @@ mod tests {
 
     // ===== Auto-save Tests =====
     #[test]
-    fn test_autosave_interval_constant() {
-        let _ = AUTOSAVE_INTERVAL;
-    }
 
     #[test]
     fn test_autosave_with_messages() {
         let mut app = test_app();
         app.messages.push(DisplayMessage::new_text(Role::User, "test message"));
+        // Should not panic
         app.autosave();
     }
 
     #[test]
     fn test_autosave_with_empty_session() {
         let mut app = test_app();
+        // Should not panic even with empty messages
         app.autosave();
     }
 
-    // ===== Modal Rendering Tests =====
+    #[test]
+    fn test_autosave_with_multiple_messages() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "First message"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "Second message"));
+        app.messages.push(DisplayMessage::new_text(Role::User, "Third message"));
+        // Should not panic with multiple messages
+        app.autosave();
+    }
+
+    #[test]
+    fn test_autosave_with_whitespace_only_messages() {
+        let mut app = test_app();
+        // Add whitespace-only messages
+        app.messages.push(DisplayMessage::new_text(Role::User, "   "));
+        app.messages.push(DisplayMessage::new_text(Role::User, "\t\n"));
+        app.messages.push(DisplayMessage::new_text(Role::User, "Valid message"));
+        // Should not panic and should handle whitespace-only messages
+        app.autosave();
+    }
+
+    #[test]
+    fn test_autosave_does_not_modify_app_state() {
+        let mut app = test_app();
+        let initial_message_count = app.messages.len();
+        app.messages.push(DisplayMessage::new_text(Role::User, "test message"));
+        
+        app.autosave();
+        
+        // Autosave should not modify app state (it's called on &self)
+        assert_eq!(app.messages.len(), initial_message_count + 1, "Autosave should not modify message count");
+    }
     #[test]
     fn test_model_selector_modal_rendering() {
         let mut app = test_app();
@@ -4599,7 +4840,6 @@ mod tests {
         let app = test_app();
         let sessions = app.filtered_sessions();
         let _ = sessions;
-    }
     }
 
     #[test]

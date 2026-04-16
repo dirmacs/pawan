@@ -27,6 +27,9 @@ pub struct Session {
     /// User-defined tags for this session
     #[serde(default)]
     pub tags: Vec<String>,
+    /// User notes/description for this session
+    #[serde(default)]
+    pub notes: String,
 }
 
 impl Session {
@@ -47,6 +50,7 @@ impl Session {
             total_tokens: 0,
             iteration_count: 0,
             tags,
+            notes: String::new(),
         }
     }
 
@@ -63,6 +67,24 @@ impl Session {
             total_tokens: 0,
             iteration_count: 0,
             tags,
+            notes: String::new(),
+        }
+    }
+
+    /// Create a new session with notes
+    pub fn new_with_notes(model: &str, notes: String) -> Self {
+        let id = uuid::Uuid::new_v4().to_string()[..8].to_string();
+        let now = chrono::Utc::now().to_rfc3339();
+        Self {
+            id,
+            model: model.to_string(),
+            created_at: now.clone(),
+            updated_at: now,
+            messages: Vec::new(),
+            total_tokens: 0,
+            iteration_count: 0,
+            tags: Vec::new(),
+            notes,
         }
     }
 
@@ -189,6 +211,7 @@ impl Session {
                                 updated_at: session.updated_at,
                                 message_count: session.messages.len(),
                                 tags: session.tags,
+                                notes: session.notes,
                             });
                         }
                     }
@@ -212,6 +235,9 @@ pub struct SessionSummary {
     /// User-defined tags for this session
     #[serde(default)]
     pub tags: Vec<String>,
+    /// User notes for this session
+    #[serde(default)]
+    pub notes: String,
 }
 
 #[cfg(test)]
@@ -293,6 +319,7 @@ mod tests {
     #[test]
     fn session_summary_serde_roundtrip() {
         let summary = SessionSummary {
+            notes: String::new(),
             id: "abcdef12".into(),
             model: "qwen3.5".into(),
             created_at: "2026-04-10T12:00:00Z".into(),
@@ -433,6 +460,68 @@ pub struct MessageMatch {
     pub message_index: usize,
     pub role: Role,
     pub preview: String,
+    /// Context before the match (for better preview)
+    #[serde(default)]
+    pub context_before: String,
+    /// Context after the match (for better preview)
+    #[serde(default)]
+    pub context_after: String,
+    /// The actual matched text
+    #[serde(default)]
+    pub matched_text: String,
+}
+
+/// Search options for filtering sessions
+#[derive(Debug, Clone, Default)]
+pub struct SearchOptions {
+    /// Filter by role (None = all roles)
+    pub role_filter: Option<Role>,
+    /// Filter by date range (start date in RFC3339 format)
+    pub date_from: Option<String>,
+    /// Filter by date range (end date in RFC3339 format)
+    pub date_to: Option<String>,
+    /// Maximum number of results per session
+    pub max_matches_per_session: Option<usize>,
+    /// Context window size (characters before/after match)
+    pub context_window: usize,
+}
+
+impl SearchOptions {
+    /// Create new search options with defaults
+    pub fn new() -> Self {
+        Self {
+            role_filter: None,
+            date_from: None,
+            date_to: None,
+            max_matches_per_session: Some(5),
+            context_window: 50,
+        }
+    }
+
+    /// Set role filter
+    pub fn with_role(mut self, role: Role) -> Self {
+        self.role_filter = Some(role);
+        self
+    }
+
+    /// Set date range filter
+    pub fn with_date_range(mut self, from: Option<String>, to: Option<String>) -> Self {
+        self.date_from = from;
+        self.date_to = to;
+        self
+    }
+
+    /// Set max matches per session
+    pub fn with_max_matches(mut self, max: usize) -> Self {
+        self.max_matches_per_session = Some(max);
+        self
+    }
+
+    /// Set context window size
+    pub fn with_context_window(mut self, window: usize) -> Self {
+        self.context_window = window;
+        self
+    }
 }
 
 /// Retention policy for session cleanup
@@ -446,8 +535,8 @@ pub struct RetentionPolicy {
     pub keep_tags: Vec<String>,
 }
 
-/// Search sessions by content query
-pub fn search_sessions(query: &str) -> Result<Vec<SearchResult>> {
+/// Search sessions by content query with options
+pub fn search_sessions_with_options(query: &str, options: &SearchOptions) -> Result<Vec<SearchResult>> {
     let dir = Session::sessions_dir()?;
     let query_lower = query.to_lowercase();
     let mut results = Vec::new();
@@ -458,25 +547,85 @@ pub fn search_sessions(query: &str) -> Result<Vec<SearchResult>> {
             if path.extension().is_some_and(|ext| ext == "json") {
                 if let Ok(content) = std::fs::read_to_string(&path) {
                     if let Ok(session) = serde_json::from_str::<Session>(&content) {
-                        let mut matches = Vec::new();
-                        for (i, msg) in session.messages.iter().enumerate() {
-                            if msg.content.to_lowercase().contains(&query_lower) {
-                                let preview = msg.content.chars().take(100).collect::<String>();
-                                matches.push(MessageMatch {
-                                    message_index: i,
-                                    role: msg.role.clone(),
-                                    preview,
-                                });
+                        // Apply date filter if specified
+                        if let (Some(from), Some(to)) = (&options.date_from, &options.date_to) {
+                            if let Ok(updated) = chrono::DateTime::parse_from_rfc3339(&session.updated_at) {
+                                let updated_utc = updated.with_timezone(&chrono::Utc);
+                                if let (Ok(from_dt), Ok(to_dt)) = (
+                                    chrono::DateTime::parse_from_rfc3339(from),
+                                    chrono::DateTime::parse_from_rfc3339(to)
+                                ) {
+                                    let from_utc = from_dt.with_timezone(&chrono::Utc);
+                                    let to_utc = to_dt.with_timezone(&chrono::Utc);
+                                    if updated_utc < from_utc || updated_utc > to_utc {
+                                        continue; // Skip sessions outside date range
+                                    }
+                                }
                             }
                         }
+                        
+                        let mut matches = Vec::new();
+                        for (i, msg) in session.messages.iter().enumerate() {
+                            // Apply role filter if specified
+                            if let Some(ref role_filter) = options.role_filter {
+                                if &msg.role != role_filter {
+                                    continue;
+                                }
+                            }
+                            
+                            if msg.content.to_lowercase().contains(&query_lower) {
+                                // Find the match position for context extraction
+                                let content_lower = msg.content.to_lowercase();
+                                if let Some(pos) = content_lower.find(&query_lower) {
+                                    let start = if pos >= options.context_window {
+                                        pos - options.context_window
+                                    } else {
+                                        0
+                                    };
+                                    let end = std::cmp::min(
+                                        pos + query.len() + options.context_window,
+                                        msg.content.len()
+                                    );
+                                    
+                                    let context_before = msg.content[start..pos].to_string();
+                                    let matched_text = msg.content[pos..pos + query.len()].to_string();
+                                    let context_after = msg.content[pos + query.len()..end].to_string();
+                                    
+                                    // Create preview with context
+                                    let preview = format!(
+                                        "{}{}{}",
+                                        if start > 0 { "..." } else { "" },
+                                        &msg.content[start..end],
+                                        if end < msg.content.len() { "..." } else { "" }
+                                    );
+                                    
+                                    matches.push(MessageMatch {
+                                        message_index: i,
+                                        role: msg.role.clone(),
+                                        preview,
+                                        context_before,
+                                        context_after,
+                                        matched_text,
+                                    });
+                                }
+                            }
+                        }
+                        
                         if !matches.is_empty() {
+                            // Limit matches per session if specified
+                            let limited_matches = if let Some(max) = options.max_matches_per_session {
+                                matches.into_iter().take(max).collect()
+                            } else {
+                                matches
+                            };
+                            
                             results.push(SearchResult {
                                 id: session.id,
                                 model: session.model,
                                 updated_at: session.updated_at,
                                 message_count: session.messages.len(),
                                 tags: session.tags,
-                                matches,
+                                matches: limited_matches,
                             });
                         }
                     }
@@ -487,6 +636,11 @@ pub fn search_sessions(query: &str) -> Result<Vec<SearchResult>> {
     
     results.sort_by(|a, b| b.matches.len().cmp(&a.matches.len()));
     Ok(results)
+}
+
+/// Search sessions by content query (legacy function for backwards compatibility)
+pub fn search_sessions(query: &str) -> Result<Vec<SearchResult>> {
+    search_sessions_with_options(query, &SearchOptions::new())
 }
 
 /// Prune sessions based on retention policy
@@ -716,5 +870,229 @@ mod search_prune_tests {
         assert_eq!(deleted, 1);
 
         if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+    }
+
+    #[test]
+    fn test_search_options_builder() {
+        let options = SearchOptions::new()
+            .with_role(Role::User)
+            .with_date_range(Some("2026-01-01T00:00:00Z".to_string()), Some("2026-12-31T23:59:59Z".to_string()))
+            .with_max_matches(10)
+            .with_context_window(100);
+        
+        assert_eq!(options.role_filter, Some(Role::User));
+        assert_eq!(options.date_from, Some("2026-01-01T00:00:00Z".to_string()));
+        assert_eq!(options.date_to, Some("2026-12-31T23:59:59Z".to_string()));
+        assert_eq!(options.max_matches_per_session, Some(10));
+        assert_eq!(options.context_window, 100);
+    }
+
+    #[test]
+    fn test_search_sessions_with_role_filter() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        // Create sessions with different roles
+        let mut s1 = Session::new("m1");
+        s1.messages.push(Message {
+            role: Role::User,
+            content: "hello world".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        });
+        s1.messages.push(Message {
+            role: Role::Assistant,
+            content: "hello there".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        });
+        s1.save().unwrap();
+
+        // Search for "hello" with user role filter
+        let options = SearchOptions::new().with_role(Role::User);
+        let results = search_sessions_with_options("hello", &options).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].matches.len(), 1);
+        assert_eq!(results[0].matches[0].role, Role::User);
+
+        // Search for "hello" with assistant role filter
+        let options = SearchOptions::new().with_role(Role::Assistant);
+        let results = search_sessions_with_options("hello", &options).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].matches.len(), 1);
+        assert_eq!(results[0].matches[0].role, Role::Assistant);
+
+        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+    }
+
+    #[test]
+    fn test_search_sessions_context_extraction() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        // Create session with long message
+        let mut s1 = Session::new("m1");
+        s1.messages.push(Message {
+            role: Role::User,
+            content: "This is a long message with the word hello in the middle of the text".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        });
+        s1.save().unwrap();
+
+        // Search with context window
+        let options = SearchOptions::new().with_context_window(10);
+        let results = search_sessions_with_options("hello", &options).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].matches.len(), 1);
+        
+        let match_result = &results[0].matches[0];
+        assert!(!match_result.context_before.is_empty());
+        assert!(!match_result.context_after.is_empty());
+        assert_eq!(match_result.matched_text, "hello");
+        assert!(match_result.preview.contains("hello"));
+
+        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+    }
+
+    #[test]
+    fn test_search_sessions_max_matches_limit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        // Create session with multiple matches
+        let mut s1 = Session::new("m1");
+        for i in 0..10 {
+            s1.messages.push(Message {
+                role: Role::User,
+                content: format!("Message {} with hello text", i),
+                tool_calls: vec![],
+                tool_result: None,
+            });
+        }
+        s1.save().unwrap();
+
+        // Search with max matches limit
+        let options = SearchOptions::new().with_max_matches(3);
+        let results = search_sessions_with_options("hello", &options).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].matches.len(), 3); // Limited to 3
+
+        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+    }
+
+    #[test]
+    fn test_search_sessions_case_insensitive() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        // Create session with mixed case
+        let mut s1 = Session::new("m1");
+        s1.messages.push(Message {
+            role: Role::User,
+            content: "HeLLo WoRLd".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        });
+        s1.save().unwrap();
+
+        // Search with lowercase query
+        let results = search_sessions("hello").unwrap();
+        assert_eq!(results.len(), 1);
+
+        // Search with uppercase query
+        let results = search_sessions("HELLO").unwrap();
+        assert_eq!(results.len(), 1);
+
+        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+    }
+
+    #[test]
+    fn test_session_new_with_tags() {
+        let session = Session::new_with_tags("test-model", vec!["tag1".to_string(), "tag2".to_string()]);
+        assert_eq!(session.tags, vec!["tag1".to_string(), "tag2".to_string()]);
+        assert_eq!(session.model, "test-model");
+    }
+
+    #[test]
+    fn test_session_new_with_notes() {
+        let session = Session::new_with_notes("test-model", "Test notes".to_string());
+        assert_eq!(session.notes, "Test notes");
+        assert_eq!(session.model, "test-model");
+    }
+
+    #[test]
+    fn test_session_add_tag() {
+        let mut session = Session::new("test-model");
+        session.add_tag("tag1").unwrap();
+        assert!(session.tags.contains(&"tag1".to_string()));
+        assert_eq!(session.tags.len(), 1);
+    }
+
+    #[test]
+    fn test_session_remove_tag() {
+        let mut session = Session::new_with_tags("test-model", vec!["tag1".to_string(), "tag2".to_string()]);
+        session.remove_tag("tag1").unwrap();
+        assert!(!session.tags.contains(&"tag1".to_string()));
+        assert!(session.tags.contains(&"tag2".to_string()));
+        assert_eq!(session.tags.len(), 1);
+    }
+
+    #[test]
+    fn test_session_clear_tags() {
+        let mut session = Session::new_with_tags("test-model", vec!["tag1".to_string(), "tag2".to_string()]);
+        session.clear_tags();
+        assert!(session.tags.is_empty());
+    }
+
+    #[test]
+    fn test_session_has_tag() {
+        let session = Session::new_with_tags("test-model", vec!["tag1".to_string(), "tag2".to_string()]);
+        assert!(session.has_tag("tag1"));
+        assert!(session.has_tag("tag2"));
+        assert!(!session.has_tag("tag3"));
+    }
+
+    #[test]
+    fn test_session_save_and_load() {
+        let mut session = Session::new("test-model");
+        session.messages.push(Message {
+            role: Role::User,
+            content: "Test message".to_string(),
+            tool_calls: vec![],
+            tool_result: None,
+        });
+        session.add_tag("test-tag").unwrap();
+        session.notes = "Test notes".to_string();
+
+        let id = session.id.clone();
+        let path = session.save().expect("save must succeed");
+
+        let loaded = Session::load(&id).expect("load must succeed");
+        assert_eq!(loaded.id, id);
+        assert_eq!(loaded.model, "test-model");
+        assert_eq!(loaded.messages.len(), 1);
+        assert_eq!(loaded.messages[0].content, "Test message");
+        assert!(loaded.tags.contains(&"test-tag".to_string()));
+        assert_eq!(loaded.notes, "Test notes");
+
+        // cleanup
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_session_new_with_id() {
+        let session = Session::new_with_id(
+            "custom-id".to_string(),
+            "test-model",
+            vec!["tag1".to_string()]
+        );
+        assert_eq!(session.id, "custom-id");
+        assert_eq!(session.model, "test-model");
+        assert_eq!(session.tags, vec!["tag1".to_string()]);
     }
 }

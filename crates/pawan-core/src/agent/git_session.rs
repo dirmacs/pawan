@@ -291,6 +291,7 @@ mod tests {
 
     fn session(id: &str, msg: &str) -> Session {
         Session {
+            notes: String::new(),
             id: id.into(),
             model: "test-model".into(),
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -398,6 +399,7 @@ mod tests {
     fn test_commit_message_no_user_messages_uses_fallback() {
         // A session with zero messages → "new session" fallback
         let s = Session {
+            notes: String::new(),
             id: "no-msg".into(),
             model: "m".into(),
             created_at: chrono::Utc::now().to_rfc3339(),
