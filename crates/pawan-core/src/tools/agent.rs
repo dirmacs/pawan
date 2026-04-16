@@ -51,6 +51,10 @@ impl Tool for SpawnAgentTool {
          Returns the agent's response as JSON. Use this for parallel or delegated tasks."
     }
 
+    fn mutating(&self) -> bool {
+        true // Spawning agents can mutate state
+    }
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",

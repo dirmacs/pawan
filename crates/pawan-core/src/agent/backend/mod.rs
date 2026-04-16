@@ -5,8 +5,6 @@
 pub mod mock;
 pub mod ollama;
 pub mod openai_compat;
-
-#[cfg(feature = "ares")]
 pub mod ares_backend;
 
 #[cfg(feature = "lancor")]

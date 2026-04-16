@@ -29,6 +29,10 @@ impl Tool for AresTool {
         self.inner.description()
     }
 
+    fn mutating(&self) -> bool {
+        true // Ares tools can potentially mutate state
+    }
+
     fn parameters_schema(&self) -> Value {
         self.inner.parameters_schema()
     }

@@ -639,6 +639,7 @@ core_max_tokens = 1000
         use crate::agent::session::Session;
         let client = ErukaClient::new(ErukaConfig::default());
         let session = Session {
+            notes: String::new(),
             id: "test-123".into(),
             model: "test-model".into(),
             messages: vec![],
@@ -754,6 +755,7 @@ core_max_tokens = 1000
         };
         let client = ErukaClient::new(config);
         let session = Session {
+            notes: String::new(),
             id: "assistant-only".into(),
             model: "m".into(),
             messages: vec![Message {

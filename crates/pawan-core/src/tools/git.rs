@@ -62,6 +62,10 @@ impl Tool for GitStatusTool {
         "Get the current git status showing staged, unstaged, and untracked files."
     }
 
+    fn mutating(&self) -> bool {
+        false // Git status is read-only
+    }
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",

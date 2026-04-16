@@ -16,15 +16,6 @@ path = "src/lib.rs"
 
 [features]
 default = []
-# Enable ares-server integration: LLM backends, tool registry bridge,
-# agent primitives (ToolCoordinator, ConfigurableAgent, loop detection,
-# crash recovery). Adds ~20% compile time but unlocks major code reuse.
-#
-# ares-server 0.7.5 is on crates.io as of 2026-04-11. Pawan pulls the
-# lean feature set (openai + ollama, no postgres/sqlx compile-time macros,
-# no mcp coupling). Version pinned via workspace dependency table.
-ares = ["dep:ares-server"]
-
 # Enable the lancor LLM backend for local inference via llama.cpp.
 # Adds the `lancor` HTTP client + server orchestration crate. Tool calling
 # is NOT supported by this backend (lancor's chat client is text-only); for
@@ -90,10 +81,10 @@ thulp-query = { workspace = true }
 thulpoff-core = { workspace = true }
 thulpoff-engine = { workspace = true }
 
-# Ares — composable LLM backends + tool coordination (optional, feature-gated)
+# Ares — composable LLM backends + tool coordination (REQUIRED)
 # Renamed to `ares` so existing bridge code (ares_backend.rs, ares_bridge.rs)
 # can use `ares::llm::...` etc. without changes.
-ares-server = { workspace = true, optional = true }
+ares-server = { workspace = true }
 
 # Lancor — llama.cpp toolkit for local inference (optional, feature-gated)
 lancor = { workspace = true, optional = true }

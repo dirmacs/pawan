@@ -36,6 +36,10 @@ impl Tool for EditFileTool {
          Fails if old_string is not found or appears more than once (use replace_all for the latter)."
     }
 
+    fn mutating(&self) -> bool {
+        true // Editing files mutates state
+    }
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",
