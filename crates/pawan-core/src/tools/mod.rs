@@ -16,8 +16,6 @@ pub mod file;
 pub mod git;
 pub mod native;
 pub mod search;
-
-#[cfg(feature = "ares")]
 pub mod ares_bridge;
 
 use async_trait::async_trait;
@@ -42,13 +40,19 @@ pub trait Tool: Send + Sync {
     /// Returns a description of what this tool does
     fn description(&self) -> &str;
 
+    /// Returns whether this tool mutates state (writes files, runs commands, etc.)
+    ///
+    /// Read-only tools (mutating = false) are auto-approved.
+    /// Mutating tools (mutating = true) require user confirmation.
+    fn mutating(&self) -> bool {
+        false // Default to read-only for safety
+    }
+
     /// Returns the JSON schema for this tool's parameters
     fn parameters_schema(&self) -> Value;
 
     /// Executes the tool with the given arguments
     async fn execute(&self, args: Value) -> crate::Result<Value>;
-
-    /// Returns a thulp-core ToolDefinition with typed parameters for validation.
     /// Override in tools that use Parameter::builder() for rich validation.
     /// Default: parses JSON schema back into thulp Parameters (best-effort).
     fn thulp_definition(&self) -> thulp_core::ToolDefinition {

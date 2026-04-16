@@ -326,8 +326,7 @@ impl PawanAgent {
             );
         }
 
-        // Try ares backend first if requested and feature is available
-        #[cfg(feature = "ares")]
+        // Try ares backend first if requested
         if config.use_ares_backend {
             if let Some(backend) = Self::try_create_ares_backend(config, system_prompt) {
                 return backend;
@@ -432,7 +431,6 @@ impl PawanAgent {
     /// Returns `None` if the provider isn't supported by ares or required
     /// credentials are missing — the caller should fall back to pawan's
     /// native backend.
-    #[cfg(feature = "ares")]
     fn try_create_ares_backend(
         config: &PawanConfig,
         system_prompt: &str,
@@ -1188,6 +1186,57 @@ impl PawanAgent {
                 }
 
                 let start = std::time::Instant::now();
+
+                // Check permission for mutating tools
+                let tool = self.tools.get(&tool_call.name);
+                let is_mutating = tool.map(|t| t.mutating()).unwrap_or(false);
+                if is_mutating {
+                    if let Some(ref callback) = on_permission {
+                        let args_summary = summarize_args(&tool_call.arguments);
+                        let request = PermissionRequest {
+                            tool_name: tool_call.name.clone(),
+                            args_summary,
+                        };
+                        let permission_rx = (callback)(request);
+                        match permission_rx.await {
+                            Ok(true) => {
+                                // Permission granted, continue with execution
+                            }
+                            Ok(false) => {
+                                // Permission denied, skip this tool call
+                                tracing::info!(tool = tool_call.name.as_str(), "Tool execution denied by user");
+                                let record = ToolCallRecord {
+                                    id: tool_call.id.clone(),
+                                    name: tool_call.name.clone(),
+                                    arguments: tool_call.arguments.clone(),
+                                    result: json!({"error": "Tool execution denied by user", "tool": tool_call.name}),
+                                    success: false,
+                                    duration_ms: 0,
+                                };
+                                if let Some(ref callback) = on_tool {
+                                    callback(&record);
+                                }
+                                continue;
+                            }
+                            Err(_) => {
+                                let record = ToolCallRecord {
+                                    id: tool_call.id.clone(),
+                                    name: tool_call.name.clone(),
+                                    arguments: tool_call.arguments.clone(),
+                                    result: json!({"error": "Permission channel closed", "tool": tool_call.name}),
+                                    success: false,
+                                    duration_ms: 0,
+                                };
+                                if let Some(ref callback) = on_tool {
+                                    callback(&record);
+                                }
+                                continue;
+                            }
+                        }
+                    } else {
+                        tracing::warn!(tool = tool_call.name.as_str(), "No permission callback, auto-approving mutating tool");
+                    }
+                }
 
                 // Resilient tool execution: catch panics + errors
                 let result = {
@@ -2200,5 +2249,53 @@ mod tests {
 
         let result = agent.execute_with_all_callbacks("test", None, None, None, None).await;
         assert!(result.is_ok());
+    }
+}
+/// Summarize tool arguments for permission requests
+fn summarize_args(args: &serde_json::Value) -> String {
+    match args {
+        serde_json::Value::Object(map) => {
+            let mut parts = Vec::new();
+            for (key, value) in map {
+                let value_str = match value {
+                    serde_json::Value::String(s) if s.len() > 50 => {
+                        format!("\"{}...\"", &s[..47])
+                    }
+                    serde_json::Value::String(s) => format!("\"{}\"", s),
+                    serde_json::Value::Array(arr) if arr.len() > 3 => {
+                        format!("[... {} items]", arr.len())
+                    }
+                    serde_json::Value::Array(arr) => {
+                        let items: Vec<String> = arr.iter().take(3).map(|v| {
+                            match v {
+                                serde_json::Value::String(s) => {
+                                    if s.len() > 20 {
+                                        format!("\"{}...\"", &s[..17])
+                                    } else {
+                                        format!("\"{}\"", s)
+                                    }
+                                }
+                                _ => v.to_string(),
+                            }
+                        }).collect();
+                        format!("[{}]", items.join(", "))
+                    }
+                    _ => value.to_string(),
+                };
+                parts.push(format!("{}: {}", key, value_str));
+            }
+            parts.join(", ")
+        }
+        serde_json::Value::String(s) => {
+            if s.len() > 100 {
+                format!("\"{}...\"", &s[..97])
+            } else {
+                format!("\"{}\"", s)
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            format!("[{} items]", arr.len())
+        }
+        _ => args.to_string(),
     }
 }
