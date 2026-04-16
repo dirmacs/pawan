@@ -197,6 +197,10 @@ impl Tool for BashTool {
          Include a 'description' parameter explaining what the command does."
     }
 
+    fn mutating(&self) -> bool {
+        true // Bash commands can mutate state
+    }
+
     fn parameters_schema(&self) -> Value {
         json!({
             "type": "object",

@@ -462,6 +462,7 @@ mod tests {
 
     fn make_test_session() -> Session {
         Session {
+            notes: String::new(),
             id: "test-123".to_string(),
             model: "test-model".to_string(),
             created_at: "2025-01-01T00:00:00Z".to_string(),
@@ -626,6 +627,7 @@ mod tests {
     #[test]
     fn test_not_distillable_no_tools() {
         let session = Session {
+            notes: String::new(),
             id: "empty".to_string(),
             model: "m".to_string(),
             created_at: "now".to_string(),
@@ -710,6 +712,7 @@ mod tests {
         // Even with a tool call, a session with <4 messages is not worth
         // distilling — you can't learn a pattern from one round trip.
         let session = Session {
+            notes: String::new(),
             id: "short".into(),
             model: "m".into(),
             created_at: "now".into(),
@@ -755,6 +758,7 @@ mod tests {
         // A session that somehow has no user message (system-only prompt)
         // must still produce a TeacherSession — just with a placeholder task.
         let session = Session {
+            notes: String::new(),
             id: "no-user".into(),
             model: "m".into(),
             created_at: "now".into(),
@@ -857,6 +861,7 @@ mod tests {
         // An empty session (0 messages) must fail all 3 checks: no user,
         // no tool calls, not enough messages
         let session = Session {
+            notes: String::new(),
             id: "empty".into(),
             model: "m".into(),
             created_at: "t".into(),
@@ -878,6 +883,7 @@ mod tests {
         // just the tool_calls + message count. Missing user intent means
         // there's nothing meaningful to distill even if tools ran.
         let session = Session {
+            notes: String::new(),
             id: "no-user".into(),
             model: "m".into(),
             created_at: "t".into(),
@@ -927,6 +933,7 @@ mod tests {
         // Multiple assistant messages with tool calls — session_to_teacher
         // must flatten them all into a single Vec<ToffToolCall>.
         let session = Session {
+            notes: String::new(),
             id: "multi".into(),
             model: "test-model".into(),
             created_at: "t".into(),
@@ -994,6 +1001,7 @@ mod tests {
         // The teacher session must carry the source model forward so the
         // distiller can log which model produced the trajectory.
         let session = Session {
+            notes: String::new(),
             id: "m".into(),
             model: "qwen3.5-122b-exotic-variant".into(),
             created_at: "t".into(),
