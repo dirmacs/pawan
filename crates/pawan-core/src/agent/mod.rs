@@ -21,6 +21,7 @@ pub use events::{
 
 use crate::config::{LlmProvider, PawanConfig};
 use crate::coordinator::{CoordinatorResult, ToolCallingConfig, ToolCoordinator};
+use crate::credentials;
 use crate::tools::{ToolDefinition, ToolRegistry};
 use crate::{PawanError, Result};
 use backend::openai_compat::{OpenAiCompatBackend, OpenAiCompatConfig};
@@ -202,7 +203,7 @@ pub struct PawanAgent {
 /// Probe whether a local inference server is reachable at `url`.
 ///
 /// Parses `host:port` from the URL and attempts a TCP connect with a 100 ms
-/// timeout.  Returns `true` if the port is open, `false` on any error.
+/// timeout. Returns `true` if the port is open, `false` on any error.
 /// This is intentionally cheap (no HTTP round-trip) so it can run at agent
 /// startup without perceptible latency.
 fn probe_local_endpoint(url: &str) -> bool {
@@ -236,6 +237,114 @@ fn probe_local_endpoint(url: &str) -> bool {
     };
 
     TcpStream::connect_timeout(&socket_addr, Duration::from_millis(100)).is_ok()
+}
+
+/// Retrieve an API key with fallback chain:
+/// 1. Environment variable
+/// 2. Secure credential store
+/// 3. Return None (caller should prompt user)
+///
+/// If the key is found in the secure store, it's also set as an env var
+/// for subsequent calls.
+fn get_api_key_with_secure_fallback(env_var: &str, key_name: &str) -> Option<String> {
+    // First, check environment variable
+    if let Ok(key) = std::env::var(env_var) {
+        return Some(key);
+    }
+
+    // Second, try secure credential store
+    match credentials::get_api_key(key_name) {
+        Ok(Some(key)) => {
+            // Cache in env var for subsequent calls
+            std::env::set_var(env_var, &key);
+            Some(key)
+        }
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!("Failed to retrieve {} from secure store: {}", key_name, e);
+            None
+        }
+    }
+}
+
+/// Prompt user to enter an API key and store it securely.
+///
+/// This function:
+/// 1. Prompts the user to enter the API key
+/// 2. Stores it in the secure credential store
+/// 3. Sets it as an environment variable for the current session
+///
+/// Returns the entered key on success, or None if the user cancels.
+fn prompt_and_store_api_key(env_var: &str, key_name: &str, provider: &str) -> Option<String> {
+    eprintln!("\n🔑 {} API key not found.", provider);
+    eprintln!("You can set it via:");
+    eprintln!("  - Environment variable: export {}=<your-key>", env_var);
+    eprintln!("  - Interactive entry (recommended for security)");
+    eprintln!("\nEnter your {} API key:", provider);
+    eprintln!("  (Your key will be stored securely in the OS credential store)\n");
+
+    // Read input securely (no echo)
+    #[cfg(unix)]
+    let key = {
+        use std::io::{self, Write};
+        
+        // Use termios to disable echo on Unix
+        let mut stdout = io::stdout();
+        stdout.flush().ok();
+        
+        // Read password without echo
+        rpassword::prompt_password("> ").ok()
+    };
+
+    #[cfg(windows)]
+    let key = {
+        use std::io::{self, Write};
+        
+        let mut stdout = io::stdout();
+        stdout.flush().ok();
+        
+        // On Windows, use a simple prompt (rpassword handles this)
+        rpassword::prompt_password("> ").ok()
+    };
+
+    #[cfg(not(any(unix, windows)))]
+    let key = {
+        use std::io::{self, Write, BufRead};
+        
+        let mut stdout = io::stdout();
+        let mut stdin = io::stdin();
+        stdout.flush().ok();
+        print!("> ");
+        stdout.flush().ok();
+        
+        let mut input = String::new();
+        stdin.lock().read_line(&mut input).ok();
+        Some(input.trim().to_string())
+    };
+
+    match key {
+        Some(k) if !k.trim().is_empty() => {
+            let key = k.trim().to_string();
+            
+            // Store in secure credential store
+            match credentials::store_api_key(key_name, &key) {
+                Ok(()) => {
+                    tracing::info!("{} API key stored securely", provider);
+                    std::env::set_var(env_var, &key);
+                    Some(key)
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to store key securely: {}. Using session-only.", e);
+                    std::env::set_var(env_var, &key);
+                    Some(key)
+                }
+            }
+        }
+        _ => {
+            eprintln!("\n⚠️  No key entered. {} will not work until a key is set.", provider);
+            None
+        }
+    }
 }
 
 /// Load per-turn architecture context from `<workspace_root>/.pawan/arch.md`.
@@ -348,33 +457,50 @@ impl PawanAgent {
         }
 
         match config.provider {
-            LlmProvider::Nvidia | LlmProvider::OpenAI | LlmProvider::Mlx => {
-                let (api_url, api_key) = match config.provider {
-                    LlmProvider::Nvidia => {
-                        let url = std::env::var("NVIDIA_API_URL")
-                            .unwrap_or_else(|_| crate::DEFAULT_NVIDIA_API_URL.to_string());
-                        let key = std::env::var("NVIDIA_API_KEY").ok();
-                        if key.is_none() {
-                            tracing::warn!("NVIDIA_API_KEY not set. Add it to .env or export it.");
-                        }
-                        (url, key)
-                    },
-                    LlmProvider::OpenAI => {
-                        let url = config.base_url.clone()
-                            .or_else(|| std::env::var("OPENAI_API_URL").ok())
-                            .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
-                        let key = std::env::var("OPENAI_API_KEY").ok();
-                        (url, key)
-                    },
-                    LlmProvider::Mlx => {
-                        // MLX LM server — Apple Silicon native, always local
-                        let url = config.base_url.clone()
-                            .unwrap_or_else(|| "http://localhost:8080/v1".to_string());
-                        tracing::info!(url = %url, "Using MLX LM server (Apple Silicon native)");
-                        (url, None) // mlx_lm.server requires no API key
-                    },
-                    _ => unreachable!(),
-                };
+        LlmProvider::Nvidia | LlmProvider::OpenAI | LlmProvider::Mlx => {
+            let (api_url, api_key) = match config.provider {
+                LlmProvider::Nvidia => {
+                    let url = std::env::var("NVIDIA_API_URL")
+                        .unwrap_or_else(|_| crate::DEFAULT_NVIDIA_API_URL.to_string());
+                    
+                    // Try to get key from env or secure store
+                    let key = get_api_key_with_secure_fallback("NVIDIA_API_KEY", "nvidia_api_key");
+                    
+                    // If no key found, prompt user
+                    let key = if key.is_none() {
+                        prompt_and_store_api_key("NVIDIA_API_KEY", "nvidia_api_key", "NVIDIA")
+                    } else {
+                        key
+                    };
+                    
+                    if key.is_none() {
+                        tracing::warn!("NVIDIA_API_KEY not set. Model calls will fail until a key is provided.");
+                    }
+                    (url, key)
+                },
+                LlmProvider::OpenAI => {
+                    let url = config.base_url.clone()
+                        .or_else(|| std::env::var("OPENAI_API_URL").ok())
+                        .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+                    
+                    let key = get_api_key_with_secure_fallback("OPENAI_API_KEY", "openai_api_key");
+                    let key = if key.is_none() {
+                        prompt_and_store_api_key("OPENAI_API_KEY", "openai_api_key", "OpenAI")
+                    } else {
+                        key
+                    };
+                    
+                    (url, key)
+                },
+                LlmProvider::Mlx => {
+                    // MLX LM server — Apple Silicon native, always local
+                    let url = config.base_url.clone()
+                        .unwrap_or_else(|| "http://localhost:8080/v1".to_string());
+                    tracing::info!(url = %url, "Using MLX LM server (Apple Silicon native)");
+                    (url, None) // mlx_lm.server requires no API key
+                },
+                _ => unreachable!(),
+            };
                 
                 // Build cloud fallback if configured
                 let cloud = config.cloud.as_ref().map(|c| {
@@ -382,13 +508,13 @@ impl PawanAgent {
                         LlmProvider::Nvidia => {
                             let url = std::env::var("NVIDIA_API_URL")
                                 .unwrap_or_else(|_| crate::DEFAULT_NVIDIA_API_URL.to_string());
-                            let key = std::env::var("NVIDIA_API_KEY").ok();
+                            let key = get_api_key_with_secure_fallback("NVIDIA_API_KEY", "nvidia_api_key");
                             (url, key)
                         },
                         LlmProvider::OpenAI => {
                             let url = std::env::var("OPENAI_API_URL")
                                 .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
-                            let key = std::env::var("OPENAI_API_KEY").ok();
+                            let key = get_api_key_with_secure_fallback("OPENAI_API_KEY", "openai_api_key");
                             (url, key)
                         },
                         LlmProvider::Mlx => {

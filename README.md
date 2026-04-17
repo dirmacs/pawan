@@ -72,6 +72,10 @@ cargo install --path crates/pawan-cli
 export NVIDIA_API_KEY=nvapi-...
 pawan
 
+# Or run interactively - pawan will prompt you to enter your key securely
+# and store it in your OS credential store (Keychain, Credential Manager, libsecret)
+pawan
+
 # Local MLX on Mac (no key needed, $0 inference)
 # Start mlx_lm.server, then:
 PAWAN_PROVIDER=mlx pawan
@@ -82,6 +86,15 @@ PAWAN_PROVIDER=ollama PAWAN_MODEL=llama3.2 pawan
 # Local llama.cpp via lancor (feature-gated, compile with --features lancor)
 PAWAN_PROVIDER=lancor PAWAN_MODEL=./model.gguf pawan
 ```
+
+### Secure Credential Storage
+
+Pawan automatically stores your API keys in the OS-native secure credential store:
+- **macOS**: Keychain
+- **Windows**: Credential Manager  
+- **Linux**: libsecret or KWallet
+
+Your keys are never stored in plaintext files. They're encrypted and managed by your operating system. When you first run pawan without an API key set, it will prompt you to enter one interactively (input is hidden) and offer to store it securely.
 
 ## What it does
 
