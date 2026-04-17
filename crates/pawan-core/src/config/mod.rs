@@ -303,6 +303,12 @@ pub struct PawanConfig {
     /// and unified multi-provider support. Default: false (backwards compatible).
     #[serde(default)]
     pub use_ares_backend: bool,
+    /// Use the ToolCoordinator for tool-calling loops instead of pawan's
+    /// built-in implementation. When true, delegates tool execution to the
+    /// coordinator which provides parallel execution, timeouts, and consistent
+    /// error handling. Default: false (backwards compatible).
+    #[serde(default)]
+    pub use_coordinator: bool,
 
     /// Optional path to a skills repository (directory of SKILL.md files).
     ///
@@ -489,6 +495,7 @@ impl Default for PawanConfig {
             models: ModelRouting::default(),
             eruka: crate::eruka_bridge::ErukaConfig::default(),
             use_ares_backend: false,
+            use_coordinator: false,
             skills_repo: None,
             local_first: false,
             local_endpoint: None,

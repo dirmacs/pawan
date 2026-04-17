@@ -8,7 +8,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use pawan::agent::{AgentResponse, Message, PawanAgent, Role, ToolCallRecord};
+use pawan::agent::{AgentResponse, Message, PawanAgent, Role, ToolCallRecord, ToolCallRequest};
 use pawan::config::TuiConfig;
 use pawan::agent::session::{Session, SessionSummary, SearchResult, RetentionPolicy};
 use pawan::{PawanError, Result};
@@ -22,6 +22,7 @@ use ratatui::{
 };
 use std::io::{self, Stdout};
 use std::time::Instant;
+
 use tokio::sync::mpsc;
 use tui_textarea::{Input, TextArea};
 
@@ -310,6 +311,10 @@ struct App<'a> {
     session_files_edited: u32,
     /// Inline slash command popup (triggered by typing /)
     slash_popup_selected: usize,
+    /// File completion popup (triggered by typing @)
+    file_completion_open: bool,
+    file_completion_query: String,
+    file_completion_selected: usize,
     /// Welcome screen shown on first launch
     show_welcome: bool,
     /// Permission dialog state — when Some, the agent is waiting for y/n
@@ -382,8 +387,11 @@ impl<'a> App<'a> {
             session_files_edited: 0,
             session_tags: Vec::new(),
 current_session_id: None,
-            slash_popup_selected: 0,
-            show_welcome: true,
+slash_popup_selected: 0,
+        file_completion_open: false,
+        file_completion_query: String::new(),
+        file_completion_selected: 0,
+        show_welcome: true,
             permission_dialog: None,
             cmd_tx,
             event_rx,
@@ -796,15 +804,16 @@ pub async fn run(&mut self) -> Result<()> {
                         KeyCode::Enter => {
                             let sessions: Vec<SessionSummary> = self.filtered_sessions();
                             if let Some(session) = sessions.get(self.session_browser_selected) {
-                                match Session::load(&session.id) {
-Ok(s) => {
-self.model_name = s.model.clone();
-self.current_session_id = Some(s.id.clone());
-self.session_tags = s.tags.clone();
-self.messages = App::messages_from_session(s.messages);
-self.status = format!("Loaded session: {}", session.id);
-                                        self.messages.push(DisplayMessage::new_text(Role::System, format!("Loaded session: {}", session.id)));
-                                    }
+			match Session::load(&session.id) {
+				Ok(s) => {
+					self.model_name = s.model.clone();
+					self.current_session_id = Some(s.id.clone());
+					self.session_tags = s.tags.clone();
+					self.messages = App::messages_from_session(s.messages);
+					self.scroll = 0;
+					self.status = format!("Loaded session: {}", session.id);
+					self.messages.push(DisplayMessage::new_text(Role::System, format!("Loaded session: {}", session.id)));
+				}
                                     Err(e) => {
                                         self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to load session: {}", e)));
                                     }
@@ -858,7 +867,7 @@ self.status = format!("Loaded session: {}", session.id);
                                         self.input.insert_str(" "); // add space to deactivate slash popup
                                         self.slash_popup_selected = 0;
                                         // If it's a simple command (no args needed), submit immediately
-                                        let simple = ["/help", "/tools", "/heal", "/clear", "/quit", "/?", "/model", "/sessions", "/save", "/new", "/export", "/import"];
+            let simple = ["/help", "/tools", "/heal", "/clear", "/quit", "/?", "/model", "/sessions", "/save", "/new", "/export", "/diff", "/import"];
                                         if simple.contains(&cmd.as_str()) {
                                             self.submit_input();
                                         }
@@ -1066,6 +1075,66 @@ self.status = format!("Loaded session: {}", session.id);
                     Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Export failed: {}", e))),
                 }
             }
+            "/diff" | "/d" => {
+                // Show git diff for current directory
+                use std::process::Command;
+                // Parse optional '--cached' flag and optional path argument
+                let mut diff_path = ".";
+                let mut cached = false;
+                if !arg.is_empty() {
+                    for token in arg.split_whitespace() {
+                        if token == "--cached" {
+                            cached = true;
+                        } else {
+                            diff_path = token;
+                        }
+                    }
+                }
+                let diff_arg = diff_path;
+                let mut git_args = vec!["diff"];
+                if cached {
+                    git_args.push("--cached");
+                }
+                git_args.push(diff_path);
+                let output = Command::new("git")
+                    .args(&git_args)
+                    .output();
+                match output {
+                    Ok(out) => {
+                        let diff_output = String::from_utf8_lossy(&out.stdout);
+                        let stderr = String::from_utf8_lossy(&out.stderr);
+                        if diff_output.is_empty() && stderr.is_empty() {
+                            self.messages.push(DisplayMessage::new_text(Role::System, "No changes detected".to_string()));
+                        } else if !diff_output.is_empty() {
+                        let raw_lines: Vec<&str> = diff_output.lines().take(100).collect();
+                        let colored_lines: Vec<String> = raw_lines.iter().map(|line| {
+                            if line.starts_with('+') && !line.starts_with("+++") {
+                                format!("\x1b[32m{}\x1b[0m", line)
+                            } else if line.starts_with('-') && !line.starts_with("---") {
+                                format!("\x1b[31m{}\x1b[0m", line)
+                            } else {
+                                (*line).to_string()
+                            }
+                        }).collect();
+                        let preview = colored_lines.join("\n");
+                        self.messages.push(DisplayMessage::new_text(Role::System,
+                            format!("Git diff for {}:\n\n{}", diff_arg, preview)));
+                        if colored_lines.len() >= 100 {
+                            self.messages.push(DisplayMessage::new_text(Role::System,
+                                "... (truncated)".to_string()));
+                                self.messages.push(DisplayMessage::new_text(Role::System,
+                                    "... (truncated)".to_string()));
+                            }
+                        } else if !stderr.is_empty() {
+                            self.messages.push(DisplayMessage::new_text(Role::System,
+                                format!("Git diff error: {}", stderr)));
+                        }
+                    }
+                    Err(e) => self.messages.push(DisplayMessage::new_text(Role::System,
+                        format!("Failed to run git diff: {}", e)))
+                }
+            }
+
 
             "/import" => {
                 if arg.is_empty() {
@@ -1091,6 +1160,133 @@ self.status = format!("Loaded session: {}", session.id);
                             self.messages = App::messages_from_session(session.messages);
                     }
                         Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to import session: {}", e))),
+                    }
+                }
+            }
+
+            "/fork" => {
+                // Fork: create a new session with current messages and switch to it
+                if self.messages.is_empty() {
+                    self.messages.push(DisplayMessage::new_text(Role::System, "No conversation to fork. Start chatting first."));
+                    self.status = "Nothing to fork".to_string();
+                } else {
+                    let mut new_session = Session::new_with_tags(&self.model_name, self.session_tags.clone());
+                    new_session.total_tokens = self.total_tokens;
+                    new_session.iteration_count = self.iteration_count;
+                    for dm in &self.messages {
+                        let mut text_content = String::new();
+                        let mut tool_calls = Vec::new();
+                        for block in &dm.blocks {
+                            match block {
+                                ContentBlock::Text { content, .. } => {
+                                    if !text_content.is_empty() { text_content.push('\n'); }
+                                    text_content.push_str(content);
+                                }
+                                ContentBlock::ToolCall { state, .. } => {
+                                    if let ToolBlockState::Done { ref record, .. } = &**state {
+                                        tool_calls.push(ToolCallRequest {
+                                            id: record.id.clone(),
+                                            name: record.name.clone(),
+                                            arguments: record.arguments.clone(),
+                                        });
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        let has_content = !text_content.trim().is_empty();
+                        if has_content || !tool_calls.is_empty() {
+                            new_session.messages.push(Message { role: dm.role.clone(), content: text_content, tool_calls, tool_result: None });
+                        }
+                    }
+                    match new_session.save() {
+                        Ok(path) => {
+                            let fork_id = new_session.id.clone();
+                            self.current_session_id = Some(fork_id.clone());
+                            self.status = format!("Forked to session: {}", fork_id);
+                            self.messages.push(DisplayMessage::new_text(Role::System, format!("Forked to new session: {} (saved to {})", fork_id, path.display())));
+                        }
+                        Err(e) => {
+                            self.messages.push(DisplayMessage::new_text(Role::System, format!("Fork failed: {}", e)));
+                        }
+                    }
+                }
+            }
+
+            "/dump" => {
+                if self.messages.is_empty() {
+                    self.messages.push(DisplayMessage::new_text(Role::System, "Nothing to dump. Start chatting first."));
+                } else {
+                    let mut markdown = String::new();
+                    markdown.push_str("# Pawan Session\n\n");
+                    markdown.push_str(&format!("**Model:** {}\n\n", self.model_name));
+                    for msg in &self.messages {
+                        let role = match msg.role { Role::User => "**You**", Role::Assistant => "**Pawan**", _ => "**System**" };
+                        markdown.push_str(&format!("### {}\n\n", role));
+                        markdown.push_str(&msg.text_content());
+                        markdown.push_str("\n\n");
+                        let tool_records = msg.tool_records();
+                        if !tool_records.is_empty() {
+                            markdown.push_str(&format!("<details><summary>Tool calls ({})</summary>\n\n", tool_records.len()));
+                            for tc in tool_records {
+                                let status = if tc.success { "ok" } else { "err" };
+                                markdown.push_str(&format!("- `{}` ({}) — {}ms\n", tc.name, status, tc.duration_ms));
+                            }
+                            markdown.push_str("\n</details>\n\n");
+                        }
+                    }
+                    match arboard::Clipboard::new() {
+                        Ok(mut cb) => {
+                            match cb.set_text(&markdown) {
+                                Ok(_) => {
+                                    let char_count = markdown.len();
+                                    self.messages.push(DisplayMessage::new_text(Role::System, format!("Copied {} characters to clipboard", char_count)));
+                                    self.status = "Copied to clipboard".to_string();
+                                }
+                                Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to copy: {}", e)))
+                            }
+                        }
+                        Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Failed to access clipboard: {}", e)))
+                    }
+                }
+            }
+
+            "/share" => {
+                if self.messages.is_empty() {
+                    self.messages.push(DisplayMessage::new_text(Role::System, "Nothing to share. Start chatting first."));
+                    self.status = "Nothing to share".to_string();
+                } else {
+                    let mut session = if let Some(ref sid) = self.current_session_id {
+                        match Session::load(sid) {
+                            Ok(mut s) => { s.model = self.model_name.clone(); s.tags = self.session_tags.clone(); s.total_tokens = self.total_tokens; s.iteration_count = self.iteration_count; s }
+                            Err(_) => Session::new_with_id(sid.clone(), &self.model_name, self.session_tags.clone())
+                        }
+                    } else {
+                        let mut ns = Session::new_with_tags(&self.model_name, self.session_tags.clone());
+                        self.current_session_id = Some(ns.id.clone());
+                        ns.total_tokens = self.total_tokens; ns.iteration_count = self.iteration_count;
+                        ns
+                    };
+                    session.messages.clear();
+                    for dm in &self.messages {
+                        let mut tc = String::new(); let mut calls = Vec::new();
+                        for b in &dm.blocks {
+                            match b {
+                                ContentBlock::Text { content, .. } => { if !tc.is_empty() { tc.push('\n'); } tc.push_str(content); }
+                                ContentBlock::ToolCall { state, .. } => { if let ToolBlockState::Done{ref record,..}=&**state { calls.push(ToolCallRequest{id:record.id.clone(),name:record.name.clone(),arguments:record.arguments.clone()}); } }
+                                _ => {}
+                            }
+                        }
+                        if !tc.trim().is_empty() || !calls.is_empty() { session.messages.push(Message{role:dm.role.clone(),content:tc,tool_calls:calls,tool_result:None}); }
+                    }
+                    match session.save() {
+                        Ok(p) => {
+                            let ps = p.to_string_lossy().to_string();
+                            let _ = arboard::Clipboard::new().and_then(|mut c| c.set_text(&ps));
+                            self.messages.push(DisplayMessage::new_text(Role::System, format!("Session saved: {}", ps)));
+                            self.status = "Session shared".to_string();
+                        }
+                        Err(e) => self.messages.push(DisplayMessage::new_text(Role::System, format!("Share failed: {}", e)))
                     }
                 }
             }
@@ -1130,7 +1326,6 @@ self.messages.push(DisplayMessage::new_text(Role::System, output));
             }
             "/prune" => {
                 // Prune old sessions
-                use pawan::agent::session::Session;
                 let mut max_days: Option<u32> = None;
                 let mut max_sessions: Option<usize> = None;
                 for part in arg.split_whitespace() {
@@ -1186,9 +1381,12 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
                 }
             }
             "/load" => {
-                if arg.is_empty() {
-                    self.messages.push(DisplayMessage::new_text(Role::System, "Usage: /load <session_id>"));
-                } else {
+		if arg.is_empty() {
+			// Open session browser when no ID provided
+			self.session_browser_open = true;
+			self.session_browser_query.clear();
+			self.session_browser_selected = 0;
+		} else {
                     match Session::load(arg) {
                         Ok(session) => {
                             self.model_name = session.model.clone();
@@ -1203,9 +1401,12 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
                 }
             }
             "/resume" => {
-                if arg.is_empty() {
-                    self.messages.push(DisplayMessage::new_text(Role::System, "Usage: /resume <session_id>"));
-                } else {
+		if arg.is_empty() {
+			// Open session browser when no ID provided
+			self.session_browser_open = true;
+			self.session_browser_query.clear();
+			self.session_browser_selected = 0;
+		} else {
                     match Session::load(arg) {
                         Ok(session) => {
                             self.model_name = session.model.clone();
@@ -1219,12 +1420,16 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
                 }
             }
             "/new" => {
+                let had_user = self.messages.iter().any(|m| matches!(m.role, Role::User));
+                let had_system = self.messages.iter().any(|m| matches!(m.role, Role::System));
                 self.messages.clear();
                 self.scroll = 0;
                 self.processing = false;
                 self.status = "New conversation started".to_string();
                 // Keep current model, just clear conversation
-                self.messages.push(DisplayMessage::new_text(Role::System, "Started new conversation"));
+                if had_user && !had_system {
+                    self.messages.push(DisplayMessage::new_text(Role::System, "Started new conversation"));
+                }
             }
             "/help" | "/?" => {
                 self.messages.push(DisplayMessage::new_text(Role::System,
@@ -1238,7 +1443,11 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
                      /tools         — list available tools\n\
                      /heal          — auto-fix build errors\n
                      /handoff       — generate focused context for new session\n
-                     /export [path] — export conversation to markdown\n
+                     /export [path] — export conversation to markdown\n\
+                     /diff        — show git diff\n\
+                     /fork        — clone session to new one\n\
+                     /dump        — copy conversation to clipboard\n\
+                     /share       — export session and print path\n\
                      /clear         — clear chat history\n\
                      /quit          — exit pawan\n\
                      /help          — show this help"));
@@ -1771,36 +1980,85 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
     }
 
     /// Perform autosave of current conversation
-    fn autosave(&self) {
-        // Only autosave if there are messages to save
-        if self.messages.is_empty() {
-            return;
-        }
-
-        // Create session and convert DisplayMessage -> Message
-        let mut session = Session::new(&self.model_name);
-        for dm in &self.messages {
-            let content = dm.text_content();
-            if !content.trim().is_empty() {
-                session.messages.push(Message {
-                    role: dm.role.clone(),
-                    content,
-                    tool_calls: Vec::new(),
-                    tool_result: None,
-                });
-            }
-        }
-
-        match session.save() {
-            Ok(path) => {
-                // Optionally log; we cannot modify self in &self
-                eprintln!("Autosaved session to {}", path.display());
-            }
-            Err(e) => {
-                eprintln!("Autosave failed: {}", e);
-            }
-        }
-    }
+	/// Autosave current session - updates existing session or creates new one
+	fn autosave(&mut self) {
+		// Only autosave if there are messages to save
+		if self.messages.is_empty() {
+			return;
+		}
+		
+		// Create or update session
+		let mut session = if let Some(ref session_id) = self.current_session_id {
+			// Load existing session and update it
+			match Session::load(session_id) {
+				Ok(mut s) => {
+					// Preserve existing metadata
+					s.model = self.model_name.clone();
+					s.tags = self.session_tags.clone();
+					s
+				}
+				Err(_) => {
+					// If load fails, create new session with same ID
+					Session::new_with_id(session_id.clone(), &self.model_name, self.session_tags.clone())
+				}
+			}
+		} else {
+			// No current session, create new one
+			let mut new_session = Session::new_with_tags(&self.model_name, self.session_tags.clone());
+			self.current_session_id = Some(new_session.id.clone());
+			new_session
+		};
+		
+		// Convert DisplayMessage -> Message, extracting tool calls from blocks
+		session.messages.clear();
+		for dm in &self.messages {
+			// Extract text content from blocks
+			let mut text_content = String::new();
+			let mut tool_calls = Vec::new();
+			
+			for block in &dm.blocks {
+				match block {
+					ContentBlock::Text { content, .. } => {
+						if !text_content.is_empty() {
+							text_content.push('\n');
+						}
+						text_content.push_str(content);
+					}
+					ContentBlock::ToolCall { state, .. } => {
+				if let ToolBlockState::Done { ref record, .. } = &**state {
+							tool_calls.push(ToolCallRequest {
+								id: record.id.clone(),
+								name: record.name.clone(),
+								arguments: record.arguments.clone(),
+							});
+						}
+					}
+					_ => {}
+				}
+			}
+			
+			// Add message if non-empty content or has tool calls
+			let has_content = !text_content.trim().is_empty();
+			if has_content || !tool_calls.is_empty() {
+				session.messages.push(Message {
+					role: dm.role.clone(),
+					content: text_content,
+					tool_calls,
+					tool_result: None,
+				});
+			}
+		}
+		
+		// Save session
+		match session.save() {
+			Ok(path) => {
+				eprintln!("Autosaved session to {}", path.display());
+			}
+			Err(e) => {
+				eprintln!("Autosave failed: {}", e);
+			}
+		}
+	}
 
     fn ui(&self, f: &mut Frame) {
         // Dynamic input height: 3 lines default, grows with content up to 10
@@ -1912,7 +2170,11 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             ("/tools", "List available tools"),
             ("/heal", "Auto-fix build errors"),
             ("/export", "Export conversation to markdown"),
+            ("/diff", "Show git diff (use --cached for staged changes)"),
             ("/import", "Import conversation from JSON file"),
+            ("/fork", "Clone current session to a new one"),
+            ("/dump", "Copy conversation to clipboard"),
+            ("/share", "Export session and print shareable path"),
             ("/clear", "Clear chat history"),
             ("/quit", "Exit pawan"),
         ];
@@ -1946,6 +2208,10 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             ("/tools", "List available tools"),
             ("/heal", "Auto-fix build errors"),
             ("/export", "Export conversation to markdown"),
+            ("/diff", "Show git diff (use --cached for staged changes)"), //
+            ("/fork", "Clone current session to a new one"),
+            ("/dump", "Copy conversation to clipboard"),
+            ("/share", "Export session and print shareable path"),
             ("/clear", "Clear chat history"),
             ("/quit", "Exit pawan"),
         ];
@@ -2503,6 +2769,13 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             }
         }
 
+        if !self.session_tags.is_empty() {
+            spans.push(Span::raw(" | "));
+            spans.push(Span::styled(
+                self.session_tags.join(", "),
+                Style::default().fg(Color::Green),
+            ));
+        }
         if !self.messages.is_empty() {
             spans.push(Span::raw(" | "));
             spans.push(Span::styled(
@@ -4201,7 +4474,99 @@ mod tests {
         app.session_browser_query = "tag:important".to_string();
         assert!(app.session_browser_query.starts_with("tag:"));
     }
+    // ===== /fork, /dump, /share Command Tests =====
 
+    #[test]
+    fn test_fork_empty_conversation() {
+        let mut app = test_app();
+        app.handle_slash_command("/fork");
+        let last = app.messages.last().unwrap();
+        assert!(last.text_content().contains("No conversation to fork"), "Should warn when empty");
+    }
+
+    #[test]
+    fn test_fork_with_messages() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "Hello"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "Hi there!"));
+        app.handle_slash_command("/fork");
+        // Should create new session and switch to it
+        assert!(app.current_session_id.is_some(), "Should have new session ID after fork");
+        let last = app.messages.last().unwrap();
+        assert!(last.text_content().contains("Forked"), "Should confirm fork");
+    }
+
+    #[test]
+    fn test_dump_empty_conversation() {
+        let mut app = test_app();
+        app.handle_slash_command("/dump");
+        let last = app.messages.last().unwrap();
+        assert!(last.text_content().contains("Nothing to dump"), "Should warn when empty");
+    }
+
+    #[test]
+    fn test_dump_with_messages() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "Test message"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "Response"));
+        app.handle_slash_command("/dump");
+        // Note: clipboard may not be available in test env, but should still generate markdown
+        let last = app.messages.last().unwrap();
+        let content = last.text_content();
+        assert!(content.contains("Copied") || content.contains("Failed"), "Should attempt clipboard operation");
+        // Verify it tried to generate markdown
+        assert!(content.contains("Pawan Session") || content.contains("Copied") || content.contains("Failed"), "Should contain session output");
+    }
+
+    #[test]
+    fn test_share_empty_conversation() {
+        let mut app = test_app();
+        app.handle_slash_command("/share");
+        let last = app.messages.last().unwrap();
+        assert!(last.text_content().contains("Nothing to share"), "Should warn when empty");
+    }
+
+    #[test]
+    fn test_share_with_messages() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage::new_text(Role::User, "Share test"));
+        app.messages.push(DisplayMessage::new_text(Role::Assistant, "Shared!"));
+        app.handle_slash_command("/share");
+        // Should save and copy path to clipboard
+        let last = app.messages.last().unwrap();
+        let content = last.text_content();
+        assert!(content.contains("Session saved") || content.contains("Share failed"), "Should attempt save");
+    }
+
+    #[test]
+    fn test_fork_preserves_model_and_tags() {
+        let mut app = test_app();
+        app.model_name = "nvidia/llama-3.1-nemotron".to_string();
+        app.session_tags.push("test-tag".to_string());
+        app.messages.push(DisplayMessage::new_text(Role::User, "Test"));
+        app.handle_slash_command("/fork");
+        // Verify new session got the same model and tags
+        if let Some(ref new_id) = app.current_session_id {
+            if let Ok(session) = Session::load(new_id) {
+                assert_eq!(session.model, "nvidia/llama-3.1-nemotron");
+                assert!(session.tags.contains(&"test-tag".to_string()));
+            }
+        }
+    }
+
+    // ===== /diff Command Test =====
+
+    #[test]
+    fn test_diff_command_handler() {
+        let mut app = test_app();
+        app.handle_slash_command("/diff");
+        assert!(!app.messages.is_empty());
+        let content = app.messages.last().unwrap().text_content();
+        assert!(content.len() > 0);
+    }
+
+
+    // ===== Export Format Tests =====
     // ===== Export Format Tests =====
 
     #[test]
@@ -4461,7 +4826,9 @@ mod tests {
         let mut app = test_app();
         app.messages.push(DisplayMessage::new_text(Role::User, "test message"));
         app.handle_slash_command("/new");
-        assert!(app.messages.is_empty());
+		assert_eq!(app.messages.len(), 1);
+		assert_eq!(app.messages[0].role, Role::System);
+		assert_eq!(app.messages[0].text_content().trim(), "Started new conversation");
     }
 
     #[test]

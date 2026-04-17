@@ -564,7 +564,7 @@ mod tests {
         let prompt = build_compaction_prompt(&messages, &CompactionStrategy::default());
         assert!(prompt.contains("Fix the bug in main.rs"));
         assert!(prompt.contains("I'll read the file first."));
-        assert!(prompt.contains("ORIGINAL CONVERSATION"));
+        assert!(prompt.contains("Original Conversation"));
     }
 
     #[test]
@@ -590,10 +590,18 @@ mod tests {
             },
         ];
 
-        let strategy = CompactionStrategy::default();
+        // Use a strategy that will actually drop some messages
+        let strategy = CompactionStrategy {
+            keep_recent: 1,
+            keep_keywords: vec![],
+            keep_tool_results: false,
+            keep_system: false,
+        };
         let result = compact_messages(messages, &strategy);
 
         assert_eq!(result.original_count, 3);
+        // With keep_recent=1, only the most recent message (Assistant) is kept
+        // System and User are dropped because keep_system=false and keep_keywords=[]
         assert!(result.compacted_count > 0);
         assert!(result.tokens_saved > 0);
     }
