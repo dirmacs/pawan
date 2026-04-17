@@ -710,6 +710,7 @@ pub fn prune_sessions(policy: &RetentionPolicy) -> Result<usize> {
 mod search_prune_tests {
     use super::*;
     use crate::agent::{Message, Role};
+    use serial_test::serial;
 
     #[test]
     fn test_role_serialization_is_lowercase() {
@@ -720,6 +721,7 @@ mod search_prune_tests {
     }
 
     #[test]
+    #[serial]
     fn test_search_sessions_logic() {
         let tmp = tempfile::tempdir().unwrap();
         let prev_home = std::env::var("HOME").ok();
@@ -760,6 +762,7 @@ mod search_prune_tests {
     }
 
     #[test]
+    #[serial]
     fn test_prune_sessions_logic() {
         let tmp = tempfile::tempdir().unwrap();
         let prev_home = std::env::var("HOME").ok();
@@ -796,6 +799,7 @@ mod search_prune_tests {
     }
 
     #[test]
+    #[serial]
     fn test_prune_sessions_age_and_tags() {
         let tmp = tempfile::tempdir().unwrap();
         let prev_home = std::env::var("HOME").ok();
@@ -840,6 +844,7 @@ mod search_prune_tests {
     }
 
     #[test]
+    #[serial]
     fn test_search_sessions_no_results() {
         let tmp = tempfile::tempdir().unwrap();
         let prev_home = std::env::var("HOME").ok();
@@ -852,6 +857,7 @@ mod search_prune_tests {
     }
 
     #[test]
+    #[serial]
     fn test_prune_sessions_zero_limits() {
         let tmp = tempfile::tempdir().unwrap();
         let prev_home = std::env::var("HOME").ok();
@@ -888,6 +894,7 @@ mod search_prune_tests {
     }
 
     #[test]
+    #[serial]
     fn test_search_sessions_with_role_filter() {
         let tmp = tempfile::tempdir().unwrap();
         let prev_home = std::env::var("HOME").ok();
@@ -927,6 +934,7 @@ mod search_prune_tests {
     }
 
     #[test]
+    #[serial]
     fn test_search_sessions_context_extraction() {
         let tmp = tempfile::tempdir().unwrap();
         let prev_home = std::env::var("HOME").ok();
@@ -958,6 +966,7 @@ mod search_prune_tests {
     }
 
     #[test]
+    #[serial]
     fn test_search_sessions_max_matches_limit() {
         let tmp = tempfile::tempdir().unwrap();
         let prev_home = std::env::var("HOME").ok();
@@ -985,6 +994,7 @@ mod search_prune_tests {
     }
 
     #[test]
+    #[serial]
     fn test_search_sessions_case_insensitive() {
         let tmp = tempfile::tempdir().unwrap();
         let prev_home = std::env::var("HOME").ok();

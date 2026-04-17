@@ -142,10 +142,12 @@ fn extract_context(messages: &[Message], config: &HandoffConfig) -> HandoffConte
             if content.is_empty() {
                 return None;
             }
-            let preview = if content.len() > config.max_preview_length {
-                format!("{}...", &content[..config.max_preview_length])
+            // Only take the first line to avoid duplicating task lists in preview
+            let first_line = content.lines().next().unwrap_or(content);
+            let preview = if first_line.len() > config.max_preview_length {
+                format!("{}...", &first_line[..config.max_preview_length])
             } else {
-                content.clone()
+                first_line.to_string()
             };
             Some((msg.role.clone(), preview))
         })

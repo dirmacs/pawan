@@ -36,6 +36,7 @@ pub mod tasks;
 pub mod tools;
 
 pub use agent::PawanAgent;
+pub use agent::{AgentEvent, FinishReason, TokenUsageInfo};
 pub use config::PawanConfig;
 
 /// Error types for Pawan
