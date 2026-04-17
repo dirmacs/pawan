@@ -17,7 +17,9 @@
 //! ```
 
 use crate::agent::backend::LlmBackend;
-use crate::agent::{LLMResponse, Message, ToolCallRequest, TokenCallback};
+use crate::agent::{LLMResponse, Message, ToolCallRequest, TokenCallback, TokenUsage};
+#[allow(unused_imports)]
+use serde_json::json;
 use crate::tools::ToolDefinition;
 use crate::Result;
 use async_trait::async_trait;
@@ -30,6 +32,8 @@ use std::sync::Arc;
 pub enum MockResponse {
     /// Plain text response (no tool calls) — agent loop ends
     Text(String),
+    /// Plain text with token usage
+    TextWithUsage { text: String, usage: TokenUsage },
     /// Tool call request — agent will execute the tool and send result back
     ToolCall {
         id: String,
@@ -165,6 +169,72 @@ impl MockBackend {
     pub fn with_text(text: impl Into<String>) -> Self {
         Self::new(vec![MockResponse::text(text)])
     }
+
+    /// Convenience constructor for a tool call response
+    pub fn with_tool_call(id: &str, name: &str, args: Value, content: &str) -> Self {
+        Self::new(vec![
+            MockResponse::ToolCall {
+                id: id.to_string(),
+                name: name.to_string(),
+                args,
+            },
+            MockResponse::Text(content.to_string()),
+        ])
+    }
+
+    /// Convenience constructor for repeated tool calls (never stops)
+    pub fn with_repeated_tool_call(name: &str) -> Self {
+        Self::new(vec![
+            MockResponse::ToolCall {
+                id: "call_1".to_string(),
+                name: name.to_string(),
+                args: json!({}),
+            },
+            MockResponse::ToolCall {
+                id: "call_2".to_string(),
+                name: name.to_string(),
+                args: json!({}),
+            },
+            MockResponse::ToolCall {
+                id: "call_3".to_string(),
+                name: name.to_string(),
+                args: json!({}),
+            },
+        ])
+    }
+
+    /// Convenience constructor for multiple tool calls in a single turn
+    pub fn with_multiple_tool_calls(calls: Vec<(&str, &str, Value)>) -> Self {
+        let tool_calls: Vec<ToolCallRequest> = calls
+            .into_iter()
+            .map(|(id, name, args)| ToolCallRequest {
+                id: id.to_string(),
+                name: name.to_string(),
+                arguments: args,
+            })
+            .collect();
+        Self::new(vec![
+            MockResponse::ToolSequence(tool_calls),
+            MockResponse::Text("Done".to_string()),
+        ])
+    }
+
+    /// Convenience constructor for text response with token usage
+    pub fn with_text_and_usage(text: &str, prompt_tokens: u64, completion_tokens: u64) -> Self {
+        let reasoning_tokens = completion_tokens / 3;
+        let action_tokens = completion_tokens - reasoning_tokens;
+        let usage = TokenUsage {
+            prompt_tokens,
+            completion_tokens,
+            total_tokens: prompt_tokens + completion_tokens,
+            reasoning_tokens,
+            action_tokens,
+        };
+        Self::new(vec![MockResponse::TextWithUsage {
+            text: text.to_string(),
+            usage,
+        }])
+    }
 }
 
 #[async_trait]
@@ -189,6 +259,13 @@ impl LlmBackend for MockBackend {
                 tool_calls: vec![],
                 finish_reason: "stop".to_string(),
                 usage: None,
+            },
+            MockResponse::TextWithUsage { text, usage } => LLMResponse {
+                content: text,
+                reasoning: None,
+                tool_calls: vec![],
+                finish_reason: "stop".to_string(),
+                usage: Some(usage),
             },
             MockResponse::ToolCall { id, name, args } => LLMResponse {
                 content: String::new(),
