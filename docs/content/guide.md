@@ -73,6 +73,21 @@ pawan
 pawan explain src/main.rs
 ```
 
+## What's New in v0.4.1
+
+### New TUI Features
+
+- **Session tags** — Add visual green tags to sessions with `/tag add <name>`, manage via `/tag` command
+- **Fuzzy session search** — Browse sessions with fuzzy matching, indicated by `[FUZZY]` in the UI
+- **NVIDIA NIM catalog** — Browse available NIM models with `/models` command
+- **Enhanced `/diff`** — Show git diff with `--cached` flag for staged changes, colorized output
+- **Improved session loading** — `/load` and `/resume` now open the session browser when called without arguments
+
+### Test Stability
+
+- All 722 library tests and 59 integration tests now pass consistently
+- Test isolation improvements prevent race conditions in parallel execution
+
 ## Configuration
 
 Priority: CLI flags > environment variables > pawan.toml > defaults
