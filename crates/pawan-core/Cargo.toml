@@ -71,6 +71,9 @@ deagle-parse = { version = "0.1.5", features = ["pattern", "text-search"] }
 # Parallel walking for the embedded deagle_map implementation
 rayon = "1.10"
 
+# Secure password input
+rpassword = "7.3"
+
 # Thulp — reuse tool types + skill file parsing (DRY)
 thulp-core = { workspace = true }
 thulp-skill-files = { workspace = true }
@@ -85,6 +88,9 @@ thulpoff-engine = { workspace = true }
 # Renamed to `ares` so existing bridge code (ares_backend.rs, ares_bridge.rs)
 # can use `ares::llm::...` etc. without changes.
 ares-server = { workspace = true }
+
+# Secure credential storage
+keyring = "3.6"
 
 # Lancor — llama.cpp toolkit for local inference (optional, feature-gated)
 lancor = { workspace = true, optional = true }
