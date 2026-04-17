@@ -8,13 +8,14 @@ title = "Commands"
 
 Default TUI mode with ratatui-powered interface.
 
-Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split layout with activity panel, streaming markdown with interleaved tool call display, inline slash command popup, vim-like navigation (`j/k`, `g/G`, `Ctrl+U/D`, `/search`, `n/N`), expand/collapse tool results (`e`), message timestamps, scroll position indicator, session stats, conversation export.
+Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split layout with activity panel, streaming markdown with interleaved tool call display, inline slash command popup, vim-like navigation (`j/k`, `g/G`, `Ctrl+U/D`, `/search`, `n/N`), expand/collapse tool results (`e`), message timestamps, scroll position indicator, session tags (green), fuzzy session search (`[FUZZY]` indicator), session stats, conversation export.
 
 ### TUI Slash Commands
 
 | Command | Shorthand | Description |
 |---------|-----------|-------------|
 | `/model [name]` | `/m` | Show or switch LLM model |
+| `/models` | | Browse NVIDIA NIM model catalog |
 | `/search <query>` | `/s` | Web search via Daedra MCP |
 | `/ss <query>` | | Search saved sessions by content |
 | `/prune [args]` | | Prune old sessions (e.g., 30d, 100s) |
@@ -24,12 +25,13 @@ Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split lay
 | `/fork` | | Clone current session to a new one |
 | `/dump` | | Copy conversation to clipboard |
 | `/share` | | Export session and print shareable path |
+| `/diff [--cached]` | | Show git diff of working directory (use `--cached` for staged changes) |
 | `/handoff` | | Generate focused context for new session |
 | `/export [path]` | `/e` | Export conversation to markdown |
 | `/import <path>` | | Import session from JSON file |
 | `/save` | | Save current session |
-| `/load` | | Load a saved session |
-| `/resume` | | Resume a saved session |
+| `/load` | | Load a saved session (opens browser if no arg) |
+| `/resume` | | Resume a saved session (opens browser if no arg) |
 | `/new` | | Start new session |
 | `/clear` | | Clear chat history |
 | `/quit` | `/q` | Exit pawan |

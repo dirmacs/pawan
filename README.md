@@ -144,13 +144,16 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-### TUI (v0.3.2)
+## TUI (v0.4.1)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets
 - **F1 help overlay** — keyboard shortcuts reference, organized by category
 - **Split layout** — activity panel slides in during processing (72/28 split)
-- **Slash commands** — `/model`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`, `/sessions`, `/save`, `/load`, `/resume`, `/new`
+- **Slash commands** — `/model`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`, `/sessions`, `/save`, `/load`, `/resume`, `/new`, `/fork`, `/dump`, `/share`, `/diff`, `/models`, `/tag`
+- **Session tags UI** — visual green tags in status bar, add/remove/clear via `/tag` command
+- **Fuzzy session search** — fuzzy matching indicator `[FUZZY]` when enabled in session browser
+- **NVIDIA NIM catalog** — `/models` command to browse available NIM models
 - **Message timestamps** — relative time (now, 5s, 2m, 1h) on each message
 - **Scroll position** — `[2/5]` indicator in messages title bar
 - **Session stats** — tool calls, files edited, message count in status bar
@@ -159,9 +162,9 @@ pawan/
 - **Streaming markdown** — bold, code, italic, headers, lists rendered in real-time
 - **vim-like navigation** — `j/k`, `g/G`, `Ctrl+U/D`, `/search`, `n/N`
 - **Model selector** — interactive model selection with search and filtering
-- **Session browser** — browse, load, and manage saved sessions
+- **Session browser** — browse, load, and manage saved sessions with fuzzy search
 - **Auto-save** — automatic session saving at configurable intervals
-- **Comprehensive testing** — 79 tests covering all TUI functionality
+- **Comprehensive testing** — 722 library tests + 59 integration tests passing
 ### Intelligence (2026-04-08)
 
 **Qwen3.5 122B A10B** — primary model. 383ms latency, 13.6s task completion, solid tool calling. MiniMax M2.5 (SWE 80.2%) as cloud fallback. 12 NIM models benchmarked.
@@ -227,6 +230,22 @@ Zero-cost local inference with cloud reliability as a safety net.
 | Mistral Small 4 119B | 341ms | error | Eruka context injection triggers 400. |
 
 Full triage: [dirmacs.github.io/pawan/triage/](https://dirmacs.github.io/pawan/triage/)
+
+## What's New in v0.4.1
+
+### New TUI Features
+
+- **Session tags UI** — Visual green tags in status bar, manage via `/tag` command
+- **Fuzzy session search** — Fuzzy matching with `[FUZZY]` indicator in session browser
+- **NVIDIA NIM catalog** — `/models` command to browse available NIM models
+- **Enhanced `/diff`** — `--cached` flag support and colorized diff output
+- **Improved `/load` and `/resume`** — Opens session browser when called without arguments
+
+### Test Improvements
+
+- **Test isolation** — All 722 library tests and 59 integration tests now pass consistently
+- **Serial test execution** — Tests modifying environment state run serially to prevent race conditions
+- **79 TUI tests** — Comprehensive coverage of all TUI functionality
 
 ## Ecosystem
 
