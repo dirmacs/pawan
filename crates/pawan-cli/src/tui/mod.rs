@@ -2021,33 +2021,49 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
         ]);
         f.render_widget(Paragraph::new(search_line), Rect::new(inner.x, inner.y, inner.width, 1));
 
-        // Model list
+        // Model list with viewport scrolling
         let list_area = Rect::new(inner.x, inner.y + 1, inner.width, inner.height.saturating_sub(1));
-        let list_items: Vec<ListItem> = models.iter().enumerate().map(|(i, model)| {
-            let style = if i == selected {
-                Style::default().fg(Color::Black).bg(Color::Blue)
-            } else {
-                Style::default()
-            };
-            let provider_icon = match model.provider.as_str() {
-                "NVIDIA" => "🤖",
-                "Anthropic" => "🧠",
-                "OpenAI" => "🔷",
-                _ => "⚙️",
-            };
-            let quality_badge = if model.quality_score >= 90 {
-                "🟢 S+"
-            } else if model.quality_score >= 85 {
-                "🔵 S"
-            } else {
-                "⚪ A"
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(format!("{} {} ", provider_icon, quality_badge), style.add_modifier(Modifier::BOLD)),
-                Span::styled(model.id.clone(), style),
-            ]))
-        }).collect();
-        f.render_widget(List::new(list_items), list_area);
+        let list_height = list_area.height as usize;
+        
+        // Calculate scroll offset to keep selected item in view
+        let offset = if selected < list_height {
+            0
+        } else {
+            selected - list_height + 1
+        };
+
+        let visible_items: Vec<ListItem> = models
+            .iter()
+            .skip(offset)
+            .take(list_height)
+            .enumerate()
+            .map(|(i, model)| {
+                let actual_idx = i + offset;
+                let style = if actual_idx == selected {
+                    Style::default().fg(Color::Black).bg(Color::Blue)
+                } else {
+                    Style::default()
+                };
+                let provider_icon = match model.provider.as_str() {
+                    "NVIDIA" => "🤖",
+                    "Anthropic" => "🧠",
+                    "OpenAI" => "🔷",
+                    _ => "⚙️",
+                };
+                let quality_badge = if model.quality_score >= 90 {
+                    "🟢 S+"
+                } else if model.quality_score >= 85 {
+                    "🔵 S"
+                } else {
+                    "⚪ A"
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!("{} {} ", provider_icon, quality_badge), style.add_modifier(Modifier::BOLD)),
+                    Span::styled(model.id.clone(), style),
+                ]))
+            })
+            .collect();
+        f.render_widget(List::new(visible_items), list_area);
     }
 
     /// Render session browser modal
@@ -2080,21 +2096,37 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
         ]);
         f.render_widget(Paragraph::new(search_line), Rect::new(inner.x, inner.y, inner.width, 1));
 
-        // Session list
+        // Session list with viewport scrolling
         let list_area = Rect::new(inner.x, inner.y + 1, inner.width, inner.height.saturating_sub(1));
-        let list_items: Vec<ListItem> = sessions.into_iter().enumerate().map(|(i, session)| {
-            let style = if i == selected {
-                Style::default().fg(Color::Black).bg(Color::Green)
-            } else {
-                Style::default()
-            };
-            let indicator = if session.message_count > 0 { "●" } else { "○" };
-            ListItem::new(Line::from(vec![
-                Span::styled(format!("{} {} ({} msg)", indicator, session.id, session.message_count), style.add_modifier(Modifier::BOLD)),
-                Span::styled(format!(" [{}]", session.model), style.fg(Color::DarkGray)),
-            ]))
-        }).collect();
-        f.render_widget(List::new(list_items), list_area);
+        let list_height = list_area.height as usize;
+        
+        // Calculate scroll offset to keep selected item in view
+        let offset = if selected < list_height {
+            0
+        } else {
+            selected - list_height + 1
+        };
+
+        let visible_items: Vec<ListItem> = sessions
+            .iter()
+            .skip(offset)
+            .take(list_height)
+            .enumerate()
+            .map(|(i, session)| {
+                let actual_idx = i + offset;
+                let style = if actual_idx == selected {
+                    Style::default().fg(Color::Black).bg(Color::Green)
+                } else {
+                    Style::default()
+                };
+                let indicator = if session.message_count > 0 { "●" } else { "○" };
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!("{} {} ({} msg)", indicator, session.id, session.message_count), style.add_modifier(Modifier::BOLD)),
+                    Span::styled(format!(" [{}]", session.model), style.fg(Color::DarkGray)),
+                ]))
+            })
+            .collect();
+        f.render_widget(List::new(visible_items), list_area);
     }
 
     /// Perform autosave of current conversation
@@ -2350,7 +2382,8 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             return;
         }
 
-        let h = (items.len() as u16 + 2).min(10); // +2 for borders
+        let max_height = 10u16;
+        let h = (items.len() as u16 + 2).min(max_height);
         let w = 45u16.min(input_area.width);
         let y = input_area.y.saturating_sub(h);
         let popup_area = Rect::new(input_area.x, y, w, h);
@@ -2361,24 +2394,44 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             .title(" / Commands ");
 
         f.render_widget(ratatui::widgets::Clear, popup_area);
+        f.render_widget(block.clone(), popup_area);
 
+        let inner = block.inner(popup_area);
+        let inner_height = inner.height as usize;
+        
+        // Calculate scroll offset to keep selected item in view
         let selected = self.slash_popup_selected.min(items.len().saturating_sub(1));
-        let list_items: Vec<ListItem> = items.iter().enumerate().map(|(i, (cmd, desc))| {
-            let style = if i == selected {
-                Style::default().fg(Color::Black).bg(Color::Cyan)
-            } else {
-                Style::default()
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(format!(" {} ", cmd), style.add_modifier(Modifier::BOLD)),
-                Span::styled(format!("— {}", desc), if i == selected {
+        let offset = if selected < inner_height {
+            0
+        } else {
+            selected - inner_height + 1
+        };
+
+        // Render visible items with offset
+        let visible_items: Vec<ListItem> = items
+            .iter()
+            .skip(offset)
+            .take(inner_height)
+            .enumerate()
+            .map(|(i, (cmd, desc))| {
+                let actual_idx = i + offset;
+                let style = if actual_idx == selected {
                     Style::default().fg(Color::Black).bg(Color::Cyan)
                 } else {
-                    Style::default().fg(Color::DarkGray)
-                }),
-            ]))
-        }).collect();
-        f.render_widget(List::new(list_items).block(block), popup_area);
+                    Style::default()
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!(" {} ", cmd), style.add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("— {}", desc), if actual_idx == selected {
+                        Style::default().fg(Color::Black).bg(Color::Cyan)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    }),
+                ]))
+            })
+            .collect();
+
+        f.render_widget(List::new(visible_items), inner);
     }
 
     /// Render command palette overlay
@@ -2499,25 +2552,41 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             f.render_widget(Paragraph::new(search_line), Rect::new(inner.x, inner.y, inner.width, 1));
         }
 
-        // Items
+        // Items with viewport scrolling
         let list_area = Rect::new(inner.x, inner.y + 1, inner.width, inner.height.saturating_sub(1));
+        let list_height = list_area.height as usize;
         let selected = self.palette_selected.min(items.len().saturating_sub(1));
-        let list_items: Vec<ListItem> = items.iter().enumerate().map(|(i, (cmd, desc))| {
-            let style = if i == selected {
-                Style::default().fg(Color::Black).bg(Color::Cyan)
-            } else {
-                Style::default()
-            };
-            ListItem::new(Line::from(vec![
-                Span::styled(format!(" {} ", cmd), style.add_modifier(Modifier::BOLD)),
-                Span::styled(format!("— {}", desc), if i == selected {
+        
+        // Calculate scroll offset to keep selected item in view
+        let offset = if selected < list_height {
+            0
+        } else {
+            selected - list_height + 1
+        };
+
+        let visible_items: Vec<ListItem> = items
+            .iter()
+            .skip(offset)
+            .take(list_height)
+            .enumerate()
+            .map(|(i, (cmd, desc))| {
+                let actual_idx = i + offset;
+                let style = if actual_idx == selected {
                     Style::default().fg(Color::Black).bg(Color::Cyan)
                 } else {
-                    Style::default().fg(Color::DarkGray)
-                }),
-            ]))
-        }).collect();
-        f.render_widget(List::new(list_items), list_area);
+                    Style::default()
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!(" {} ", cmd), style.add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("— {}", desc), if actual_idx == selected {
+                        Style::default().fg(Color::Black).bg(Color::Cyan)
+                    } else {
+                        Style::default().fg(Color::DarkGray)
+                    }),
+                ]))
+            })
+            .collect();
+        f.render_widget(List::new(visible_items), list_area);
     }
 
     fn render_activity(&self, f: &mut Frame, area: Rect) {
