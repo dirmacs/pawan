@@ -15,16 +15,17 @@ use pawan::{PawanError, Result};
 use ratatui::{
     backend::CrosstermBackend,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
+    style::{Color, Modifier},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Widget},
     Frame, Terminal,
 };
+use ratatui::style::Style;
 use std::io::{self, Stdout};
 use std::time::Instant;
 
 use tokio::sync::mpsc;
-use tui_textarea::{Input, TextArea};
+use ratatui_textarea::{Input, TextArea};
 
 /// Autosave interval (5 minutes)
 const AUTOSAVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(300);
