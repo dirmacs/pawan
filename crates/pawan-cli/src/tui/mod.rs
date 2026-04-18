@@ -358,7 +358,7 @@ impl<'a> App<'a> {
     ) -> Self {
         let mut input = TextArea::default();
         input.set_cursor_line_style(Style::default());
-        input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to quit)");
+        input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to clear/quit)");
 
         Self {
             config,
@@ -639,7 +639,19 @@ pub async fn run(&mut self) -> Result<()> {
             Event::Key(key) => {
                 match (key.modifiers, key.code) {
                     (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
-                        self.should_quit = true;
+                        // Check if input has text
+                        let has_text = !self.input.lines().iter().all(|l| l.is_empty());
+                        if has_text {
+                            // Clear the input
+                            let mut new_input = TextArea::default();
+                            new_input.set_cursor_line_style(Style::default());
+                            new_input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to clear/quit)");
+                            self.input = new_input;
+                            self.status = "Input cleared".to_string();
+                        } else {
+                            // Quit if input is empty
+                            self.should_quit = true;
+                        }
                         return;
                     }
                     (KeyModifiers::CONTROL, KeyCode::Char('l')) => {
@@ -895,7 +907,7 @@ pub async fn run(&mut self) -> Result<()> {
                             // Close popup, clear input
                             self.input = TextArea::default();
                             self.input.set_cursor_line_style(Style::default());
-                            self.input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to quit)");
+                            self.input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to clear/quit)");
                             self.slash_popup_selected = 0;
                         }
                         KeyCode::Up => {
@@ -941,7 +953,7 @@ pub async fn run(&mut self) -> Result<()> {
                                 // Replace input with selected command and add trailing space to exit slash mode
                                 self.input = TextArea::default();
                                 self.input.set_cursor_line_style(Style::default());
-                                self.input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to quit)");
+                                self.input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to clear/quit)");
                                 self.input.insert_str(&cmd);
                                 self.input.insert_str(" "); // add space to deactivate slash popup
                                 self.slash_popup_selected = 0;
@@ -1090,7 +1102,7 @@ pub async fn run(&mut self) -> Result<()> {
         self.input = TextArea::default();
         self.input.set_cursor_line_style(Style::default());
         self.input
-            .set_placeholder_text("Type your message... (Enter to send, Ctrl+C to quit)");
+            .set_placeholder_text("Type your message... (Enter to send, Ctrl+C to clear/quit)");
 
         let trimmed = content.trim();
 
@@ -3661,13 +3673,33 @@ mod tests {
     // ===== Event handling tests =====
 
     #[test]
-    fn test_ctrl_c_quits() {
+    fn test_ctrl_c_quits_when_empty() {
         let mut app = test_app();
+        // Input is empty by default
         app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
             KeyCode::Char('c'),
             KeyModifiers::CONTROL,
         )));
-        assert!(app.should_quit, "Ctrl+C should set should_quit");
+        assert!(app.should_quit, "Ctrl+C should quit when input is empty");
+    }
+
+    #[test]
+    fn test_ctrl_c_clears_input_when_non_empty() {
+        let mut app = test_app();
+        // Add some text to the input
+        app.input.insert_str("test message");
+        assert!(!app.input.lines().iter().all(|l| l.is_empty()), "Input should have text");
+        
+        // Press Ctrl+C
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+        )));
+        
+        // Input should be cleared, not quit
+        assert!(!app.should_quit, "Ctrl+C should not quit when input has text");
+        assert!(app.input.lines().iter().all(|l| l.is_empty()), "Input should be cleared");
+        assert_eq!(app.status, "Input cleared", "Status should show input cleared");
     }
 
     #[test]
