@@ -82,6 +82,13 @@ pawan explain src/main.rs
 - **NVIDIA NIM catalog** — Browse available NIM models with `/models` command
 - **Enhanced `/diff`** — Show git diff with `--cached` flag for staged changes, colorized output
 - **Improved session loading** — `/load` and `/resume` now open the session browser when called without arguments
+- **Enhanced scrolling** — PageUp/PageDown/Home/End keys and mouse wheel support in all popups (command palette, slash menu, session browser)
+
+### Security & Credentials
+
+- **Secure credential storage** — API keys stored in OS-native credential store (Keychain/Credential Manager/libsecret)
+- **Interactive key entry** — Prompts for API key when not found in env or secure store (input hidden)
+- **Automatic fallback** — Checks env var → secure store → interactive prompt
 
 ### Test Stability
 

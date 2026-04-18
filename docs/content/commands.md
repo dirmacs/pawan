@@ -8,7 +8,7 @@ title = "Commands"
 
 Default TUI mode with ratatui-powered interface.
 
-Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split layout with activity panel, streaming markdown with interleaved tool call display, inline slash command popup, vim-like navigation (`j/k`, `g/G`, `Ctrl+U/D`, `/search`, `n/N`), expand/collapse tool results (`e`), message timestamps, scroll position indicator, session tags (green), fuzzy session search (`[FUZZY]` indicator), session stats, conversation export.
+Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split layout with activity panel, streaming markdown with interleaved tool call display, inline slash command popup, vim-like navigation (`j/k`, `g/G`, `Ctrl+U/D`, `PageUp/PageDown`, `/search`, `n/N`), mouse wheel scroll support, expand/collapse tool results (`e`), message timestamps, scroll position indicator, session tags (green), fuzzy session search (`[FUZZY]` indicator), session stats, conversation export.
 
 ### TUI Slash Commands
 
@@ -48,11 +48,18 @@ Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split lay
 | `j/k` | Messages | Scroll up/down |
 | `g/G` | Messages | Jump to top/bottom |
 | `Ctrl+U/D` | Messages | Half-page scroll |
+| `PageUp/PageDown` | Messages | Page scroll |
 | `/` | Messages | Enter search mode |
 | `n/N` | Messages | Next/previous search match |
 | `e` | Messages | Expand/collapse nearest tool call result |
 | `i` | Messages | Return to input |
 | `/` | Input | Open inline slash command popup |
+| `Up/Down` | Popups | Navigate items |
+| `PageUp/PageDown` | Popups | Bulk scroll |
+| `g/G` | Popups | Jump to top/bottom |
+| `Enter` | Popups | Select item |
+| `Esc` | Popups | Close popup |
+| `Mouse wheel` | Any | Scroll (respects active popup) |
 
 ### `pawan chat --resume <ID>`
 

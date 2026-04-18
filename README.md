@@ -253,6 +253,13 @@ Full triage: [dirmacs.github.io/pawan/triage/](https://dirmacs.github.io/pawan/t
 - **NVIDIA NIM catalog** — `/models` command to browse available NIM models
 - **Enhanced `/diff`** — `--cached` flag support and colorized diff output
 - **Improved `/load` and `/resume`** — Opens session browser when called without arguments
+- **Enhanced scrolling** — PageUp/PageDown/Home/End keys and mouse wheel support in all popups (command palette, slash menu, session browser)
+
+### Security & Credentials
+
+- **Secure credential storage** — API keys stored in OS-native credential store (Keychain/Credential Manager/libsecret)
+- **Interactive key entry** — Prompts for API key when not found in env or secure store (input hidden)
+- **Automatic fallback** — Checks env var → secure store → interactive prompt
 
 ### Test Improvements
 
