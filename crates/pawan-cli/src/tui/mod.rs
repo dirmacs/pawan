@@ -340,6 +340,10 @@ struct App<'a> {
     current_session_id: Option<String>,
     /// Last autosave time
     last_autosave: Instant,
+    /// Command history for up/down arrow navigation
+    history: Vec<String>,
+    /// Current position in history (None means not browsing history)
+    history_position: Option<usize>,
 }
 
 /// State for an active permission prompt dialog
@@ -358,7 +362,7 @@ impl<'a> App<'a> {
     ) -> Self {
         let mut input = TextArea::default();
         input.set_cursor_line_style(Style::default());
-        input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to clear, Ctrl+Q to quit)");
+        input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
 
         Self {
             config,
@@ -404,9 +408,11 @@ slash_popup_selected: 0,
             session_browser_query: String::new(),
             session_browser_selected: 0,
             session_sort_mode: SessionSortMode::NewestFirst,
-last_autosave: Instant::now(),
-}
-}
+            last_autosave: Instant::now(),
+            history: Vec::new(),
+            history_position: None,
+        }
+    }
 
 /// Convert persisted core session messages into TUI display messages.
 fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
@@ -642,8 +648,9 @@ pub async fn run(&mut self) -> Result<()> {
                         // Always clear the input
                         let mut new_input = TextArea::default();
                         new_input.set_cursor_line_style(Style::default());
-                        new_input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to clear, Ctrl+Q to quit)");
+                        new_input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
                         self.input = new_input;
+                        self.history_position = None; // Reset history position
                         self.status = "Input cleared".to_string();
                         return;
                     }
@@ -905,7 +912,7 @@ pub async fn run(&mut self) -> Result<()> {
                             // Close popup, clear input
                             self.input = TextArea::default();
                             self.input.set_cursor_line_style(Style::default());
-                            self.input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to clear, Ctrl+Q to quit)");
+                            self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
                             self.slash_popup_selected = 0;
                         }
                         KeyCode::Up => {
@@ -951,7 +958,7 @@ pub async fn run(&mut self) -> Result<()> {
                                 // Replace input with selected command and add trailing space to exit slash mode
                                 self.input = TextArea::default();
                                 self.input.set_cursor_line_style(Style::default());
-                                self.input.set_placeholder_text("Type your message... (Enter to send, Ctrl+C to clear, Ctrl+Q to quit)");
+                                self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
                                 self.input.insert_str(&cmd);
                                 self.input.insert_str(" "); // add space to deactivate slash popup
                                 self.slash_popup_selected = 0;
@@ -972,6 +979,40 @@ pub async fn run(&mut self) -> Result<()> {
                             self.submit_input();
                         } else if key.code == KeyCode::Tab {
                             self.focus = Panel::Messages;
+                        } else if key.code == KeyCode::Up {
+                            // Navigate history backwards
+                            if !self.history.is_empty() {
+                                let new_pos = match self.history_position {
+                                    None => Some(self.history.len() - 1),
+                                    Some(pos) if pos > 0 => Some(pos - 1),
+                                    _ => self.history_position,
+                                };
+                                if let Some(pos) = new_pos {
+                                    self.history_position = new_pos;
+                                    self.input = TextArea::default();
+                                    self.input.set_cursor_line_style(Style::default());
+                                    self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
+                                    self.input.insert_str(&self.history[pos]);
+                                }
+                            }
+                        } else if key.code == KeyCode::Down {
+                            // Navigate history forwards
+                            if let Some(pos) = self.history_position {
+                                if pos + 1 < self.history.len() {
+                                    // Move to next history item
+                                    self.history_position = Some(pos + 1);
+                                    self.input = TextArea::default();
+                                    self.input.set_cursor_line_style(Style::default());
+                                    self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
+                                    self.input.insert_str(&self.history[pos + 1]);
+                                } else {
+                                    // Exit history mode, clear input
+                                    self.history_position = None;
+                                    self.input = TextArea::default();
+                                    self.input.set_cursor_line_style(Style::default());
+                                    self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
+                                }
+                            }
                         } else {
                             self.input.input(Input::from(key));
                         }
@@ -1096,11 +1137,18 @@ pub async fn run(&mut self) -> Result<()> {
             return;
         }
 
+        // Save to history (only for non-slash commands)
+        let trimmed = content.trim();
+        if !trimmed.starts_with('/') {
+            self.history.push(content.clone());
+            self.history_position = None; // Reset history position when submitting new message
+        }
+
         // Reset input
         self.input = TextArea::default();
         self.input.set_cursor_line_style(Style::default());
         self.input
-            .set_placeholder_text("Type your message... (Enter to send, Ctrl+C to clear, Ctrl+Q to quit)");
+            .set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
 
         let trimmed = content.trim();
 
@@ -3720,6 +3768,109 @@ mod tests {
         
         // Should quit regardless of input state
         assert!(app.should_quit, "Ctrl+Q should quit");
+    }
+
+    #[test]
+    fn test_history_navigation() {
+        let mut app = test_app();
+        
+        // Submit some messages to build history
+        app.input.insert_str("first message");
+        app.submit_input();
+        app.input.insert_str("second message");
+        app.submit_input();
+        app.input.insert_str("third message");
+        app.submit_input();
+        
+        // Verify history was built
+        assert_eq!(app.history.len(), 3, "Should have 3 messages in history");
+        assert_eq!(app.history[0], "first message");
+        assert_eq!(app.history[1], "second message");
+        assert_eq!(app.history[2], "third message");
+        
+        // Press up arrow to go to most recent message
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Up,
+            KeyModifiers::NONE,
+        )));
+        
+        // Should have the most recent message
+        assert_eq!(app.history_position, Some(2), "Should be at position 2");
+        assert_eq!(app.input.lines().join("\n"), "third message");
+        
+        // Press up arrow again to go to previous message
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Up,
+            KeyModifiers::NONE,
+        )));
+        
+        // Should have the second message
+        assert_eq!(app.history_position, Some(1), "Should be at position 1");
+        assert_eq!(app.input.lines().join("\n"), "second message");
+        
+        // Press down arrow to go forward
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+        )));
+        
+        // Should have the most recent message again
+        assert_eq!(app.history_position, Some(2), "Should be at position 2");
+        assert_eq!(app.input.lines().join("\n"), "third message");
+        
+        // Press down arrow again to exit history mode
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Down,
+            KeyModifiers::NONE,
+        )));
+        
+        // Should exit history mode
+        assert_eq!(app.history_position, None, "Should exit history mode");
+        assert!(app.input.lines().iter().all(|l| l.is_empty()), "Input should be empty");
+    }
+
+    #[test]
+    fn test_history_does_not_save_slash_commands() {
+        let mut app = test_app();
+        
+        // Submit a slash command
+        app.input.insert_str("/help");
+        app.submit_input();
+        
+        // Submit a normal message
+        app.input.insert_str("normal message");
+        app.submit_input();
+        
+        // Verify only normal message was saved to history
+        assert_eq!(app.history.len(), 1, "Should have 1 message in history");
+        assert_eq!(app.history[0], "normal message");
+    }
+
+    #[test]
+    fn test_ctrl_c_resets_history_position() {
+        let mut app = test_app();
+        
+        // Build history
+        app.input.insert_str("test message");
+        app.submit_input();
+        
+        // Navigate to history
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Up,
+            KeyModifiers::NONE,
+        )));
+        
+        assert_eq!(app.history_position, Some(0), "Should be in history mode");
+        
+        // Press Ctrl+C to clear
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+        )));
+        
+        // History position should be reset
+        assert_eq!(app.history_position, None, "History position should be reset");
+        assert!(app.input.lines().iter().all(|l| l.is_empty()), "Input should be empty");
     }
 
     #[test]
