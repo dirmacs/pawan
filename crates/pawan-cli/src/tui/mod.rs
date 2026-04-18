@@ -768,6 +768,27 @@ pub async fn run(&mut self) -> Result<()> {
                                 self.model_selector_selected = (self.model_selector_selected + 1).min(filtered - 1);
                             }
                         }
+                        KeyCode::PageUp => {
+                            let filtered = self.filtered_models().len();
+                            if filtered > 0 {
+                                self.model_selector_selected = self.model_selector_selected.saturating_sub(10);
+                            }
+                        }
+                        KeyCode::PageDown => {
+                            let filtered = self.filtered_models().len();
+                            if filtered > 0 {
+                                self.model_selector_selected = (self.model_selector_selected + 10).min(filtered - 1);
+                            }
+                        }
+                        KeyCode::Home => {
+                            self.model_selector_selected = 0;
+                        }
+                        KeyCode::End => {
+                            let filtered = self.filtered_models().len();
+                            if filtered > 0 {
+                                self.model_selector_selected = filtered - 1;
+                            }
+                        }
                         KeyCode::Enter => {
                             // Extract the selected model ID before mutating self
                             let model_id = {
@@ -1003,50 +1024,57 @@ pub async fn run(&mut self) -> Result<()> {
                 }
             }
  Event::Mouse(mouse) => {
-            if self.config.mouse_support {
-                match mouse.kind {
-                    event::MouseEventKind::ScrollUp => {
-                        // Handle popups first
-                        if self.palette_open {
-                            self.palette_selected = self.palette_selected.saturating_sub(self.config.scroll_speed);
-                        } else if self.session_browser_open {
-                            let sessions = self.filtered_sessions().len();
-                            if sessions > 0 {
-                                self.session_browser_selected = self.session_browser_selected.saturating_sub(self.config.scroll_speed);
+                if self.config.mouse_support {
+                    match mouse.kind {
+                        event::MouseEventKind::ScrollUp => {
+                            // Handle popups first
+                            if self.model_selector_open {
+                                self.model_selector_selected = self.model_selector_selected.saturating_sub(self.config.scroll_speed);
+                            } else if self.palette_open {
+                                self.palette_selected = self.palette_selected.saturating_sub(self.config.scroll_speed);
+                            } else if self.session_browser_open {
+                                let sessions = self.filtered_sessions().len();
+                                if sessions > 0 {
+                                    self.session_browser_selected = self.session_browser_selected.saturating_sub(self.config.scroll_speed);
+                                }
+                            } else if self.is_slash_popup_active() {
+                                let items = self.slash_items();
+                                if !items.is_empty() {
+                                    self.slash_popup_selected = self.slash_popup_selected.saturating_sub(self.config.scroll_speed);
+                                }
+                            } else {
+                                // Default to messages panel
+                                self.scroll = self.scroll.saturating_sub(self.config.scroll_speed);
                             }
-                        } else if self.is_slash_popup_active() {
-                            let items = self.slash_items();
-                            if !items.is_empty() {
-                                self.slash_popup_selected = self.slash_popup_selected.saturating_sub(self.config.scroll_speed);
-                            }
-                        } else {
-                            // Default to messages panel
-                            self.scroll = self.scroll.saturating_sub(self.config.scroll_speed);
                         }
-                    }
-                    event::MouseEventKind::ScrollDown => {
-                        // Handle popups first
-                        if self.palette_open {
-                            self.palette_selected += self.config.scroll_speed;
-                        } else if self.session_browser_open {
-                            let sessions = self.filtered_sessions().len();
-                            if sessions > 0 {
-                                self.session_browser_selected = (self.session_browser_selected + self.config.scroll_speed).min(sessions - 1);
+                        event::MouseEventKind::ScrollDown => {
+                            // Handle popups first
+                            if self.model_selector_open {
+                                let filtered = self.filtered_models().len();
+                                if filtered > 0 {
+                                    self.model_selector_selected = (self.model_selector_selected + self.config.scroll_speed).min(filtered - 1);
+                                }
+                            } else if self.palette_open {
+                                self.palette_selected += self.config.scroll_speed;
+                            } else if self.session_browser_open {
+                                let sessions = self.filtered_sessions().len();
+                                if sessions > 0 {
+                                    self.session_browser_selected = (self.session_browser_selected + self.config.scroll_speed).min(sessions - 1);
+                                }
+                            } else if self.is_slash_popup_active() {
+                                let items = self.slash_items();
+                                if !items.is_empty() {
+                                    self.slash_popup_selected = (self.slash_popup_selected + self.config.scroll_speed).min(items.len() - 1);
+                                }
+                            } else {
+                                // Default to messages panel
+                                self.scroll = self.scroll.saturating_add(self.config.scroll_speed);
                             }
-                        } else if self.is_slash_popup_active() {
-                            let items = self.slash_items();
-                            if !items.is_empty() {
-                                self.slash_popup_selected = (self.slash_popup_selected + self.config.scroll_speed).min(items.len() - 1);
-                            }
-                        } else {
-                            // Default to messages panel
-                            self.scroll = self.scroll.saturating_add(self.config.scroll_speed);
                         }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
-        }
             _ => {}
         }
     }
