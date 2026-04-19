@@ -170,6 +170,7 @@ pawan/
 - **Message timestamps** — relative time (now, 5s, 2m, 1h) on each message
 - **Scroll position** — `[2/5]` indicator in messages title bar
 - **Session stats** — tool calls, files edited, message count in status bar
+- **Tool call approval** — three options: `y` (yes), `n` (no), `a` (allow all). Selecting `a` auto-approves all subsequent tool calls in the session
 - **Conversation export** — `/export [path]` saves to markdown with tool call details
 - **Dynamic input** — auto-resizes 3-10 lines based on content
 - **Streaming markdown** — bold, code, italic, headers, lists rendered in real-time
