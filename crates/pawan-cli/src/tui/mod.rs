@@ -1966,85 +1966,129 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
     }
 
     /// Load available models (synchronous version)
-    fn load_available_models(&mut self) {
+        fn load_available_models(&mut self) {
         let default_models = vec![
-            // DeepSeek models (5)
-            ModelInfo { id: "deepseek-ai/deepseek-coder-6.7b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 85 },
-            ModelInfo { id: "deepseek-ai/deepseek-r1-0528".to_string(), provider: "NVIDIA".to_string(), quality_score: 88 },
-            ModelInfo { id: "deepseek-ai/deepseek-v3.1".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
-            ModelInfo { id: "deepseek-ai/deepseek-v3.1-terminus".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
-            ModelInfo { id: "deepseek-ai/deepseek-v3.2".to_string(), provider: "NVIDIA".to_string(), quality_score: 90 },
-            // Google Gemma models (8)
-            ModelInfo { id: "google/gemma-2-27b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 82 },
-            ModelInfo { id: "google/gemma-2-2b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 80 },
-            ModelInfo { id: "google/gemma-3-12b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 83 },
-            ModelInfo { id: "google/gemma-3-1b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 79 },
-            ModelInfo { id: "google/gemma-3-27b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 84 },
-            ModelInfo { id: "google/gemma-3n-e2b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 81 },
-            ModelInfo { id: "google/gemma-3n-e4b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 82 },
-            ModelInfo { id: "google/gemma-4-31b-it".to_string(), provider: "NVIDIA".to_string(), quality_score: 86 },
-            // Meta Llama models (10)
-            ModelInfo { id: "meta/llama-3.1-405b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 91 },
-            ModelInfo { id: "meta/llama-3.1-70b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
-            ModelInfo { id: "meta/llama-3.2-11b-vision-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 84 },
-            ModelInfo { id: "meta/llama-3.2-1b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 78 },
-            ModelInfo { id: "meta/llama-3.3-70b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 90 },
-            ModelInfo { id: "meta/llama-4-maverick-17b-128e-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 87 },
-            ModelInfo { id: "meta/llama-4-scout-17b-16e-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 86 },
-            ModelInfo { id: "meta/llama3-70b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 88 },
-            ModelInfo { id: "meta/llama3-8b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 82 },
-            // Microsoft Phi models (8)
-            ModelInfo { id: "microsoft/phi-3-medium-128k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 83 },
-            ModelInfo { id: "microsoft/phi-3-medium-4k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 82 },
-            ModelInfo { id: "microsoft/phi-3-small-128k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 81 },
-            ModelInfo { id: "microsoft/phi-3-small-8k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 80 },
-            ModelInfo { id: "microsoft/phi-3-vision-128k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 83 },
-            ModelInfo { id: "microsoft/phi-3.5-moe-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 85 },
-            ModelInfo { id: "microsoft/phi-3.5-vision-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 84 },
-            ModelInfo { id: "microsoft/phi-4-mini-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 87 },
-            // MiniMax models (3)
-            ModelInfo { id: "minimaxai/minimax-m2".to_string(), provider: "NVIDIA".to_string(), quality_score: 84 },
-            ModelInfo { id: "minimaxai/minimax-m2.1".to_string(), provider: "NVIDIA".to_string(), quality_score: 85 },
-            ModelInfo { id: "minimaxai/minimax-m2.5".to_string(), provider: "NVIDIA".to_string(), quality_score: 86 },
-            // Mistral models (6)
-            ModelInfo { id: "mistralai/codestral-22b-instruct-v0.1".to_string(), provider: "NVIDIA".to_string(), quality_score: 85 },
-            ModelInfo { id: "mistralai/devstral-2-123b-instruct-2512".to_string(), provider: "NVIDIA".to_string(), quality_score: 91 },
-            ModelInfo { id: "mistralai/ministral-14b-instruct-2512".to_string(), provider: "NVIDIA".to_string(), quality_score: 83 },
-            ModelInfo { id: "mistralai/mistral-large-2-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 88 },
-            ModelInfo { id: "mistralai/mistral-large-3-675b-instruct-2512".to_string(), provider: "NVIDIA".to_string(), quality_score: 93 },
-            ModelInfo { id: "mistralai/mistral-small-3.1-24b-instruct-2503".to_string(), provider: "NVIDIA".to_string(), quality_score: 84 },
+            // 01-ai models (1)
+            ModelInfo { id: "01-ai/yi-large".to_string(), provider: "01-ai".to_string(), quality_score: 75 },
+            // Abacusai models (1)
+            ModelInfo { id: "abacusai/dracarys-llama-3.1-70b-instruct".to_string(), provider: "Abacusai".to_string(), quality_score: 93 },
+            // Ai21labs models (1)
+            ModelInfo { id: "ai21labs/jamba-1.5-large-instruct".to_string(), provider: "Ai21labs".to_string(), quality_score: 75 },
+            // Aisingapore models (1)
+            ModelInfo { id: "aisingapore/sea-lion-7b-instruct".to_string(), provider: "Aisingapore".to_string(), quality_score: 79 },
+            // Bigcode models (1)
+            ModelInfo { id: "bigcode/starcoder2-15b".to_string(), provider: "Bigcode".to_string(), quality_score: 75 },
+            // Bytedance models (1)
+            ModelInfo { id: "bytedance/seed-oss-36b-instruct".to_string(), provider: "Bytedance".to_string(), quality_score: 75 },
+            // Databricks models (1)
+            ModelInfo { id: "databricks/dbrx-instruct".to_string(), provider: "Databricks".to_string(), quality_score: 75 },
+            // DeepSeek models (3)
+            ModelInfo { id: "deepseek-ai/deepseek-coder-6.7b-instruct".to_string(), provider: "Deepseek-ai".to_string(), quality_score: 79 },
+            ModelInfo { id: "deepseek-ai/deepseek-v3.1-terminus".to_string(), provider: "Deepseek-ai".to_string(), quality_score: 91 },
+            ModelInfo { id: "deepseek-ai/deepseek-v3.2".to_string(), provider: "Deepseek-ai".to_string(), quality_score: 93 },
+            // Google models (10)
+            ModelInfo { id: "google/codegemma-1.1-7b".to_string(), provider: "Google".to_string(), quality_score: 79 },
+            ModelInfo { id: "google/codegemma-7b".to_string(), provider: "Google".to_string(), quality_score: 79 },
+            ModelInfo { id: "google/gemma-2-2b-it".to_string(), provider: "Google".to_string(), quality_score: 79 },
+            ModelInfo { id: "google/gemma-2b".to_string(), provider: "Google".to_string(), quality_score: 77 },
+            ModelInfo { id: "google/gemma-3-12b-it".to_string(), provider: "Google".to_string(), quality_score: 85 },
+            ModelInfo { id: "google/gemma-3-27b-it".to_string(), provider: "Google".to_string(), quality_score: 87 },
+            ModelInfo { id: "google/gemma-3-4b-it".to_string(), provider: "Google".to_string(), quality_score: 79 },
+            ModelInfo { id: "google/gemma-3n-e2b-it".to_string(), provider: "Google".to_string(), quality_score: 81 },
+            ModelInfo { id: "google/gemma-3n-e4b-it".to_string(), provider: "Google".to_string(), quality_score: 81 },
+            ModelInfo { id: "google/gemma-4-31b-it".to_string(), provider: "Google".to_string(), quality_score: 87 },
+            // IBM models (4)
+            ModelInfo { id: "ibm/granite-3.0-3b-a800m-instruct".to_string(), provider: "Ibm".to_string(), quality_score: 77 },
+            ModelInfo { id: "ibm/granite-3.0-8b-instruct".to_string(), provider: "Ibm".to_string(), quality_score: 79 },
+            ModelInfo { id: "ibm/granite-34b-code-instruct".to_string(), provider: "Ibm".to_string(), quality_score: 85 },
+            ModelInfo { id: "ibm/granite-8b-code-instruct".to_string(), provider: "Ibm".to_string(), quality_score: 81 },
+            // Meta models (8)
+            ModelInfo { id: "meta/llama-3.1-405b-instruct".to_string(), provider: "Meta".to_string(), quality_score: 95 },
+            ModelInfo { id: "meta/llama-3.1-70b-instruct".to_string(), provider: "Meta".to_string(), quality_score: 93 },
+            ModelInfo { id: "meta/llama-3.1-8b-instruct".to_string(), provider: "Meta".to_string(), quality_score: 79 },
+            ModelInfo { id: "meta/llama-3.2-11b-vision-instruct".to_string(), provider: "Meta".to_string(), quality_score: 81 },
+            ModelInfo { id: "meta/llama-3.2-1b-instruct".to_string(), provider: "Meta".to_string(), quality_score: 77 },
+            ModelInfo { id: "meta/llama-3.2-3b-instruct".to_string(), provider: "Meta".to_string(), quality_score: 77 },
+            ModelInfo { id: "meta/llama-3.3-70b-instruct".to_string(), provider: "Meta".to_string(), quality_score: 95 },
+            ModelInfo { id: "meta/llama-4-maverick-17b-128e-instruct".to_string(), provider: "Meta".to_string(), quality_score: 95 },
+            // Microsoft models (4)
+            ModelInfo { id: "microsoft/phi-3-vision-128k-instruct".to_string(), provider: "Microsoft".to_string(), quality_score: 83 },
+            ModelInfo { id: "microsoft/phi-3.5-moe-instruct".to_string(), provider: "Microsoft".to_string(), quality_score: 89 },
+            ModelInfo { id: "microsoft/phi-4-mini-instruct".to_string(), provider: "Microsoft".to_string(), quality_score: 91 },
+            ModelInfo { id: "microsoft/phi-4-multimodal-instruct".to_string(), provider: "Microsoft".to_string(), quality_score: 91 },
+            // MiniMax models (2)
+            ModelInfo { id: "minimaxai/minimax-m2.5".to_string(), provider: "Minimaxai".to_string(), quality_score: 81 },
+            ModelInfo { id: "minimaxai/minimax-m2.7".to_string(), provider: "Minimaxai".to_string(), quality_score: 89 },
+            // Mistral models (14)
+            ModelInfo { id: "mistralai/codestral-22b-instruct-v0.1".to_string(), provider: "Mistralai".to_string(), quality_score: 87 },
+            ModelInfo { id: "mistralai/devstral-2-123b-instruct-2512".to_string(), provider: "Mistralai".to_string(), quality_score: 95 },
+            ModelInfo { id: "mistralai/magistral-small-2506".to_string(), provider: "Mistralai".to_string(), quality_score: 75 },
+            ModelInfo { id: "mistralai/ministral-14b-instruct-2512".to_string(), provider: "Mistralai".to_string(), quality_score: 85 },
+            ModelInfo { id: "mistralai/mistral-7b-instruct-v0.3".to_string(), provider: "Mistralai".to_string(), quality_score: 79 },
+            ModelInfo { id: "mistralai/mistral-large".to_string(), provider: "Mistralai".to_string(), quality_score: 89 },
+            ModelInfo { id: "mistralai/mistral-large-2-instruct".to_string(), provider: "Mistralai".to_string(), quality_score: 93 },
+            ModelInfo { id: "mistralai/mistral-large-3-675b-instruct-2512".to_string(), provider: "Mistralai".to_string(), quality_score: 95 },
+            ModelInfo { id: "mistralai/mistral-medium-3-instruct".to_string(), provider: "Mistralai".to_string(), quality_score: 85 },
+            ModelInfo { id: "mistralai/mistral-nemotron".to_string(), provider: "Mistralai".to_string(), quality_score: 81 },
+            ModelInfo { id: "mistralai/mistral-small-4-119b-2603".to_string(), provider: "Mistralai".to_string(), quality_score: 91 },
+            ModelInfo { id: "mistralai/mixtral-8x22b-instruct-v0.1".to_string(), provider: "Mistralai".to_string(), quality_score: 77 },
+            ModelInfo { id: "mistralai/mixtral-8x22b-v0.1".to_string(), provider: "Mistralai".to_string(), quality_score: 77 },
+            ModelInfo { id: "mistralai/mixtral-8x7b-instruct-v0.1".to_string(), provider: "Mistralai".to_string(), quality_score: 83 },
             // Moonshot models (4)
-            ModelInfo { id: "moonshotai/kimi-k2-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 86 },
-            ModelInfo { id: "moonshotai/kimi-k2-instruct-0905".to_string(), provider: "NVIDIA".to_string(), quality_score: 86 },
-            ModelInfo { id: "moonshotai/kimi-k2-thinking".to_string(), provider: "NVIDIA".to_string(), quality_score: 87 },
-            ModelInfo { id: "moonshotai/kimi-k2.5".to_string(), provider: "NVIDIA".to_string(), quality_score: 88 },
-            // NVIDIA models (8)
-            ModelInfo { id: "nvidia/llama-3.1-nemotron-51b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 90 },
-            ModelInfo { id: "nvidia/llama-3.1-nemotron-70b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 92 },
-            ModelInfo { id: "nvidia/llama-3.1-nemotron-ultra-253b-v1".to_string(), provider: "NVIDIA".to_string(), quality_score: 94 },
-            ModelInfo { id: "nvidia/llama3-chatqa-1.5-70b".to_string(), provider: "NVIDIA".to_string(), quality_score: 91 },
-            ModelInfo { id: "nvidia/mistral-nemo-minitron-8b-8k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 82 },
-            ModelInfo { id: "nvidia/nemotron-3-nano-30b-a3b".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
-            ModelInfo { id: "nvidia/nemotron-3-super-120b-a12b".to_string(), provider: "NVIDIA".to_string(), quality_score: 93 },
+            ModelInfo { id: "moonshotai/kimi-k2-instruct".to_string(), provider: "Moonshotai".to_string(), quality_score: 89 },
+            ModelInfo { id: "moonshotai/kimi-k2-instruct-0905".to_string(), provider: "Moonshotai".to_string(), quality_score: 89 },
+            ModelInfo { id: "moonshotai/kimi-k2-thinking".to_string(), provider: "Moonshotai".to_string(), quality_score: 91 },
+            ModelInfo { id: "moonshotai/kimi-k2.5".to_string(), provider: "Moonshotai".to_string(), quality_score: 93 },
+            // NV-Mistral models (1)
+            ModelInfo { id: "nv-mistralai/mistral-nemo-12b-instruct".to_string(), provider: "Nv-mistralai".to_string(), quality_score: 81 },
+            // NVIDIA models (15)
+            ModelInfo { id: "nvidia/ising-calibration-1-35b-a3b".to_string(), provider: "NVIDIA".to_string(), quality_score: 77 },
+            ModelInfo { id: "nvidia/llama-3.1-nemotron-51b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 91 },
+            ModelInfo { id: "nvidia/llama-3.1-nemotron-70b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 93 },
+            ModelInfo { id: "nvidia/llama-3.1-nemotron-nano-8b-v1".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
+            ModelInfo { id: "nvidia/llama-3.1-nemotron-nano-vl-8b-v1".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
+            ModelInfo { id: "nvidia/llama-3.1-nemotron-ultra-253b-v1".to_string(), provider: "NVIDIA".to_string(), quality_score: 93 },
+            ModelInfo { id: "nvidia/llama-3.3-nemotron-super-49b-v1".to_string(), provider: "NVIDIA".to_string(), quality_score: 75 },
+            ModelInfo { id: "nvidia/llama-3.3-nemotron-super-49b-v1.5".to_string(), provider: "NVIDIA".to_string(), quality_score: 75 },
+            ModelInfo { id: "nvidia/llama3-chatqa-1.5-70b".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
+            ModelInfo { id: "nvidia/mistral-nemo-minitron-8b-8k-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 81 },
+            ModelInfo { id: "nvidia/nemotron-3-nano-30b-a3b".to_string(), provider: "NVIDIA".to_string(), quality_score: 91 },
+            ModelInfo { id: "nvidia/nemotron-3-super-120b-a12b".to_string(), provider: "NVIDIA".to_string(), quality_score: 95 },
             ModelInfo { id: "nvidia/nemotron-4-340b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 95 },
-            ModelInfo { id: "nvidia/nvidia-nemotron-nano-9b-v2".to_string(), provider: "NVIDIA".to_string(), quality_score: 85 },
-            // Qwen models (7)
-            ModelInfo { id: "qwen/qwen2.5-coder-32b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 87 },
-            ModelInfo { id: "qwen/qwen2.5-coder-7b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 83 },
-            ModelInfo { id: "qwen/qwen3-235b-a22b".to_string(), provider: "NVIDIA".to_string(), quality_score: 90 },
-            ModelInfo { id: "qwen/qwen3-coder-480b-a35b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 93 },
-            ModelInfo { id: "qwen/qwen3-next-80b-a3b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
-            ModelInfo { id: "qwen/qwen3-next-80b-a3b-thinking".to_string(), provider: "NVIDIA".to_string(), quality_score: 90 },
-            ModelInfo { id: "qwen/qwen3.5-397b-a17b".to_string(), provider: "NVIDIA".to_string(), quality_score: 94 },
+            ModelInfo { id: "nvidia/nemotron-4-340b-reward".to_string(), provider: "NVIDIA".to_string(), quality_score: 95 },
+            ModelInfo { id: "nvidia/nemotron-mini-4b-instruct".to_string(), provider: "NVIDIA".to_string(), quality_score: 77 },
+            ModelInfo { id: "nvidia/nemotron-nano-12b-v2-vl".to_string(), provider: "NVIDIA".to_string(), quality_score: 81 },
+            ModelInfo { id: "nvidia/nemotron-nano-3-30b-a3b".to_string(), provider: "NVIDIA".to_string(), quality_score: 77 },
+            ModelInfo { id: "nvidia/nvidia-nemotron-nano-9b-v2".to_string(), provider: "NVIDIA".to_string(), quality_score: 75 },
+            // OpenAI models (4)
+            ModelInfo { id: "openai/gpt-oss-120b".to_string(), provider: "OpenAI".to_string(), quality_score: 75 },
+            ModelInfo { id: "openai/gpt-oss-20b".to_string(), provider: "OpenAI".to_string(), quality_score: 75 },
+            // Qwen models (6)
+            ModelInfo { id: "qwen/qwen2.5-coder-32b-instruct".to_string(), provider: "Qwen".to_string(), quality_score: 89 },
+            ModelInfo { id: "qwen/qwen3-coder-480b-a35b-instruct".to_string(), provider: "Qwen".to_string(), quality_score: 95 },
+            ModelInfo { id: "qwen/qwen3-next-80b-a3b-instruct".to_string(), provider: "Qwen".to_string(), quality_score: 91 },
+            ModelInfo { id: "qwen/qwen3-next-80b-a3b-thinking".to_string(), provider: "Qwen".to_string(), quality_score: 91 },
+            ModelInfo { id: "qwen/qwen3.5-122b-a10b".to_string(), provider: "Qwen".to_string(), quality_score: 85 },
+            ModelInfo { id: "qwen/qwen3.5-397b-a17b".to_string(), provider: "Qwen".to_string(), quality_score: 95 },
+            // Sarvamai models (1)
+            ModelInfo { id: "sarvamai/sarvam-m".to_string(), provider: "Sarvamai".to_string(), quality_score: 75 },
             // StepFun models (1)
-            ModelInfo { id: "stepfun-ai/step-3.5-flash".to_string(), provider: "NVIDIA".to_string(), quality_score: 88 },
-            // Z-AI models (2)
-            ModelInfo { id: "z-ai/glm4.7".to_string(), provider: "NVIDIA".to_string(), quality_score: 89 },
-            ModelInfo { id: "z-ai/glm5".to_string(), provider: "NVIDIA".to_string(), quality_score: 92 },
-            // Anthropic models (1)
-            ModelInfo { id: "anthropic/claude-3-5-sonnet-20241022".to_string(), provider: "Anthropic".to_string(), quality_score: 95 },
-            // OpenAI models (1)
-            ModelInfo { id: "openai/gpt-4o".to_string(), provider: "OpenAI".to_string(), quality_score: 90 },
+            ModelInfo { id: "stepfun-ai/step-3.5-flash".to_string(), provider: "Stepfun-ai".to_string(), quality_score: 85 },
+            // Stockmark models (1)
+            ModelInfo { id: "stockmark/stockmark-2-100b-instruct".to_string(), provider: "Stockmark".to_string(), quality_score: 75 },
+            // Upstage models (1)
+            ModelInfo { id: "upstage/solar-10.7b-instruct".to_string(), provider: "Upstage".to_string(), quality_score: 79 },
+            // Writer models (4)
+            ModelInfo { id: "writer/palmyra-creative-122b".to_string(), provider: "Writer".to_string(), quality_score: 77 },
+            ModelInfo { id: "writer/palmyra-fin-70b-32k".to_string(), provider: "Writer".to_string(), quality_score: 87 },
+            ModelInfo { id: "writer/palmyra-med-70b".to_string(), provider: "Writer".to_string(), quality_score: 87 },
+            ModelInfo { id: "writer/palmyra-med-70b-32k".to_string(), provider: "Writer".to_string(), quality_score: 87 },
+            // Z-AI models (3)
+            ModelInfo { id: "z-ai/glm-5.1".to_string(), provider: "Z-ai".to_string(), quality_score: 95 },
+            ModelInfo { id: "z-ai/glm4.7".to_string(), provider: "Z-ai".to_string(), quality_score: 87 },
+            ModelInfo { id: "z-ai/glm5".to_string(), provider: "Z-ai".to_string(), quality_score: 95 },
+            // Zyphra models (1)
+            ModelInfo { id: "zyphra/zamba2-7b-instruct".to_string(), provider: "Zyphra".to_string(), quality_score: 79 },
         ];
         self.available_models = default_models;
     }
