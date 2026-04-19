@@ -320,6 +320,8 @@ struct App<'a> {
     show_welcome: bool,
     /// Permission dialog state — when Some, the agent is waiting for y/n
     permission_dialog: Option<PermissionDialog>,
+    /// Auto-approve all tool calls for this session (set when user selects "yes to all")
+    auto_approve_tools: bool,
     /// Channel to send commands to the agent task
     cmd_tx: mpsc::UnboundedSender<AgentCommand>,
     /// Channel to receive events from the agent task
@@ -398,6 +400,7 @@ slash_popup_selected: 0,
         file_completion_selected: 0,
         show_welcome: true,
             permission_dialog: None,
+            auto_approve_tools: false,
             cmd_tx,
             event_rx,
             model_selector_open: false,
@@ -542,12 +545,18 @@ pub async fn run(&mut self) -> Result<()> {
                         self.status = format!("{} {} ({}ms)", icon, record.name, record.duration_ms);
                     }
                     AgentEvent::PermissionRequest { tool_name, args_summary, respond } => {
-                        self.permission_dialog = Some(PermissionDialog {
-                            tool_name: tool_name.clone(),
-                            args_summary: args_summary.clone(),
-                            respond: Some(respond),
-                        });
-                        self.status = format!("Permission required: {} — y/n", tool_name);
+                        if self.auto_approve_tools {
+                            // Auto-approve all tool calls
+                            let _ = respond.send(true);
+                            self.status = format!("Auto-approved: {}", tool_name);
+                        } else {
+                            self.permission_dialog = Some(PermissionDialog {
+                                tool_name: tool_name.clone(),
+                                args_summary: args_summary.clone(),
+                                respond: Some(respond),
+                            });
+                            self.status = format!("Permission required: {} — y/n/a", tool_name);
+                        }
                     }
                     AgentEvent::Complete(result) => {
                         self.processing = false;
@@ -623,6 +632,16 @@ pub async fn run(&mut self) -> Result<()> {
                                 let _ = tx.send(true);
                             }
                             self.status = format!("Allowed: {}", dialog.tool_name);
+                        }
+                        return;
+                    }
+                    KeyCode::Char('a') | KeyCode::Char('A') => {
+                        if let Some(mut dialog) = self.permission_dialog.take() {
+                            if let Some(tx) = dialog.respond.take() {
+                                let _ = tx.send(true);
+                            }
+                            self.status = format!("Allowed (all): {}", dialog.tool_name);
+                            self.auto_approve_tools = true;
                         }
                         return;
                     }
@@ -2370,7 +2389,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
 
         let area = f.area();
         let width = 60u16.min(area.width.saturating_sub(4));
-        let height = 7u16;
+        let height = 8u16;
         let x = (area.width.saturating_sub(width)) / 2;
         let y = (area.height.saturating_sub(height)) / 2;
         let popup_area = ratatui::layout::Rect::new(x, y, width, height);
@@ -2396,7 +2415,9 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
                 Span::styled(" y ", Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD)),
                 Span::raw(" Allow  "),
                 Span::styled(" n ", Style::default().fg(Color::Black).bg(Color::Red).add_modifier(Modifier::BOLD)),
-                Span::raw(" Deny"),
+                Span::raw(" Deny  "),
+                Span::styled(" a ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw(" Allow all"),
             ]),
         ];
 
