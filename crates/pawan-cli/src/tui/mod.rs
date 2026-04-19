@@ -2189,11 +2189,11 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
         let y = area.height / 4;
         let selector_area = Rect::new(x, y, w, h);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Blue))
-            .title(" Model Selector ");
-
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::Blue))
+        .title(" Select Model ")
+        .title_style(Style::default().add_modifier(Modifier::BOLD));
         f.render_widget(ratatui::widgets::Clear, selector_area);
         f.render_widget(block.clone(), selector_area);
 
@@ -2217,38 +2217,92 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
         } else {
             selected - list_height + 1
         };
-
-        let visible_items: Vec<ListItem> = models
-            .iter()
-            .skip(offset)
-            .take(list_height)
-            .enumerate()
-            .map(|(i, model)| {
-                let actual_idx = i + offset;
-                let style = if actual_idx == selected {
-                    Style::default().fg(Color::Black).bg(Color::Blue)
-                } else {
-                    Style::default()
-                };
-                let provider_icon = match model.provider.as_str() {
-                    "NVIDIA" => "🤖",
-                    "Anthropic" => "🧠",
-                    "OpenAI" => "🔷",
-                    _ => "⚙️",
-                };
-                let quality_badge = if model.quality_score >= 90 {
-                    "🟢 S+"
-                } else if model.quality_score >= 85 {
-                    "🔵 S"
-                } else {
-                    "⚪ A"
-                };
-                ListItem::new(Line::from(vec![
-                    Span::styled(format!("{} {} ", provider_icon, quality_badge), style.add_modifier(Modifier::BOLD)),
-                    Span::styled(model.id.clone(), style),
-                ]))
-            })
-            .collect();
+            let visible_items: Vec<ListItem> = models
+                .iter()
+                .skip(offset)
+                .take(list_height)
+                .enumerate()
+                .map(|(i, model)| {
+                    let actual_idx = i + offset;
+                    let is_selected = actual_idx == selected;
+                    
+                    // Provider badge with color
+                    let provider_color = match model.provider.as_str() {
+                        "NVIDIA" => Color::Cyan,
+                        "Anthropic" => Color::Magenta,
+                        "OpenAI" => Color::Blue,
+                        "Google" => Color::Red,
+                        "Meta" => Color::Yellow,
+                        _ => Color::Gray,
+                    };
+                    
+                    // Quality indicator
+                    let quality_style = if model.quality_score >= 90 {
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                    } else if model.quality_score >= 85 {
+                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    } else if model.quality_score >= 80 {
+                        Style::default().fg(Color::Yellow)
+                    } else {
+                        Style::default().fg(Color::Gray)
+                    };
+                    
+                    // Quality tier text
+                    let quality_tier = if model.quality_score >= 90 {
+                        "S+"
+                    } else if model.quality_score >= 85 {
+                        "S "
+                    } else if model.quality_score >= 80 {
+                        "A "
+                    } else if model.quality_score >= 75 {
+                        "B "
+                    } else {
+                        "C "
+                    };
+                    
+                    // Style for the entire line
+                    let line_style = if is_selected {
+                        Style::default()
+                            .fg(Color::Black)
+                            .bg(Color::Blue)
+                            .add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+                    
+                    // Build the line with clean segments
+                    let mut spans = Vec::new();
+                    
+                    // Provider name (abbreviated)
+                    let provider_short = match model.provider.as_str() {
+                        "NVIDIA" => "NVDA",
+                        "Anthropic" => "ANTH",
+                        "OpenAI" => "OPEN",
+                        "Google" => "GOOG",
+                        "Meta" => "META",
+                        _ => &model.provider[..3.min(model.provider.len())],
+                    };
+                    
+                    spans.push(Span::styled(
+                        format!("[{}] ", provider_short),
+                        Style::default().fg(provider_color).add_modifier(Modifier::BOLD),
+                    ));
+                    
+                    // Quality tier
+                    spans.push(Span::styled(
+                        format!("{} ", quality_tier),
+                        quality_style,
+                    ));
+                    
+                    // Model ID
+                    spans.push(Span::styled(
+                        model.id.clone(),
+                        line_style,
+                    ));
+                    
+                    ListItem::new(Line::from(spans))
+                })
+                .collect();
         f.render_widget(List::new(visible_items), list_area);
     }
 
