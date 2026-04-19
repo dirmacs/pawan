@@ -1,16 +1,30 @@
-# pawan-core v0.3.2
+# pawan-core v0.4.8
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
 
-## What's New in v0.3.2
+## What's New in v0.4.8
 
-- **Enhanced TUI Testing** — Comprehensive test suite with 79 tests covering all TUI functionality
-- **Model Selector** — Interactive model selection with search and filtering capabilities
-- **Session Browser** — Browse, load, and manage saved sessions with sorting modes
-- **Auto-save** — Automatic session saving at configurable intervals
-- **Slash Commands** — Extended command set: `/sessions`, `/save`, `/load`, `/resume`, `/new`
-- **Modal Rendering** — Improved modal components for model selector and session browser
-- **Keyboard Handling** — Enhanced keyboard navigation and modal state management
+- **Shell-like command history navigation** — Up/down arrow keys navigate through command history, matching bash/zsh/Claude Code/OMP behavior
+- **History persistence** — Commands saved to history (excluding slash commands), accessible across sessions
+
+## What's New in v0.4.7
+
+- **Redesigned keyboard shortcuts** — Ctrl+C always clears input, Ctrl+Q quits for cleaner separation of concerns
+
+## What's New in v0.4.6
+
+- **Redesigned Ctrl+C behavior** — Clears input when non-empty, quits when empty (matching bash/zsh pattern)
+
+## What's New in v0.4.1
+
+- **Session tags UI** — Visual green tags in status bar, manage via `/tag` command
+- **Fuzzy session search** — Fuzzy matching with `[FUZZY]` indicator in session browser
+- **NVIDIA NIM catalog** — `/models` command to browse available NIM models
+- **Enhanced `/diff`** — `--cached` flag support and colorized diff output
+- **Improved `/load` and `/resume`** — Opens session browser when called without arguments
+- **Enhanced scrolling** — PageUp/PageDown/Home/End keys and mouse wheel support in all popups (command palette, slash menu, session browser)
+- **Secure credential storage** — API keys stored in OS-native credential store (Keychain/Credential Manager/libsecret)
+- **Test stability** — All 722 library tests and 59 integration tests now pass consistently
 
 ## Features
 
