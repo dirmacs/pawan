@@ -2226,40 +2226,6 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
                     let actual_idx = i + offset;
                     let is_selected = actual_idx == selected;
                     
-                    // Provider badge with color
-                    let provider_color = match model.provider.as_str() {
-                        "NVIDIA" => Color::Cyan,
-                        "Anthropic" => Color::Magenta,
-                        "OpenAI" => Color::Blue,
-                        "Google" => Color::Red,
-                        "Meta" => Color::Yellow,
-                        _ => Color::Gray,
-                    };
-                    
-                    // Quality indicator
-                    let quality_style = if model.quality_score >= 90 {
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-                    } else if model.quality_score >= 85 {
-                        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
-                    } else if model.quality_score >= 80 {
-                        Style::default().fg(Color::Yellow)
-                    } else {
-                        Style::default().fg(Color::Gray)
-                    };
-                    
-                    // Quality tier text
-                    let quality_tier = if model.quality_score >= 90 {
-                        "S+"
-                    } else if model.quality_score >= 85 {
-                        "S "
-                    } else if model.quality_score >= 80 {
-                        "A "
-                    } else if model.quality_score >= 75 {
-                        "B "
-                    } else {
-                        "C "
-                    };
-                    
                     // Style for the entire line
                     let line_style = if is_selected {
                         Style::default()
@@ -2270,40 +2236,13 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
                         Style::default()
                     };
                     
-                    // Build the line with clean segments
-                    let mut spans = Vec::new();
-                    
-                    // Provider name (abbreviated)
-                    let provider_short = match model.provider.as_str() {
-                        "NVIDIA" => "NVDA",
-                        "Anthropic" => "ANTH",
-                        "OpenAI" => "OPEN",
-                        "Google" => "GOOG",
-                        "Meta" => "META",
-                        _ => &model.provider[..3.min(model.provider.len())],
-                    };
-                    
-                    spans.push(Span::styled(
-                        format!("[{}] ", provider_short),
-                        Style::default().fg(provider_color).add_modifier(Modifier::BOLD),
-                    ));
-                    
-                    // Quality tier
-                    spans.push(Span::styled(
-                        format!("{} ", quality_tier),
-                        quality_style,
-                    ));
-                    
-                    // Model ID
-                    spans.push(Span::styled(
-                        model.id.clone(),
-                        line_style,
-                    ));
-                    
-                    ListItem::new(Line::from(spans))
+                    // Clean model ID only
+                    ListItem::new(Line::from(vec![
+                        Span::styled(model.id.clone(), line_style),
+                    ]))
                 })
                 .collect();
-        f.render_widget(List::new(visible_items), list_area);
+            f.render_widget(List::new(visible_items), list_area);
     }
 
     /// Render session browser modal
