@@ -1626,26 +1626,91 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
                     self.messages.push(DisplayMessage::new_text(Role::System, "Started new conversation"));
                 }
             }
+            "/compact" => {
+                use pawan::compaction::{CompactionStrategy, compact_messages};
+                
+                if self.messages.is_empty() {
+                    self.messages.push(DisplayMessage::new_text(Role::System, "No messages to compact. Start chatting first.".to_string()));
+                    self.status = "Nothing to compact".to_string();
+                } else {
+                    // Parse strategy from arg
+                    let strategy = match arg {
+                        "aggressive" => CompactionStrategy {
+                            keep_recent: 5,
+                            keep_keywords: vec!["error".to_string(), "fix".to_string(), "bug".to_string()],
+                            keep_tool_results: false,
+                            keep_system: false,
+                        },
+                        "conservative" => CompactionStrategy {
+                            keep_recent: 20,
+                            keep_keywords: vec![
+                                "error".to_string(), "fix".to_string(), "bug".to_string(),
+                                "issue".to_string(), "problem".to_string(), "solution".to_string(),
+                                "important".to_string(), "note".to_string(), "warning".to_string(),
+                                "decision".to_string(), "todo".to_string(),
+                            ],
+                            keep_tool_results: true,
+                            keep_system: true,
+                        },
+                        _ => CompactionStrategy::default(), // Default balanced strategy
+                    };
+                    
+                    // Convert DisplayMessages to Messages for compaction
+                    let original_messages: Vec<Message> = self.messages.iter().filter_map(|dm| {
+                        let text_content = dm.text_content();
+                        if text_content.trim().is_empty() {
+                            return None;
+                        }
+                        Some(Message {
+                            role: dm.role.clone(),
+                            content: text_content,
+                            tool_calls: vec![], // Tool calls not preserved in simple compaction
+                            tool_result: None,
+                        })
+                    }).collect();
+                    
+                    let original_count = original_messages.len();
+                    
+                    // Apply compaction
+                    let result = compact_messages(original_messages, &strategy);
+                    
+                    // Convert compacted messages back to DisplayMessages
+                    self.messages = result.messages.into_iter().map(|m| {
+                        DisplayMessage::new_text(m.role, m.content)
+                    }).collect();
+                    
+            let reduction_pct = if original_count > 0 {
+                ((original_count - result.compacted_count) as f64 / original_count as f64 * 100.0) as u32
+            } else {
+                0
+            };
+            
+            self.status = format!("Compacted: {} → {} messages ({}% reduction, ~{} tokens saved)",
+                original_count, result.compacted_count, reduction_pct, result.tokens_saved);
+                    self.messages.push(DisplayMessage::new_text(Role::System, self.status.clone()));
+                }
+            }
             "/help" | "/?" => {
-                self.messages.push(DisplayMessage::new_text(Role::System,
-                    "/model [name]  — show visual model selector or switch model\n\
-                     /sessions     — browse and manage saved sessions\n\
-                     /save         — save current conversation as a session\n\
-                     /load <id>    — load a saved session\n\
-                     /resume <id>  — resume a saved session\n\
-                     /new          — start a fresh conversation\n\
-                     /search <query> — web search via Daedra\n\
-                     /tools         — list available tools\n\
-                     /heal          — auto-fix build errors\n
-                     /handoff       — generate focused context for new session\n
-                     /export [path] — export conversation to markdown\n\
-                     /diff        — show git diff\n\
-                     /fork        — clone session to new one\n\
-                     /dump        — copy conversation to clipboard\n\
-                     /share       — export session and print path\n\
-                     /clear         — clear chat history\n\
-                     /quit          — exit pawan\n\
-                     /help          — show this help"));
+                let help_text = r#"/model [name]  - show visual model selector or switch model
+/sessions     - browse and manage saved sessions
+/save         - save current conversation as a session
+/load <id>    - load a saved session
+/resume <id>  - resume a saved session
+/new          - start a fresh conversation
+/search <query> - web search via Daedra
+/tools         - list available tools
+/heal          - auto-fix build errors
+/handoff       - generate focused context for new session
+/export [path] - export conversation to markdown
+/diff        - show git diff
+/fork        - clone session to new one
+/dump        - copy conversation to clipboard
+/share       - export session and print path
+/compact [strategy] - compact session (default/aggressive/conservative)
+/clear         - clear chat history
+/quit          - exit pawan
+/help          - show this help"#;
+                self.messages.push(DisplayMessage::new_text(Role::System, help_text));
             }
             _ => {
                 self.messages.push(DisplayMessage::new_text(Role::System, format!("Unknown command: {}. Type /help for available commands.", command)));
@@ -2448,6 +2513,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             ("/fork", "Clone current session to a new one"),
             ("/dump", "Copy conversation to clipboard"),
             ("/share", "Export session and print shareable path"),
+            ("/compact", "Compact session (default/aggressive/conservative)"),
             ("/clear", "Clear chat history"),
             ("/quit", "Exit pawan"),
         ];
@@ -2481,10 +2547,11 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             ("/tools", "List available tools"),
             ("/heal", "Auto-fix build errors"),
             ("/export", "Export conversation to markdown"),
-            ("/diff", "Show git diff (use --cached for staged changes)"), //
+            ("/diff", "Show git diff (use --cached for staged changes)"),
             ("/fork", "Clone current session to a new one"),
             ("/dump", "Copy conversation to clipboard"),
             ("/share", "Export session and print shareable path"),
+            ("/compact", "Compact session (default/aggressive/conservative)"),
             ("/clear", "Clear chat history"),
             ("/quit", "Exit pawan"),
         ];
@@ -5291,14 +5358,15 @@ mod tests {
         let app = test_app();
         let items = app.slash_items();
         let commands: Vec<_> = items.iter().map(|(cmd, _)| *cmd).collect();
-        assert!(commands.contains(&"/sessions"));
-        assert!(commands.contains(&"/save"));
-        assert!(commands.contains(&"/load"));
-        assert!(commands.contains(&"/resume"));
-        assert!(commands.contains(&"/new"));
-        assert!(commands.contains(&"/model"));
-        assert!(commands.contains(&"/export"));
-    }
+    assert!(commands.contains(&"/sessions"));
+    assert!(commands.contains(&"/save"));
+    assert!(commands.contains(&"/load"));
+    assert!(commands.contains(&"/resume"));
+    assert!(commands.contains(&"/new"));
+    assert!(commands.contains(&"/model"));
+    assert!(commands.contains(&"/export"));
+    assert!(commands.contains(&"/compact"));
+}
 
     // ===== Auto-save Tests =====
     #[test]
