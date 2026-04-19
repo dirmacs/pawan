@@ -25,7 +25,8 @@ Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split lay
 | `/fork` | | Clone current session to a new one |
 | `/dump` | | Copy conversation to clipboard |
 | `/share` | | Export session and print shareable path |
-| `/diff [--cached]` | | Show git diff of working directory (use `--cached` for staged changes) |
+| `/diff [--cached]` | `/d` | Show git diff of working directory (use `--cached` for staged changes) |
+| `/compact [strategy]` | | Compact session messages (strategies: default, aggressive, conservative) |
 | `/handoff` | | Generate focused context for new session |
 | `/export [path]` | `/e` | Export conversation to markdown |
 | `/import <path>` | | Import session from JSON file |
@@ -36,6 +37,49 @@ Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split lay
 | `/clear` | | Clear chat history |
 | `/quit` | `/q` | Exit pawan |
 | `/help` | `/?` | Show help |
+
+### `/compact` - Session Compaction
+
+The `/compact` command efficiently reduces conversation history by applying intelligent filtering strategies. This helps manage context length and token usage while preserving important information.
+
+**Usage:**
+```
+/compact [strategy]
+```
+
+**Strategies:**
+
+- **default** (no argument) - Balanced compaction
+  - Keeps 10 most recent messages
+  - Preserves messages with keywords: error, fix, bug, issue, problem, solution, important, note, warning
+  - Keeps tool results and system messages
+  - Target: 40-60% reduction
+
+- **aggressive** - Maximum compaction
+  - Keeps 5 most recent messages
+  - Preserves only critical keywords: error, fix, bug
+  - Removes tool results and system messages
+  - Target: 70-80% reduction
+
+- **conservative** - Minimal compaction
+  - Keeps 20 most recent messages
+  - Preserves extended keywords: error, fix, bug, issue, problem, solution, important, note, warning, decision, todo
+  - Keeps tool results and system messages
+  - Target: 20-30% reduction
+
+**Examples:**
+```
+/compact              # Use default balanced strategy
+/compact aggressive   # Maximum reduction
+/compact conservative # Minimal reduction
+```
+
+**Output:**
+After compaction, the status bar shows:
+```
+Compacted: 150 → 45 messages (70% reduction, ~420 tokens saved)
+```
+
 ### Keyboard Shortcuts
 
 | Key | Context | Action |

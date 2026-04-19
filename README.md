@@ -163,7 +163,7 @@ pawan/
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets
 - **F1 help overlay** — keyboard shortcuts reference, organized by category
 - **Split layout** — activity panel slides in during processing (72/28 split)
-- **Slash commands** — `/model`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`, `/sessions`, `/save`, `/load`, `/resume`, `/new`, `/fork`, `/dump`, `/share`, `/diff`, `/models`, `/tag`
+- **Slash commands** — `/model`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`, `/sessions`, `/save`, `/load`, `/resume`, `/new`, `/fork`, `/dump`, `/share`, `/diff`, `/models`, `/tag`, `/compact`
 - **Session tags UI** — visual green tags in status bar, add/remove/clear via `/tag` command
 - **Fuzzy session search** — fuzzy matching indicator `[FUZZY]` when enabled in session browser
 - **NVIDIA NIM catalog** — `/models` command to browse available NIM models
