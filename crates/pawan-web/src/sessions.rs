@@ -131,3 +131,100 @@ pub fn delete_session(id: &str) -> Result<(), String> {
     }
     fs::remove_file(&path).map_err(|e| e.to_string())
 }
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::fs;
+	use tempfile::TempDir;
+
+	#[test]
+	fn test_sessions_dir_uses_home_env() {
+		let dir = sessions_dir();
+		assert!(dir.ends_with(".pawan/sessions"));
+	}
+
+	#[test]
+	fn test_list_sessions_empty_directory() {
+		let tmp = TempDir::new().unwrap();
+		let sessions_path = tmp.path().join(".pawan").join("sessions");
+		fs::create_dir_all(&sessions_path).unwrap();
+		
+		// Temporarily override HOME env var
+		std::env::set_var("HOME", tmp.path());
+		let sessions = list_sessions().unwrap();
+		std::env::remove_var("HOME");
+		
+		assert!(sessions.is_empty());
+	}
+
+	#[test]
+	fn test_list_sessions_nonexistent_directory() {
+		// Temporarily override HOME to a non-existent path
+		std::env::set_var("HOME", "/nonexistent/path/that/does/not/exist");
+		let sessions = list_sessions().unwrap();
+		std::env::remove_var("HOME");
+		
+		assert!(sessions.is_empty());
+	}
+
+	#[test]
+	fn test_get_session_not_found() {
+		let tmp = TempDir::new().unwrap();
+		std::env::set_var("HOME", tmp.path());
+		
+		let result = get_session("nonexistent");
+		std::env::remove_var("HOME");
+		
+		assert!(result.is_err());
+		assert!(result.unwrap_err().contains("not found"));
+	}
+
+	#[test]
+	fn test_delete_session_not_found() {
+		let tmp = TempDir::new().unwrap();
+		std::env::set_var("HOME", tmp.path());
+		
+		let result = delete_session("nonexistent");
+		std::env::remove_var("HOME");
+		
+		assert!(result.is_err());
+		assert!(result.unwrap_err().contains("not found"));
+	}
+
+	#[test]
+	fn test_delete_session_success() {
+		let tmp = TempDir::new().unwrap();
+		let sessions_path = tmp.path().join(".pawan").join("sessions");
+		fs::create_dir_all(&sessions_path).unwrap();
+		
+		let session_path = sessions_path.join("test.json");
+		fs::write(&session_path, r#"{"messages":[]}"#).unwrap();
+		
+		std::env::set_var("HOME", tmp.path());
+		let result = delete_session("test");
+		std::env::remove_var("HOME");
+		
+		assert!(result.is_ok());
+		assert!(!session_path.exists());
+	}
+
+	#[test]
+	fn test_get_session_success() {
+		let tmp = TempDir::new().unwrap();
+		let sessions_path = tmp.path().join(".pawan").join("sessions");
+		fs::create_dir_all(&sessions_path).unwrap();
+		
+		let session_path = sessions_path.join("test.json");
+		let content = r#"{"messages":[{"role":"user","content":"hello"}]}"#;
+		fs::write(&session_path, content).unwrap();
+		
+		std::env::set_var("HOME", tmp.path());
+		let result = get_session("test");
+		std::env::remove_var("HOME");
+		
+		assert!(result.is_ok());
+		let session = result.unwrap();
+		assert_eq!(session.id, "test");
+		assert!(session.messages.is_object());
+	}
+}

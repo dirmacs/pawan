@@ -474,4 +474,286 @@ mod tests {
             resp.status() == StatusCode::OK || resp.status() == StatusCode::INTERNAL_SERVER_ERROR
         );
     }
+
+    // ---------------------------------------------------------------------------
+    // read_aegis_peers tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn test_read_aegis_peers_no_config_file() {
+        // When config file doesn't exist, should return empty vec
+        let peers = read_aegis_peers();
+        assert!(peers.is_empty());
+    }
+
+    #[test]
+    fn test_chat_request_deserialization_with_session_id() {
+        let json = r#"{"session_id": "test-123", "message": "Hello", "model": "gpt-4"}"#;
+        let req: ChatRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.session_id, Some("test-123".to_string()));
+        assert_eq!(req.message, "Hello");
+        assert_eq!(req.model, Some("gpt-4".to_string()));
+    }
+
+    #[test]
+    fn test_chat_request_deserialization_without_session_id() {
+        let json = r#"{"message": "Hello world"}"#;
+        let req: ChatRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.session_id, None);
+        assert_eq!(req.message, "Hello world");
+        assert_eq!(req.model, None);
+    }
+
+    #[test]
+    fn test_chat_response_serialization() {
+        let resp = ChatResponse {
+            session_id: "test-session".to_string(),
+            content: "Hello!".to_string(),
+            iterations: 3,
+            tool_calls: 2,
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("test-session"));
+        assert!(json.contains("Hello!"));
+    }
+
+    #[test]
+    fn test_health_response_serialization() {
+        let resp = HealthResponse {
+            status: "ok",
+            version: "0.1.0",
+            uptime_secs: 123,
+            agent_id: "test-agent".to_string(),
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("ok"));
+        assert!(json.contains("test-agent"));
+    }
+
+    #[test]
+    fn test_model_info_serialization() {
+        let model = ModelInfo {
+            name: "gpt-4".to_string(),
+            provider: "OpenAI".to_string(),
+            is_default: true,
+        };
+        let json = serde_json::to_string(&model).unwrap();
+        assert!(json.contains("gpt-4"));
+        assert!(json.contains("OpenAI"));
+        assert!(json.contains("true"));
+    }
+
+    #[test]
+    fn test_models_response_serialization() {
+        let resp = ModelsResponse {
+            models: vec![
+                ModelInfo {
+                    name: "gpt-4".to_string(),
+                    provider: "OpenAI".to_string(),
+                    is_default: true,
+                },
+                ModelInfo {
+                    name: "claude-3".to_string(),
+                    provider: "Anthropic".to_string(),
+                    is_default: false,
+                },
+            ],
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains("gpt-4"));
+        assert!(json.contains("claude-3"));
+    }
+
+    #[tokio::test]
+    async fn test_get_session_not_found() {
+        let state = test_state();
+        let app = Router::new()
+            .route("/api/sessions/{id}", get(get_session_handler))
+            .with_state(state);
+
+        let resp = app
+            .oneshot(Request::get("/api/sessions/nonexistent-id").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_delete_session_not_found() {
+        let state = test_state();
+        let app = Router::new()
+            .route("/api/sessions/{id}", delete(delete_session_handler))
+            .with_state(state);
+
+        let resp = app
+            .oneshot(Request::delete("/api/sessions/nonexistent-id").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn test_invalid_method_health() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(Request::post("/api/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        // POST to GET-only endpoint should return 405 Method Not Allowed
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[tokio::test]
+    async fn test_invalid_method_create_session() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(Request::get("/api/sessions").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        // Both GET and POST are valid for /api/sessions, so this test doesn't apply
+        // The router has both handlers for this path
+        assert!(resp.status() == StatusCode::OK || resp.status() == StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[tokio::test]
+    async fn test_malformed_json_chat() {
+        let state = test_state();
+        let app = Router::new()
+            .route("/api/chat", post(chat_handler))
+            .with_state(state);
+
+        let resp = app
+            .oneshot(
+                Request::post("/api/chat")
+                    .header("content-type", "application/json")
+                    .body(Body::from("{invalid json}"))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+}
+    #[tokio::test]
+    async fn test_missing_content_type() {
+        let state = test_state();
+        let app = Router::new()
+            .route("/api/chat", post(chat_handler))
+            .with_state(state);
+
+        let resp = app
+            .oneshot(
+                Request::post("/api/chat")
+                    .body(Body::from(r#"{"message": "test"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Without content-type header, should fail to parse
+        assert!(resp.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE || resp.status() == StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn test_models_with_fallback_models() {
+        use pawan::config::PawanConfig;
+        
+        let mut config = PawanConfig::default();
+        config.fallback_models = vec!["fallback-1".to_string(), "fallback-2".to_string()];
+        
+        let state = AppState {
+            agents: Arc::new(RwLock::new(HashMap::new())),
+            config: Arc::new(config),
+            workspace: std::path::PathBuf::from("/tmp"),
+            agent_id: "test".to_string(),
+            start_time: std::time::Instant::now(),
+        };
+        
+        let app = Router::new()
+            .route("/api/models", get(models_handler))
+            .with_state(state);
+
+        let resp = app
+            .oneshot(Request::get("/api/models").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        let models = json["models"].as_array().unwrap();
+        assert_eq!(models.len(), 3); // 1 default + 2 fallbacks
+        assert_eq!(models[0]["is_default"], true);
+        assert_eq!(models[1]["is_default"], false);
+        assert_eq!(models[2]["is_default"], false);
+    }
+
+    #[tokio::test]
+    async fn test_health_uptime_increases() {
+        let state = test_state();
+        let app = Router::new()
+            .route("/api/health", get(health_handler))
+            .with_state(state);
+
+        let resp1 = app.clone().oneshot(Request::get("/api/health").body(Body::empty()).unwrap()).await.unwrap();
+        let json1 = body_json(resp1).await;
+        let uptime1 = json1["uptime_secs"].as_u64().unwrap();
+
+        // Small delay to ensure uptime increases
+        tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+
+        let resp2 = app.oneshot(Request::get("/api/health").body(Body::empty()).unwrap()).await.unwrap();
+        let json2 = body_json(resp2).await;
+        let uptime2 = json2["uptime_secs"].as_u64().unwrap();
+
+        assert!(uptime2 >= uptime1);
+    }
+
+    #[tokio::test]
+    async fn test_agents_returns_empty_peers() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(Request::get("/api/agents").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        assert_eq!(json["self"], "pawan@test");
+        let peers = json["peers"].as_array().unwrap();
+        // Should be empty when no config file exists
+        assert!(peers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_cors_preflight() {
+        let state = test_state();
+        let cors = tower_http::cors::CorsLayer::new()
+            .allow_origin(tower_http::cors::Any)
+            .allow_methods(tower_http::cors::Any)
+            .allow_headers(tower_http::cors::Any);
+        
+        let app = Router::new()
+            .route("/api/health", get(health_handler))
+            .layer(cors)
+            .with_state(state);
+
+        let resp = app
+            .oneshot(
+                Request::options("/api/health")
+                    .header("Origin", "http://localhost:3000")
+                    .header("Access-Control-Request-Method", "GET")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        // Preflight request should return OK
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
 }

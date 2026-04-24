@@ -8,6 +8,9 @@ authors.workspace = true
 description = "HTTP API server for Pawan — Axum + SSE streaming"
 publish = false
 
+[lib]
+path = "src/sessions.rs"
+
 [[bin]]
 name = "pawan-web"
 path = "src/main.rs"
@@ -49,4 +52,5 @@ dirs = "6"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+tempfile = "3"
 http-body-util = "0.1"

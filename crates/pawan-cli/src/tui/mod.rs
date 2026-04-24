@@ -461,7 +461,7 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
         .collect()
 }
 
-pub async fn run(&mut self) -> Result<()> {
+    pub async fn run(&mut self) -> Result<()> {
         enable_raw_mode().map_err(PawanError::Io)?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture).map_err(PawanError::Io)?;
@@ -982,7 +982,7 @@ pub async fn run(&mut self) -> Result<()> {
                                 self.input.insert_str(" "); // add space to deactivate slash popup
                                 self.slash_popup_selected = 0;
                                 // If it's a simple command (no args needed), submit immediately
-                                let simple = ["/help", "/tools", "/heal", "/clear", "/quit", "/?", "/model", "/sessions", "/save", "/new", "/export", "/diff", "/import"];
+                                let simple = ["/help", "/tools", "/heal", "/clear", "/quit", "/exit", "/?", "/model", "/sessions", "/save", "/new", "/export", "/diff", "/import"];
                                 if simple.contains(&cmd.as_str()) {
                                     self.submit_input();
                                 }
@@ -993,50 +993,50 @@ pub async fn run(&mut self) -> Result<()> {
                             self.input.input(Input::from(key));
                             self.slash_popup_selected = 0;
                         }
-                            }
-                        } else if key.code == KeyCode::Enter {
-                            self.submit_input();
-                        } else if key.code == KeyCode::Tab {
-                            self.focus = Panel::Messages;
-                        } else if key.code == KeyCode::Up {
-                            // Navigate history backwards
-                            if !self.history.is_empty() {
-                                let new_pos = match self.history_position {
-                                    None => Some(self.history.len() - 1),
-                                    Some(pos) if pos > 0 => Some(pos - 1),
-                                    _ => self.history_position,
-                                };
-                                if let Some(pos) = new_pos {
-                                    self.history_position = new_pos;
-                                    self.input = TextArea::default();
-                                    self.input.set_cursor_line_style(Style::default());
-                                    self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
-                                    self.input.insert_str(&self.history[pos]);
-                                }
-                            }
-                        } else if key.code == KeyCode::Down {
-                            // Navigate history forwards
-                            if let Some(pos) = self.history_position {
-                                if pos + 1 < self.history.len() {
-                                    // Move to next history item
-                                    self.history_position = Some(pos + 1);
-                                    self.input = TextArea::default();
-                                    self.input.set_cursor_line_style(Style::default());
-                                    self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
-                                    self.input.insert_str(&self.history[pos + 1]);
-                                } else {
-                                    // Exit history mode, clear input
-                                    self.history_position = None;
-                                    self.input = TextArea::default();
-                                    self.input.set_cursor_line_style(Style::default());
-                                    self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
-                                }
-                            }
-                        } else {
-                            self.input.input(Input::from(key));
+                    }
+                } else if key.code == KeyCode::Enter {
+                    self.submit_input();
+                } else if key.code == KeyCode::Up {
+                    // Navigate history backwards
+                    if !self.history.is_empty() {
+                        let new_pos = match self.history_position {
+                            None => Some(self.history.len() - 1),
+                            Some(pos) if pos > 0 => Some(pos - 1),
+                            _ => self.history_position,
+                        };
+                        if let Some(pos) = new_pos {
+                            self.history_position = new_pos;
+                            self.input = TextArea::default();
+                            self.input.set_cursor_line_style(Style::default());
+                            self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
+                            self.input.insert_str(&self.history[pos]);
                         }
                     }
-                    Panel::Messages => match key.code {
+                } else if key.code == KeyCode::Down {
+                    // Navigate history forwards
+                    if let Some(pos) = self.history_position {
+                        if pos + 1 < self.history.len() {
+                            // Move to next history item
+                            self.history_position = Some(pos + 1);
+                            self.input = TextArea::default();
+                            self.input.set_cursor_line_style(Style::default());
+                            self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
+                            self.input.insert_str(&self.history[pos + 1]);
+                        } else {
+                            // Exit history mode, clear input
+                            self.history_position = None;
+                            self.input = TextArea::default();
+                            self.input.set_cursor_line_style(Style::default());
+                            self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
+                        }
+                    }
+                } else if key.code == KeyCode::Tab {
+                    self.focus = Panel::Messages;
+                } else {
+                    self.input.input(Input::from(key));
+                }
+            }
+            Panel::Messages => match key.code {
                         KeyCode::Tab | KeyCode::Char('i') => self.focus = Panel::Input,
                         KeyCode::Char('e') => {
                             self.toggle_nearest_tool_expansion();
@@ -1251,7 +1251,7 @@ pub async fn run(&mut self) -> Result<()> {
                     "Run cargo check and cargo test. Fix any errors you find.".to_string()
                 ));
             }
-            "/quit" | "/q" => {
+            "/quit" | "/q" | "/exit" => {
                 self.should_quit = true;
             }
             "/export" | "/e" => {
@@ -1699,17 +1699,18 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
 /new          - start a fresh conversation
 /search <query> - web search via Daedra
 /tools         - list available tools
-/heal          - auto-fix build errors
-/handoff       - generate focused context for new session
-/export [path] - export conversation to markdown
-/diff        - show git diff
-/fork        - clone session to new one
-/dump        - copy conversation to clipboard
-/share       - export session and print path
-/compact [strategy] - compact session (default/aggressive/conservative)
-/clear         - clear chat history
-/quit          - exit pawan
-/help          - show this help"#;
+:/heal          - auto-fix build errors
+:/handoff       - generate focused context for new session
+:/export [path] - export conversation to markdown
+:/diff        - show git diff
+:/fork        - clone session to new one
+:/dump        - copy conversation to clipboard
+:/share       - export session and print path
+:/compact [strategy] - compact session (default/aggressive/conservative)
+:/clear         - clear chat history
+:/quit          - exit pawan
+:/exit          - exit pawan (alias for /quit)
+:/help          - show this help"#;
                 self.messages.push(DisplayMessage::new_text(Role::System, help_text));
             }
             _ => {
@@ -1717,6 +1718,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             }
         }
     }
+    
 
     /// Export conversation to a markdown file
     fn export_conversation(&self, path: &str, format: ExportFormat) -> std::result::Result<usize, String> {
@@ -1747,6 +1749,16 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
                 for tc in tool_records {
                     let status = if tc.success { "ok" } else { "err" };
                     writeln!(f, "- `{}` ({}) — {}ms", tc.name, status, tc.duration_ms).map_err(|e| e.to_string())?;
+                    // Include arguments if available
+                    if let Some(args) = tc.arguments.as_object() {
+                        if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
+                            writeln!(f, "  - Command: `{}`", cmd).map_err(|e| e.to_string())?;
+                        }
+                    }
+                    // Include result if available
+                    if let Some(result_str) = tc.result.as_str() {
+                        writeln!(f, "  - Result: {}", result_str).map_err(|e| e.to_string())?;
+                    }
                 }
                 writeln!(f, "\n</details>\n").map_err(|e| e.to_string())?;
             }
@@ -2050,7 +2062,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
     }
 
     /// Load available models (synchronous version)
-        fn load_available_models(&mut self) {
+    fn load_available_models(&mut self) {
         let default_models = vec![
             // 01-ai models (1)
             ModelInfo { id: "01-ai/yi-large".to_string(), provider: "01-ai".to_string(), quality_score: 75 },
@@ -2509,6 +2521,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             ("/compact", "Compact session (default/aggressive/conservative)"),
             ("/clear", "Clear chat history"),
             ("/quit", "Exit pawan"),
+            ("/exit", "Exit pawan (alias for /quit)"),
         ];
         if self.palette_query.is_empty() {
             return all_items;
@@ -2518,7 +2531,6 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             .filter(|(cmd, desc)| cmd.to_lowercase().contains(&q) || desc.to_lowercase().contains(&q))
             .collect()
     }
-
     /// Check if the inline slash popup should be shown.
     fn is_slash_popup_active(&self) -> bool {
         let text: String = self.input.lines().join("\n");
@@ -2547,6 +2559,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             ("/compact", "Compact session (default/aggressive/conservative)"),
             ("/clear", "Clear chat history"),
             ("/quit", "Exit pawan"),
+            ("/exit", "Exit pawan (alias for /quit)"),
         ];
         let text: String = self.input.lines().join("\n");
         let q = text.trim().to_lowercase();
@@ -3166,7 +3179,6 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
     }
 }
 
-/// Spawn the agent task that listens for commands and sends back events
 async fn agent_task(
     mut agent: PawanAgent,
     mut cmd_rx: mpsc::UnboundedReceiver<AgentCommand>,
@@ -3455,10 +3467,10 @@ mod tests {
         app
     }
 
-    // ===== Rendering tests using TestBackend =====
+// ===== Rendering tests using TestBackend =====
 
-    #[test]
-    fn test_render_empty_state() {
+#[test]
+fn test_render_empty_state() {
         let app = test_app();
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -5147,9 +5159,50 @@ mod tests {
     }
 
     #[test]
+    #[test]
     fn test_export_with_tool_calls() {
-        // TODO: Add test with tool call records once tool call mocking is available
-        // This test would verify tool calls are exported in all formats
+        let mut app = test_app();
+        
+        // Create a message with tool calls
+        let mut msg = DisplayMessage::new_text(Role::Assistant, "Processing request");
+        msg.blocks.push(ContentBlock::ToolCall {
+            name: "bash".to_string(),
+            args_summary: "echo test".to_string(),
+            state: Box::new(ToolBlockState::Done {
+                record: ToolCallRecord {
+                    id: "test-id".to_string(),
+                    name: "bash".to_string(),
+                    arguments: serde_json::json!({"command": "echo test"}),
+                    result: serde_json::Value::String("test output".to_string()),
+                    success: true,
+                    duration_ms: 100,
+                },
+                expanded: true,
+            }),
+        });
+        app.messages.push(msg);
+        
+        // Test markdown export
+        let md_path = "/tmp/test_tool_calls.md";
+        let result = app.export_conversation(md_path, ExportFormat::Markdown);
+        assert!(result.is_ok(), "Markdown export should succeed");
+        
+        let md_content = std::fs::read_to_string(md_path).unwrap();
+        assert!(md_content.contains("bash"), "Should contain tool name");
+        assert!(md_content.contains("echo test"), "Should contain args summary");
+        assert!(md_content.contains("test output"), "Should contain result");
+        
+        // Test JSON export
+        let json_path = "/tmp/test_tool_calls.json";
+        let result = app.export_conversation(json_path, ExportFormat::Json);
+        assert!(result.is_ok(), "JSON export should succeed");
+        
+        let json_content = std::fs::read_to_string(json_path).unwrap();
+        assert!(json_content.contains("bash"), "JSON should contain tool name");
+        
+        // Cleanup
+        let _ = std::fs::remove_file(md_path);
+        let _ = std::fs::remove_file(json_path);
     }
 
     // ===== Timestamp tests =====
@@ -5351,16 +5404,15 @@ mod tests {
         let app = test_app();
         let items = app.slash_items();
         let commands: Vec<_> = items.iter().map(|(cmd, _)| *cmd).collect();
-    assert!(commands.contains(&"/sessions"));
-    assert!(commands.contains(&"/save"));
-    assert!(commands.contains(&"/load"));
-    assert!(commands.contains(&"/resume"));
-    assert!(commands.contains(&"/new"));
-    assert!(commands.contains(&"/model"));
-    assert!(commands.contains(&"/export"));
-    assert!(commands.contains(&"/compact"));
-}
-
+        assert!(commands.contains(&"/sessions"));
+        assert!(commands.contains(&"/save"));
+        assert!(commands.contains(&"/load"));
+        assert!(commands.contains(&"/resume"));
+        assert!(commands.contains(&"/new"));
+        assert!(commands.contains(&"/model"));
+        assert!(commands.contains(&"/export"));
+        assert!(commands.contains(&"/compact"));
+    }
     // ===== Auto-save Tests =====
     #[test]
 
@@ -5737,6 +5789,7 @@ mod tests {
     }
 }
 
+/// Simple non-TUI interactive mode (fallback)
 /// Simple non-TUI interactive mode (fallback)
 pub async fn run_simple(mut agent: PawanAgent) -> Result<()> {
     use std::io::{BufRead, Write};

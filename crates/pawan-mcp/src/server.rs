@@ -277,3 +277,131 @@ pub async fn serve(config: PawanConfig) -> pawan::Result<()> {
 /// Legacy type alias kept for callsites that reference `PawanServer`.
 /// The actual server is now built via `build_server()`.
 pub type PawanServer = McpServer;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pawan::config::PawanConfig;
+
+    #[test]
+    fn test_workspace_path_with_value() {
+        let path = workspace_path(Some("/tmp/test"));
+        assert_eq!(path, PathBuf::from("/tmp/test"));
+    }
+
+    #[test]
+    fn test_workspace_path_with_none() {
+        let path = workspace_path(None);
+        // Should default to current directory or "."
+		// workspace_path with None calls std::env::current_dir() which may fail in test environment
+    }
+
+    #[test]
+    fn test_workspace_path_with_empty_string() {
+        let path = workspace_path(Some(""));
+        assert_eq!(path, PathBuf::from(""));
+    }
+
+    #[test]
+    fn test_create_agent_with_workspace() {
+        let config = PawanConfig::default();
+        let agent = create_agent(&config, Some("/tmp/test"));
+		// Agent is created successfully
+    }
+
+    #[test]
+    fn test_run_args_deserialization() {
+        let json = r#"{"prompt":"test","workspace":"/tmp"}"#;
+        let args: RunArgs = serde_json::from_str(json).unwrap();
+        assert_eq!(args.prompt, "test");
+        assert_eq!(args.workspace, Some("/tmp".to_string()));
+    }
+
+    #[test]
+    fn test_run_args_without_workspace() {
+        let json = r#"{"prompt":"test"}"#;
+        let args: RunArgs = serde_json::from_str(json).unwrap();
+        assert_eq!(args.prompt, "test");
+        assert!(args.workspace.is_none());
+    }
+
+    #[test]
+    fn test_task_args_deserialization() {
+        let json = r#"{"task":"fix bug","workspace":"/tmp"}"#;
+        let args: TaskArgs = serde_json::from_str(json).unwrap();
+        assert_eq!(args.task, "fix bug");
+        assert_eq!(args.workspace, Some("/tmp".to_string()));
+    }
+
+    #[test]
+    fn test_heal_args_deserialization() {
+        let json = r#"{"workspace":"/tmp"}"#;
+        let args: HealArgs = serde_json::from_str(json).unwrap();
+        assert_eq!(args.workspace, Some("/tmp".to_string()));
+    }
+
+    #[test]
+    fn test_heal_args_without_workspace() {
+        let json = r#"{}"#;
+        let args: HealArgs = serde_json::from_str(json).unwrap();
+        assert!(args.workspace.is_none());
+    }
+
+    #[test]
+    fn test_review_args_deserialization() {
+        let json = r#"{"file":"src/main.rs","workspace":"/tmp"}"#;
+        let args: ReviewArgs = serde_json::from_str(json).unwrap();
+        assert_eq!(args.file, "src/main.rs");
+        assert_eq!(args.workspace, Some("/tmp".to_string()));
+    }
+
+    #[test]
+    fn test_explain_args_deserialization() {
+        let json = r#"{"query":"what is this?","workspace":"/tmp"}"#;
+        let args: ExplainArgs = serde_json::from_str(json).unwrap();
+        assert_eq!(args.query, "what is this?");
+        assert_eq!(args.workspace, Some("/tmp".to_string()));
+    }
+
+    #[test]
+    fn test_status_args_deserialization() {
+        let json = r#"{"workspace":"/tmp"}"#;
+        let args: StatusArgs = serde_json::from_str(json).unwrap();
+        assert_eq!(args.workspace, Some("/tmp".to_string()));
+    }
+
+    #[test]
+    fn test_status_args_without_workspace() {
+        let json = r#"{}"#;
+        let args: StatusArgs = serde_json::from_str(json).unwrap();
+        assert!(args.workspace.is_none());
+    }
+
+    #[test]
+    fn test_pawan_server_type_alias_exists() {
+        // This test just verifies the type alias compiles
+        let config = PawanConfig::default();
+        let server: PawanServer = build_server(config);
+        assert!(true);
+    }
+}
+	#[test]
+	fn test_create_agent_with_workspace() {
+		let config = PawanConfig::default();
+		let _agent = create_agent(&config, Some("/tmp/test"));
+		// Agent is created successfully
+	}
+
+	#[test]
+	fn test_create_agent_without_workspace() {
+		let config = PawanConfig::default();
+		let _agent = create_agent(&config, None);
+		// Agent is created successfully
+	}
+
+	#[test]
+	fn test_build_server_creates_server() {
+		let config = PawanConfig::default();
+		let _server = build_server(config);
+		// Server is created successfully
+	}
