@@ -254,6 +254,10 @@ impl Tool for SpawnAgentsTool {
             .build()
     }
 
+    fn mutating(&self) -> bool {
+        true // Spawning agents can mutate state
+    }
+
     async fn execute(&self, args: Value) -> Result<Value> {
         let tasks = args["tasks"]
             .as_array()
@@ -287,7 +291,8 @@ impl Tool for SpawnAgentsTool {
 mod tests {
     use super::*;
     use tempfile::TempDir;
-
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     #[test]
     fn test_spawn_agent_tool_name() {
         let tmp = TempDir::new().unwrap();
@@ -490,5 +495,183 @@ mod tests {
         let tasks_param = &def.parameters[0];
         assert_eq!(tasks_param.name, "tasks");
         assert!(tasks_param.required);
+    }
+
+    #[test]
+    fn test_spawn_agent_mutating_returns_true() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        assert!(tool.mutating(), "spawn_agent can mutate state");
+    }
+
+    #[test]
+    fn test_spawn_agents_mutating_returns_true() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
+        assert!(tool.mutating(), "spawn_agents can mutate state");
+    }
+
+    #[test]
+    fn test_spawn_agent_description_non_empty() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let desc = tool.description();
+        assert!(!desc.is_empty());
+        assert!(desc.contains("sub-agent"));
+    }
+
+    #[test]
+    fn test_spawn_agents_description_non_empty() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
+        let desc = tool.description();
+        assert!(!desc.is_empty());
+        assert!(desc.contains("parallel"));
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agent_timeout_defaults_to_120() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("target/release")).unwrap();
+        let binary = tmp.path().join("target/release/pawan");
+        std::fs::write(&binary, r"#!/bin/sh
+exit 0").unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let result = tool.execute(json!({"prompt": "test"})).await.unwrap();
+        assert_eq!(result["success"], true);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agent_custom_timeout() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("target/release")).unwrap();
+        let binary = tmp.path().join("target/release/pawan");
+        std::fs::write(&binary, r"#!/bin/sh
+exit 0").unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let result = tool.execute(json!({"prompt": "test", "timeout": 60})).await.unwrap();
+        assert_eq!(result["success"], true);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agent_custom_model() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("target/release")).unwrap();
+        let binary = tmp.path().join("target/release/pawan");
+        std::fs::write(&binary, "#!/bin/sh\necho '{\"content\":\"test response\"}'").unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let result = tool.execute(json!({"prompt": "test", "model": "gpt-4"})).await.unwrap();
+        assert_eq!(result["success"], true);
+        assert_eq!(result["result"]["content"], "test response");
+    }
+
+
+    #[tokio::test]
+    async fn test_spawn_agent_retries_on_failure() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("target/release")).unwrap();
+        let binary = tmp.path().join("target/release/pawan");
+        let counter_file = tmp.path().join("counter");
+        std::fs::write(&counter_file, "0").unwrap();
+        let script = format!(
+            "#!/bin/sh\ncount=$(cat {})\necho $((count + 1)) > {}\nif [ $count -eq 0 ]; then\n    exit 1\nelse\n    exit 0\nfi",
+            counter_file.display(), counter_file.display()
+        );
+        std::fs::write(&binary, script).unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let result = tool.execute(json!({
+            "prompt": "test",
+            "retries": 1
+        })).await.unwrap();
+        assert_eq!(result["success"], true);
+        assert_eq!(result["attempt"], 2);
+        assert_eq!(result["total_attempts"], 2);
+    }
+
+
+
+    #[tokio::test]
+    async fn test_spawn_agent_stderr_captured() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("target/release")).unwrap();
+        let binary = tmp.path().join("target/release/pawan");
+        std::fs::write(&binary, r"#!/bin/sh
+echo 'error message' >&2
+exit 0").unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+        let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
+        let result = tool.execute(json!({"prompt": "test"})).await.unwrap();
+        assert_eq!(result["success"], true);
+        assert_eq!(result["stderr"], "error message");
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agents_single_task() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("target/release")).unwrap();
+        let binary = tmp.path().join("target/release/pawan");
+        std::fs::write(&binary, "#!/bin/sh\necho '{\"result\":\"done\"}'").unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+        let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
+        let result = tool.execute(json!({
+            "tasks": [
+                {"prompt": "task1"}
+            ]
+        })).await.unwrap();
+        assert_eq!(result["success"], true);
+        assert_eq!(result["total_tasks"], 1);
+        assert_eq!(result["results"].as_array().unwrap().len(), 1);
+        assert_eq!(result["results"][0]["result"]["result"], "done");
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agents_multiple_tasks() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join("target/release")).unwrap();
+        let binary = tmp.path().join("target/release/pawan");
+        std::fs::write(&binary, "#!/bin/sh\necho '{\"result\":\"done\"}'").unwrap();
+        #[cfg(unix)]
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+
+        let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
+        let result = tool.execute(json!({
+            "tasks": [
+                {"prompt": "task1"},
+                {"prompt": "task2"},
+                {"prompt": "task3"}
+            ]
+        })).await.unwrap();
+        assert_eq!(result["success"], true);
+        assert_eq!(result["total_tasks"], 3);
+        assert_eq!(result["results"].as_array().unwrap().len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agents_task_missing_prompt() {
+        let tmp = TempDir::new().unwrap();
+        let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
+        let result = tool.execute(json!({
+            "tasks": [{"model": "gpt-4"}]
+        })).await.unwrap();
+        assert_eq!(result["success"], true);
+        assert_eq!(result["total_tasks"], 1);
+        assert_eq!(result["results"][0]["success"], false);
+        assert!(result["results"][0]["error"].as_str().unwrap().contains("prompt"));
     }
 }

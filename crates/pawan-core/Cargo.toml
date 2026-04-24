@@ -99,3 +99,5 @@ lancor = { workspace = true, optional = true }
 tempfile = "3.23"
 tokio-test = "0.4"
 serial_test = "3.2"
+
+mockito = "1.6"

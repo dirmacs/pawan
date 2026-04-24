@@ -1245,6 +1245,7 @@ base_url = "http://192.168.1.100:8080/v1"
 
     #[test]
     fn test_env_override_fallback_models() {
+        std::env::remove_var("PAWAN_FALLBACK_MODELS"); // Clean up before test
         let mut config = PawanConfig::default();
         std::env::set_var("PAWAN_FALLBACK_MODELS", "model-a, model-b, model-c");
         config.apply_env_overrides();
@@ -1254,6 +1255,7 @@ base_url = "http://192.168.1.100:8080/v1"
 
     #[test]
     fn test_env_override_fallback_models_filters_empty() {
+        std::env::remove_var("PAWAN_FALLBACK_MODELS"); // Clean up before test
         let mut config = PawanConfig::default();
         std::env::set_var("PAWAN_FALLBACK_MODELS", "model-a,,, model-b,");
         config.apply_env_overrides();

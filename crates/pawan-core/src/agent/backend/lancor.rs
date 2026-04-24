@@ -309,4 +309,58 @@ mod tests {
         assert_eq!(lm[3].role, "user", "Tool must become user");
         assert!(lm[3].content.contains("[tool result]"));
     }
+
+    #[test]
+    fn test_lancor_backend_new_with_invalid_url_returns_error() {
+        // Invalid URL should cause LlamaCppClient::new to fail
+        let result = LancorBackend::new("not-a-valid-url", "model");
+        assert!(result.is_err(), "Invalid URL should return error");
+        match result {
+            Err(PawanError::Llm(msg)) => {
+                assert!(msg.contains("lancor client init failed"), "Error message should mention init failure");
+            }
+            _ => panic!("Expected PawanError::Llm variant"),
+        }
+    }
+
+    #[test]
+    fn test_lancor_backend_with_api_key_with_invalid_url_returns_error() {
+        // Invalid URL should cause LlamaCppClient::with_api_key to fail
+        let result = LancorBackend::with_api_key("not-a-valid-url", "key", "model");
+        assert!(result.is_err(), "Invalid URL should return error");
+        match result {
+            Err(PawanError::Llm(msg)) => {
+                assert!(msg.contains("lancor client init failed"), "Error message should mention init failure");
+            }
+            _ => panic!("Expected PawanError::Llm variant"),
+        }
+    }
+
+    #[test]
+    fn test_lancor_backend_new_with_empty_url_returns_error() {
+        // Empty URL should cause failure
+        let result = LancorBackend::new("", "model");
+        assert!(result.is_err(), "Empty URL should return error");
+    }
+
+    #[test]
+    fn test_lancor_backend_with_api_key_with_empty_url_returns_error() {
+        // Empty URL should cause failure even with valid API key
+        let result = LancorBackend::with_api_key("", "key", "model");
+        assert!(result.is_err(), "Empty URL should return error");
+    }
+
+    #[test]
+    fn test_lancor_backend_new_with_empty_model_still_succeeds() {
+        // Empty model string is technically valid (up to caller to validate)
+        let backend = LancorBackend::new("http://localhost:8080", "").unwrap();
+        assert_eq!(backend.model, "");
+    }
+
+    #[test]
+    fn test_lancor_backend_with_api_key_with_empty_model_still_succeeds() {
+        // Empty model string is technically valid (up to caller to validate)
+        let backend = LancorBackend::with_api_key("http://localhost:8080", "key", "").unwrap();
+        assert_eq!(backend.model, "");
+    }
 }

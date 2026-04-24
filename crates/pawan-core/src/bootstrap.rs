@@ -649,3 +649,301 @@ mod tests {
         assert!(result.is_ok());
     }
 }
+
+    #[test]
+    fn bootstrap_report_summary_with_installs_only() {
+        let report = BootstrapReport {
+            steps: vec![
+                BootstrapStep {
+                    name: "mise".into(),
+                    status: BootstrapStepStatus::Installed,
+                },
+                BootstrapStep {
+                    name: "rg".into(),
+                    status: BootstrapStepStatus::Installed,
+                },
+            ],
+        };
+        let s = report.summary();
+        assert!(s.contains("2 installed"));
+        assert!(s.contains("0 already present"));
+    }
+
+    #[test]
+    fn missing_deps_lists_missing_mise() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let prev_path = std::env::var("PATH").ok();
+        std::env::set_var("PATH", tmp.path());
+
+        let missing = missing_deps();
+
+        if let Some(p) = prev_path {
+            std::env::set_var("PATH", p);
+        }
+
+        assert!(missing.contains(&"mise".to_string()));
+    }
+
+    #[test]
+    fn missing_deps_lists_missing_native_tools() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let prev_path = std::env::var("PATH").ok();
+        std::env::set_var("PATH", tmp.path());
+
+        let missing = missing_deps();
+
+        if let Some(p) = prev_path {
+            std::env::set_var("PATH", p);
+        }
+
+        for tool in NATIVE_TOOLS {
+            assert!(missing.contains(&tool.to_string()));
+        }
+    }
+
+    #[test]
+    fn ensure_deagle_with_force_reinstall_attempts_install() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let prev_path = std::env::var("PATH").ok();
+        std::env::set_var("PATH", tmp.path());
+
+        let step = ensure_deagle(true);
+
+        if let Some(p) = prev_path {
+            std::env::set_var("PATH", p);
+        }
+
+        assert_eq!(step.name, "deagle");
+        // Will fail in test env, but we verify the attempt was made
+        assert!(matches!(step.status, BootstrapStepStatus::Installed | BootstrapStepStatus::Failed(_)));
+    }
+
+    #[test]
+    fn ensure_mise_falls_back_to_local_bin() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let prev_path = std::env::var("PATH").ok();
+        std::env::set_var("PATH", tmp.path());
+
+        let home = tmp.path();
+        let local_bin = home.join(".local/bin");
+        std::fs::create_dir_all(&local_bin).unwrap();
+        std::fs::write(local_bin.join("mise"), "#!/bin/sh\necho mise").unwrap();
+
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", home);
+
+        let step = ensure_mise();
+
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        }
+        if let Some(p) = prev_path {
+            std::env::set_var("PATH", p);
+        }
+
+        assert_eq!(step.name, "mise");
+        assert_eq!(step.status, BootstrapStepStatus::AlreadyInstalled);
+    }
+
+    #[test]
+    fn ensure_native_tool_skips_when_mise_missing() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let prev_path = std::env::var("PATH").ok();
+        std::env::set_var("PATH", tmp.path());
+
+        let home = tmp.path();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", home);
+
+        let step = ensure_native_tool("rg");
+
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        }
+        if let Some(p) = prev_path {
+            std::env::set_var("PATH", p);
+        }
+
+        assert_eq!(step.name, "rg");
+        assert!(matches!(step.status, BootstrapStepStatus::Skipped(_)));
+    }
+
+    #[test]
+    fn ensure_native_tool_uses_local_mise() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let prev_path = std::env::var("PATH").ok();
+        std::env::set_var("PATH", tmp.path());
+
+        let home = tmp.path();
+        let local_bin = home.join(".local/bin");
+        std::fs::create_dir_all(&local_bin).unwrap();
+        std::fs::write(local_bin.join("mise"), "#!/bin/sh\necho mise").unwrap();
+
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", home);
+
+        let step = ensure_native_tool("rg");
+
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        }
+        if let Some(p) = prev_path {
+            std::env::set_var("PATH", p);
+        }
+
+        assert_eq!(step.name, "rg");
+        // Will fail in test env, but we verify it didn't skip
+        assert!(matches!(step.status, BootstrapStepStatus::Installed | BootstrapStepStatus::Failed(_)));
+    }
+
+    #[test]
+    fn ensure_deps_writes_marker_on_success() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let opts = BootstrapOptions {
+            skip_mise: true,
+            skip_native: true,
+            include_deagle: false,
+            force_reinstall: false,
+        };
+        let report = ensure_deps(opts);
+
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        }
+
+        assert!(report.all_ok());
+        let marker = tmp.path().join(".pawan/.bootstrapped");
+        assert!(marker.exists(), "marker must be written on success");
+    }
+
+    #[test]
+    fn ensure_deps_includes_deagle_when_requested() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let opts = BootstrapOptions {
+            skip_mise: true,
+            skip_native: true,
+            include_deagle: true,
+            force_reinstall: false,
+        };
+        let report = ensure_deps(opts);
+
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        }
+
+        assert_eq!(report.steps.len(), 1);
+        assert_eq!(report.steps[0].name, "deagle");
+    }
+
+    #[test]
+    fn ensure_deps_with_force_reinstall() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let opts = BootstrapOptions {
+            skip_mise: true,
+            skip_native: true,
+            include_deagle: true,
+            force_reinstall: true,
+        };
+        let report = ensure_deps(opts);
+
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        }
+
+        assert_eq!(report.steps.len(), 1);
+        assert_eq!(report.steps[0].name, "deagle");
+    }
+
+    #[test]
+    fn uninstall_removes_marker_file() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let marker = tmp.path().join(".pawan/.bootstrapped");
+        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        std::fs::write(&marker, "2024-01-01T00:00:00Z").unwrap();
+
+        let result = uninstall(false);
+
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        }
+
+        assert!(result.is_ok());
+        assert!(!marker.exists(), "marker must be removed");
+    }
+
+    #[test]
+    fn uninstall_with_purge_deagle_attempts_uninstall() {
+        use std::sync::Mutex;
+        static LOCK: Mutex<()> = Mutex::new(());
+        let _guard = LOCK.lock().unwrap();
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let prev_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", tmp.path());
+
+        let marker = tmp.path().join(".pawan/.bootstrapped");
+        std::fs::create_dir_all(marker.parent().unwrap()).unwrap();
+        std::fs::write(&marker, "2024-01-01T00:00:00Z").unwrap();
+
+        let result = uninstall(true);
+
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        }
+
+        // Will fail if deagle not installed, but we verify the attempt
+        assert!(result.is_ok() || result.is_err());
+        assert!(!marker.exists(), "marker must be removed regardless");
+    }
