@@ -17,7 +17,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Widget},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame, Terminal,
 };
 use ratatui::style::Style;
@@ -718,6 +718,15 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
                     self.palette_query.pop();
                     self.palette_selected = 0;
                 }
+                KeyCode::Char('g') | KeyCode::Home => {
+                    self.palette_selected = 0;
+                }
+                KeyCode::Char('G') | KeyCode::End => {
+                    let items = self.palette_items();
+                    if !items.is_empty() {
+                        self.palette_selected = items.len() - 1;
+                    }
+                }
                 KeyCode::Char(c) => {
                     self.palette_query.push(c);
                     self.palette_selected = 0;
@@ -733,15 +742,6 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
                 }
                 KeyCode::PageDown => {
                     self.palette_selected += 10;
-                }
-                KeyCode::Char('g') | KeyCode::Home => {
-                    self.palette_selected = 0;
-                }
-                KeyCode::Char('G') | KeyCode::End => {
-                    let items = self.palette_items();
-                    if !items.is_empty() {
-                        self.palette_selected = items.len() - 1;
-                    }
                 }
                 KeyCode::Enter => {
                     let items = self.palette_items();
