@@ -3074,6 +3074,7 @@ mod coordinator_tests {
         assert!(config.use_coordinator);
     }
 
+    #[tokio::test]
     /// Test coordinator execution dispatches correctly when flag is set
     async fn test_execute_with_coordinator_flag_enabled() {
         let config = PawanConfig {
@@ -3086,6 +3087,7 @@ mod coordinator_tests {
         assert!(agent.config().use_coordinator);
     }
 
+    #[tokio::test]
     /// Test that execute_with_coordinator produces valid response
     async fn test_execute_with_coordinator_produces_response() {
         let config = PawanConfig {
@@ -3128,6 +3130,7 @@ let backend = MockBackend::with_text("Hello from coordinator!");
         assert!(cfg.stop_on_error);
     }
 
+    #[tokio::test]
     /// Test that coordinator dispatch check works correctly
     async fn test_coordinator_dispatch_when_flag_is_false() {
         let config = PawanConfig::default();
