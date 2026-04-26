@@ -2266,7 +2266,7 @@ mod tests {
         assert_eq!(a1.session_id.len(), 36);
     }
 
-    #[serial(session_tests)]
+    #[serial(pawan_session_tests)]
     #[test]
     fn test_resume_session_adopts_loaded_id() {
         // resume_session must overwrite self.session_id with the loaded
@@ -2551,7 +2551,7 @@ mod tests {
 
     // ─── Session management tests ───────────────────────────────────────────
 
-    #[serial(session_tests)]
+    #[serial(pawan_session_tests)]
     #[test]
     fn test_save_session_creates_valid_session() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -2582,7 +2582,7 @@ mod tests {
         }
     }
 
-    #[serial(session_tests)]
+    #[serial(pawan_session_tests)]
     #[test]
     fn test_resume_session_loads_messages() {
         let tmp = tempfile::TempDir::new().unwrap();
@@ -2621,6 +2621,7 @@ mod tests {
         }
     }
 
+    #[serial(pawan_session_tests)]
     #[test]
     fn test_resume_session_nonexistent_returns_error() {
         let tmp = tempfile::TempDir::new().unwrap();
