@@ -1,10 +1,38 @@
-//! Pawan Agent - The core agent that handles tool-calling loops
-//!
-//! This module provides the main `PawanAgent` which:
-//! - Manages conversation history
-//! - Coordinates tool calling with the LLM via pluggable backends
-//! - Provides streaming responses
-//! - Supports multiple LLM backends (NVIDIA API, Ollama, OpenAI)
+/// Pawan Agent - The core agent that handles tool-calling loops
+///
+/// This module provides the main `PawanAgent` which:
+/// - Manages conversation history
+/// - Coordinates tool calling with the LLM via pluggable backends
+/// - Provides streaming responses
+/// - Supports multiple LLM backends (NVIDIA API, Ollama, OpenAI)
+/// - Context management and token counting
+/// - Integration with Eruka for 3-tier memory injection
+
+//
+// This module provides the main `PawanAgent` which:
+// - Manages conversation history
+// - Coordinates tool calling with the LLM via pluggable backends
+// - Provides streaming responses
+// - Supports multiple LLM backends (NVIDIA API, Ollama, OpenAI)
+// - Context management and token counting
+// - Integration with Eruka for 3-tier memory injection
+/// Model information for available models
+/// Pawan Agent - The core agent that handles tool-calling loops
+///
+/// This module provides the main `PawanAgent` which:
+/// - Manages conversation history
+/// - Coordinates tool calling with the LLM via pluggable backends
+/// - Provides streaming responses
+/// - Supports multiple LLM backends (NVIDIA API, Ollama, OpenAI)
+/// - Context management and token counting
+/// - Integration with Eruka for 3-tier memory injection
+// Pawan Agent - The core agent that handles tool-calling loops
+//
+// This module provides the main `PawanAgent` which:
+// - Manages conversation history
+// - Coordinates tool calling with the LLM via pluggable backends
+// - Provides streaming responses
+// - Supports multiple LLM backends (NVIDIA API, Ollama, OpenAI)
 
 pub mod backend;
 mod preflight;
@@ -3228,4 +3256,21 @@ let backend = MockBackend::with_text("Hello from coordinator!");
         // Should have executed multiple tool calls
         assert!(result.tool_calls.len() >= 3);
     }
+}
+/// Model information for available models
+pub struct ModelInfo {
+	/// Model name
+	pub name: String,
+	/// Model display name
+	pub display_name: String,
+	/// Model description
+	pub description: String,
+	/// Quality score (0-100)
+	pub quality_score: u8,
+	/// Whether the model is local
+	pub is_local: bool,
+	/// Whether the model is experimental
+	pub is_experimental: bool,
+	/// Model file path (for local models)
+	pub file_path: Option<String>,
 }
