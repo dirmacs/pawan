@@ -75,6 +75,7 @@ enum ToolBlockState {
 /// Session sort modes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SessionSortMode {
+    #[allow(dead_code)]
     NewestFirst,
     Alphabetical,
     MostUsed,
@@ -84,6 +85,7 @@ pub enum SessionSortMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 
 pub enum ExportFormat {
+    #[allow(dead_code)]
 
     Markdown,
 
@@ -886,7 +888,35 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
                         self.session_browser_selected = (self.session_browser_selected + 10).min(sessions - 1);
                     }
                 }
-                KeyCode::Char('g') | KeyCode::Home => {
+KeyCode::Char(c) => {
+			self.session_browser_query.push(c);
+			self.session_browser_selected = 0;
+		}
+		KeyCode::Up => {
+			let sessions = self.filtered_sessions().len();
+			if sessions > 0 {
+				self.session_browser_selected = self.session_browser_selected.saturating_sub(1);
+			}
+		}
+		KeyCode::Down => {
+			let sessions = self.filtered_sessions().len();
+			if sessions > 0 {
+				self.session_browser_selected = (self.session_browser_selected + 1).min(sessions - 1);
+			}
+		}
+		KeyCode::PageUp => {
+			let sessions = self.filtered_sessions().len();
+			if sessions > 0 {
+				self.session_browser_selected = self.session_browser_selected.saturating_sub(10);
+			}
+		}
+		KeyCode::PageDown => {
+			let sessions = self.filtered_sessions().len();
+			if sessions > 0 {
+				self.session_browser_selected = (self.session_browser_selected + 10).min(sessions - 1);
+			}
+		}
+KeyCode::Home | KeyCode::Char('g') => {
                     self.session_browser_selected = 0;
                 }
                 KeyCode::Char('G') | KeyCode::End => {
@@ -894,7 +924,10 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
                     if sessions > 0 {
                         self.session_browser_selected = sessions - 1;
                     }
-                }
+		KeyCode::Char(c) => {
+			self.session_browser_query.push(c);
+			self.session_browser_selected = 0;
+		}
                 KeyCode::Enter => {
                     let sessions: Vec<SessionSummary> = self.filtered_sessions();
                     if let Some(session) = sessions.get(self.session_browser_selected) {
@@ -1090,7 +1123,7 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
                             }
                         }
                         _ => {}
-                    },
+                    }
                 }
             }
  Event::Mouse(mouse) => {
@@ -1147,7 +1180,7 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
             }
             _ => {}
         }
-    }
+}
 
     /// Submit input — handles slash commands or sends to agent
     fn submit_input(&mut self) {
@@ -1386,7 +1419,7 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
                                         });
                                     }
                                 }
-                                _ => {}
+                                
                             }
                         }
                         let has_content = !text_content.trim().is_empty();
@@ -1469,7 +1502,7 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
                             match b {
                                 ContentBlock::Text { content, .. } => { if !tc.is_empty() { tc.push('\n'); } tc.push_str(content); }
                                 ContentBlock::ToolCall { state, .. } => { if let ToolBlockState::Done{ref record,..}=&**state { calls.push(ToolCallRequest{id:record.id.clone(),name:record.name.clone(),arguments:record.arguments.clone()}); } }
-                                _ => {}
+                                
                             }
                         }
                         if !tc.trim().is_empty() || !calls.is_empty() { session.messages.push(Message{role:dm.role.clone(),content:tc,tool_calls:calls,tool_result:None}); }
