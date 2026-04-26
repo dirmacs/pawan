@@ -77,7 +77,9 @@ enum ToolBlockState {
 pub enum SessionSortMode {
     #[allow(dead_code)]
     NewestFirst,
+    #[allow(dead_code)]
     Alphabetical,
+    #[allow(dead_code)]
     MostUsed,
 }
 
@@ -119,6 +121,7 @@ impl ExportFormat {
     }
 
     /// Get file extension for this format
+    #[allow(dead_code)]
     pub fn extension(&self) -> &str {
         match self {
             ExportFormat::Markdown => ".md",
@@ -129,6 +132,7 @@ impl ExportFormat {
     }
 
     /// Get all valid format names for error messages
+    #[allow(dead_code)]
     pub fn valid_formats() -> &'static [&'static str] {
         &["markdown", "html", "json", "txt"]
     }
@@ -138,6 +142,7 @@ impl ExportFormat {
 pub struct ModelInfo {
     pub id: String,
     pub provider: String,
+    #[allow(dead_code)]
     pub quality_score: u8,
 }
 
@@ -315,8 +320,11 @@ struct App<'a> {
     /// Inline slash command popup (triggered by typing /)
     slash_popup_selected: usize,
     /// File completion popup (triggered by typing @)
+    #[allow(dead_code)]
     file_completion_open: bool,
+    #[allow(dead_code)]
     file_completion_query: String,
+    #[allow(dead_code)]
     file_completion_selected: usize,
     /// Welcome screen shown on first launch
     show_welcome: bool,
@@ -2347,7 +2355,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
 			}
 		} else {
 			// No current session, create new one
-			let mut new_session = Session::new_with_tags(&self.model_name, self.session_tags.clone());
+			let new_session = Session::new_with_tags(&self.model_name, self.session_tags.clone());
 			self.current_session_id = Some(new_session.id.clone());
 			new_session
 		};
@@ -2376,7 +2384,6 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
 							});
 						}
 					}
-					_ => {}
 				}
 			}
 			
