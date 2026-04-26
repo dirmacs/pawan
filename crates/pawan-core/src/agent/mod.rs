@@ -3135,6 +3135,7 @@ let backend = MockBackend::with_text("Hello from coordinator!");
         // When flag is false, execute_with_all_callbacks should use built-in loop
     }
 
+    #[tokio::test]
     /// Test error handling when coordinator encounters unknown tool
     async fn test_coordinator_error_handling_unknown_tool() {
         use crate::coordinator::ToolCoordinator;
@@ -3153,6 +3154,7 @@ let backend = MockBackend::with_text("Hello from coordinator!");
         assert!(matches!(result.finish_reason, FinishReason::UnknownTool(_)));
     }
 
+    #[tokio::test]
     /// Test max iterations limit in coordinator
     async fn test_coordinator_max_iterations_limit() {
         use crate::coordinator::ToolCoordinator;
@@ -3188,6 +3190,7 @@ let backend = MockBackend::with_text("Hello from coordinator!");
         assert!(matches!(result.finish_reason, FinishReason::MaxIterations));
     }
 
+    #[tokio::test]
     /// Test timeout handling in coordinator
     async fn test_coordinator_timeout_handling() {
         use crate::coordinator::ToolCoordinator;
@@ -3216,6 +3219,7 @@ let backend = MockBackend::with_text("Hello from coordinator!");
         assert!(first_call.result.get("error").is_some());
     }
 
+    #[tokio::test]
     /// Test that coordinator accumulates token usage
     async fn test_coordinator_token_usage_accumulation() {
         use crate::coordinator::ToolCoordinator;
@@ -3235,6 +3239,7 @@ let backend = MockBackend::with_text("Hello from coordinator!");
         assert_eq!(result.total_usage.total_tokens, 150);
     }
 
+    #[tokio::test]
     /// Test parallel execution in coordinator
     async fn test_coordinator_parallel_execution() {
         use crate::coordinator::ToolCoordinator;
