@@ -244,6 +244,7 @@ pub struct SessionSummary {
 mod tests {
     use super::*;
     use crate::agent::Role;
+    use serial_test::serial;
 
     #[test]
     fn session_new_generates_8_char_id() {
@@ -337,6 +338,7 @@ mod tests {
 
     // ─── I/O path tests ───────────────────────────────────────────────────
 
+    #[serial(pawan_session_tests)]
     #[test]
     fn test_load_nonexistent_id_returns_not_found() {
         // Use an ID that is guaranteed not to exist on disk.
@@ -349,6 +351,7 @@ mod tests {
         }
     }
 
+    #[serial(pawan_session_tests)]
     #[test]
     fn test_save_and_load_roundtrip() {
         let mut session = Session::new("roundtrip-model");
@@ -396,6 +399,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    #[serial(pawan_session_tests)]
     #[test]
     fn test_list_includes_saved_session() {
         let mut session = Session::new("list-test-model");
@@ -410,6 +414,7 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    #[serial(pawan_session_tests)]
     #[test]
     fn test_list_sorted_newest_first() {
         // Create two sessions and force different updated_at values.
@@ -1067,6 +1072,7 @@ mod search_prune_tests {
         assert!(!session.has_tag("tag3"));
     }
 
+    #[serial(pawan_session_tests)]
     #[test]
     fn test_session_save_and_load() {
         let mut session = Session::new("test-model");
