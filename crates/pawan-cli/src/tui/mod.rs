@@ -888,46 +888,15 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
                         self.session_browser_selected = (self.session_browser_selected + 10).min(sessions - 1);
                     }
                 }
-KeyCode::Char(c) => {
-			self.session_browser_query.push(c);
-			self.session_browser_selected = 0;
-		}
-		KeyCode::Up => {
-			let sessions = self.filtered_sessions().len();
-			if sessions > 0 {
-				self.session_browser_selected = self.session_browser_selected.saturating_sub(1);
-			}
-		}
-		KeyCode::Down => {
-			let sessions = self.filtered_sessions().len();
-			if sessions > 0 {
-				self.session_browser_selected = (self.session_browser_selected + 1).min(sessions - 1);
-			}
-		}
-		KeyCode::PageUp => {
-			let sessions = self.filtered_sessions().len();
-			if sessions > 0 {
-				self.session_browser_selected = self.session_browser_selected.saturating_sub(10);
-			}
-		}
-		KeyCode::PageDown => {
-			let sessions = self.filtered_sessions().len();
-			if sessions > 0 {
-				self.session_browser_selected = (self.session_browser_selected + 10).min(sessions - 1);
-			}
-		}
-KeyCode::Home | KeyCode::Char('g') => {
+KeyCode::Home => {
                     self.session_browser_selected = 0;
                 }
-                KeyCode::Char('G') | KeyCode::End => {
+                KeyCode::End => {
                     let sessions = self.filtered_sessions().len();
                     if sessions > 0 {
                         self.session_browser_selected = sessions - 1;
                     }
-		KeyCode::Char(c) => {
-			self.session_browser_query.push(c);
-			self.session_browser_selected = 0;
-		}
+}
                 KeyCode::Enter => {
                     let sessions: Vec<SessionSummary> = self.filtered_sessions();
                     if let Some(session) = sessions.get(self.session_browser_selected) {
