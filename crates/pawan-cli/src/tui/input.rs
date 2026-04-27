@@ -1,5 +1,7 @@
 //! Input submission (`submit_input`) for `App`.
 
+#![allow(unused_imports)]
+
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,

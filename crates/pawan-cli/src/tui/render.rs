@@ -1,5 +1,7 @@
 //! Rendering, markdown, and the display-cache `impl DisplayMessage` block.
 
+#![allow(unused_imports)]
+
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
