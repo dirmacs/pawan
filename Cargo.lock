@@ -5178,7 +5178,7 @@ checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
 name = "pawan"
-version = "0.4.12"
+version = "0.5.0"
 dependencies = [
  "arboard",
  "assert_cmd",
@@ -5197,6 +5197,7 @@ dependencies = [
  "predicates",
  "ratatui",
  "ratatui-textarea",
+ "regex",
  "reqwest 0.13.2",
  "serde_json",
  "syntect",
@@ -5210,7 +5211,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-aegis"
-version = "0.4.12"
+version = "0.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -5221,7 +5222,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-core"
-version = "0.4.12"
+version = "0.5.0"
 dependencies = [
  "ares-server",
  "async-trait",
@@ -5256,6 +5257,7 @@ dependencies = [
  "thulpoff-engine",
  "tokio",
  "tokio-test",
+ "tokio-util",
  "toml 1.1.2+spec-1.1.0",
  "tracing",
  "uuid",
@@ -5265,7 +5267,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-mcp"
-version = "0.4.12"
+version = "0.5.0"
 dependencies = [
  "async-trait",
  "futures",
@@ -5282,7 +5284,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-web"
-version = "0.4.12"
+version = "0.5.0"
 dependencies = [
  "axum 0.8.8",
  "axum-extra",
