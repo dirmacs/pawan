@@ -5,6 +5,27 @@ use crate::{PawanError, Result};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+const SESSION_LIST_PREVIEW_MAX_CHARS: usize = 60;
+
+fn first_message_preview_for_messages(messages: &[Message]) -> String {
+    for msg in messages {
+        let collapsed: String = msg.content.split_whitespace().collect::<Vec<_>>().join(" ");
+        if collapsed.is_empty() {
+            continue;
+        }
+        let n = collapsed.chars().count();
+        if n <= SESSION_LIST_PREVIEW_MAX_CHARS {
+            return collapsed;
+        }
+        return collapsed
+            .chars()
+            .take(SESSION_LIST_PREVIEW_MAX_CHARS.saturating_sub(1))
+            .collect::<String>()
+            + "…";
+    }
+    String::new()
+}
+
 /// A saved conversation session
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Session {
@@ -128,7 +149,10 @@ impl Session {
     pub fn add_tag(&mut self, tag: &str) -> Result<()> {
         let sanitized = Self::sanitize_tag(tag)?;
         if self.tags.contains(&sanitized) {
-            return Err(PawanError::Config(format!("Tag already exists: {}", sanitized)));
+            return Err(PawanError::Config(format!(
+                "Tag already exists: {}",
+                sanitized
+            )));
         }
         self.tags.push(sanitized);
         Ok(())
@@ -141,7 +165,10 @@ impl Session {
             self.tags.remove(pos);
             Ok(())
         } else {
-            Err(PawanError::NotFound(format!("Tag not found: {}", sanitized)))
+            Err(PawanError::NotFound(format!(
+                "Tag not found: {}",
+                sanitized
+            )))
         }
     }
 
@@ -165,7 +192,9 @@ impl Session {
             return Err(PawanError::Config("Tag name cannot be empty".to_string()));
         }
         if trimmed.len() > 50 {
-            return Err(PawanError::Config("Tag name too long (max 50 characters)".to_string()));
+            return Err(PawanError::Config(
+                "Tag name too long (max 50 characters)".to_string(),
+            ));
         }
         // Allow alphanumeric, hyphen, underscore, and space
         let sanitized: String = trimmed
@@ -173,7 +202,9 @@ impl Session {
             .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == ' ')
             .collect();
         if sanitized.is_empty() {
-            return Err(PawanError::Config("Tag contains invalid characters".to_string()));
+            return Err(PawanError::Config(
+                "Tag contains invalid characters".to_string(),
+            ));
         }
         Ok(sanitized)
     }
@@ -184,12 +215,12 @@ impl Session {
             .map_err(|e| PawanError::Config(format!("Failed to read session file: {}", e)))?;
         let mut session: Session = serde_json::from_str(&content)
             .map_err(|e| PawanError::Config(format!("Failed to parse session JSON: {}", e)))?;
-        
+
         // Assign a new ID to ensure it doesn't collide with existing sessions
         // and clearly mark it as a new import in this system.
         session.id = uuid::Uuid::new_v4().to_string()[..8].to_string();
         session.updated_at = chrono::Utc::now().to_rfc3339();
-        
+
         Ok(session)
     }
 
@@ -212,6 +243,9 @@ impl Session {
                                 message_count: session.messages.len(),
                                 tags: session.tags,
                                 notes: session.notes,
+                                first_message_preview: first_message_preview_for_messages(
+                                    &session.messages,
+                                ),
                             });
                         }
                     }
@@ -238,6 +272,9 @@ pub struct SessionSummary {
     /// User notes for this session
     #[serde(default)]
     pub notes: String,
+    /// Whitespace-collapsed preview of the first non-empty message (for listings)
+    #[serde(default)]
+    pub first_message_preview: String,
 }
 
 #[cfg(test)]
@@ -263,14 +300,20 @@ mod tests {
         // before 50% collision chance, so two in a row is safe.)
         let a = Session::new("m");
         let b = Session::new("m");
-        assert_ne!(a.id, b.id, "successive Session::new() must produce distinct ids");
+        assert_ne!(
+            a.id, b.id,
+            "successive Session::new() must produce distinct ids"
+        );
     }
 
     #[test]
     fn session_new_timestamps_parse_as_rfc3339() {
         let s = Session::new("m");
         // Both timestamps must be valid RFC3339 and equal at creation.
-        assert_eq!(s.created_at, s.updated_at, "at creation created_at == updated_at");
+        assert_eq!(
+            s.created_at, s.updated_at,
+            "at creation created_at == updated_at"
+        );
         chrono::DateTime::parse_from_rfc3339(&s.created_at)
             .expect("created_at must parse as RFC3339");
         chrono::DateTime::parse_from_rfc3339(&s.updated_at)
@@ -314,7 +357,10 @@ mod tests {
         let session: Session = serde_json::from_str(json).unwrap();
         assert_eq!(session.id, "abcd1234");
         assert_eq!(session.total_tokens, 0, "missing total_tokens ⇒ default 0");
-        assert_eq!(session.iteration_count, 0, "missing iteration_count ⇒ default 0");
+        assert_eq!(
+            session.iteration_count, 0,
+            "missing iteration_count ⇒ default 0"
+        );
     }
 
     #[test]
@@ -327,6 +373,7 @@ mod tests {
             updated_at: "2026-04-10T13:00:00Z".into(),
             message_count: 42,
             tags: Vec::new(),
+            first_message_preview: "hello".into(),
         };
         let json = serde_json::to_string(&summary).unwrap();
         assert!(json.contains("\"id\":\"abcdef12\""));
@@ -541,11 +588,14 @@ pub struct RetentionPolicy {
 }
 
 /// Search sessions by content query with options
-pub fn search_sessions_with_options(query: &str, options: &SearchOptions) -> Result<Vec<SearchResult>> {
+pub fn search_sessions_with_options(
+    query: &str,
+    options: &SearchOptions,
+) -> Result<Vec<SearchResult>> {
     let dir = Session::sessions_dir()?;
     let query_lower = query.to_lowercase();
     let mut results = Vec::new();
-    
+
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -554,11 +604,13 @@ pub fn search_sessions_with_options(query: &str, options: &SearchOptions) -> Res
                     if let Ok(session) = serde_json::from_str::<Session>(&content) {
                         // Apply date filter if specified
                         if let (Some(from), Some(to)) = (&options.date_from, &options.date_to) {
-                            if let Ok(updated) = chrono::DateTime::parse_from_rfc3339(&session.updated_at) {
+                            if let Ok(updated) =
+                                chrono::DateTime::parse_from_rfc3339(&session.updated_at)
+                            {
                                 let updated_utc = updated.with_timezone(&chrono::Utc);
                                 if let (Ok(from_dt), Ok(to_dt)) = (
                                     chrono::DateTime::parse_from_rfc3339(from),
-                                    chrono::DateTime::parse_from_rfc3339(to)
+                                    chrono::DateTime::parse_from_rfc3339(to),
                                 ) {
                                     let from_utc = from_dt.with_timezone(&chrono::Utc);
                                     let to_utc = to_dt.with_timezone(&chrono::Utc);
@@ -568,7 +620,7 @@ pub fn search_sessions_with_options(query: &str, options: &SearchOptions) -> Res
                                 }
                             }
                         }
-                        
+
                         let mut matches = Vec::new();
                         for (i, msg) in session.messages.iter().enumerate() {
                             // Apply role filter if specified
@@ -577,7 +629,7 @@ pub fn search_sessions_with_options(query: &str, options: &SearchOptions) -> Res
                                     continue;
                                 }
                             }
-                            
+
                             if msg.content.to_lowercase().contains(&query_lower) {
                                 // Find the match position for context extraction
                                 let content_lower = msg.content.to_lowercase();
@@ -589,13 +641,15 @@ pub fn search_sessions_with_options(query: &str, options: &SearchOptions) -> Res
                                     };
                                     let end = std::cmp::min(
                                         pos + query.len() + options.context_window,
-                                        msg.content.len()
+                                        msg.content.len(),
                                     );
-                                    
+
                                     let context_before = msg.content[start..pos].to_string();
-                                    let matched_text = msg.content[pos..pos + query.len()].to_string();
-                                    let context_after = msg.content[pos + query.len()..end].to_string();
-                                    
+                                    let matched_text =
+                                        msg.content[pos..pos + query.len()].to_string();
+                                    let context_after =
+                                        msg.content[pos + query.len()..end].to_string();
+
                                     // Create preview with context
                                     let preview = format!(
                                         "{}{}{}",
@@ -603,7 +657,7 @@ pub fn search_sessions_with_options(query: &str, options: &SearchOptions) -> Res
                                         &msg.content[start..end],
                                         if end < msg.content.len() { "..." } else { "" }
                                     );
-                                    
+
                                     matches.push(MessageMatch {
                                         message_index: i,
                                         role: msg.role.clone(),
@@ -615,15 +669,16 @@ pub fn search_sessions_with_options(query: &str, options: &SearchOptions) -> Res
                                 }
                             }
                         }
-                        
+
                         if !matches.is_empty() {
                             // Limit matches per session if specified
-                            let limited_matches = if let Some(max) = options.max_matches_per_session {
+                            let limited_matches = if let Some(max) = options.max_matches_per_session
+                            {
                                 matches.into_iter().take(max).collect()
                             } else {
                                 matches
                             };
-                            
+
                             results.push(SearchResult {
                                 id: session.id,
                                 model: session.model,
@@ -638,7 +693,7 @@ pub fn search_sessions_with_options(query: &str, options: &SearchOptions) -> Res
             }
         }
     }
-    
+
     results.sort_by(|a, b| b.matches.len().cmp(&a.matches.len()));
     Ok(results)
 }
@@ -652,7 +707,7 @@ pub fn search_sessions(query: &str) -> Result<Vec<SearchResult>> {
 pub fn prune_sessions(policy: &RetentionPolicy) -> Result<usize> {
     let dir = Session::sessions_dir()?;
     let mut sessions_data: Vec<(std::path::PathBuf, Session)> = Vec::new();
-    
+
     if let Ok(entries) = std::fs::read_dir(&dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -665,23 +720,25 @@ pub fn prune_sessions(policy: &RetentionPolicy) -> Result<usize> {
             }
         }
     }
-    
+
     sessions_data.sort_by(|a, b| b.1.updated_at.cmp(&a.1.updated_at));
-    
+
     let mut deleted = 0usize;
     let now = chrono::Utc::now();
-    
+
     // Use enumerate to get index without moving the vector
     for (i, (path, session)) in sessions_data.into_iter().enumerate() {
         // Skip sessions with protected tags
-        let has_protected = session.tags.iter()
+        let has_protected = session
+            .tags
+            .iter()
             .any(|t| policy.keep_tags.iter().any(|kt| kt == t));
         if has_protected {
             continue;
         }
-        
+
         let mut should_delete = false;
-        
+
         // Check age limit
         if let Some(max_days) = policy.max_age_days {
             if let Ok(st) = chrono::DateTime::parse_from_rfc3339(&session.updated_at) {
@@ -691,7 +748,7 @@ pub fn prune_sessions(policy: &RetentionPolicy) -> Result<usize> {
                 }
             }
         }
-        
+
         // Check max sessions limit (use index from enumerate)
         if !should_delete {
             if let Some(max_sess) = policy.max_sessions {
@@ -700,14 +757,14 @@ pub fn prune_sessions(policy: &RetentionPolicy) -> Result<usize> {
                 }
             }
         }
-        
+
         if should_delete {
             std::fs::remove_file(&path)
                 .map_err(|e| PawanError::Config(format!("Delete failed: {}", e)))?;
             deleted += 1;
         }
     }
-    
+
     Ok(deleted)
 }
 
@@ -720,7 +777,10 @@ mod search_prune_tests {
     #[test]
     fn test_role_serialization_is_lowercase() {
         assert_eq!(serde_json::to_string(&Role::User).unwrap(), "\"user\"");
-        assert_eq!(serde_json::to_string(&Role::Assistant).unwrap(), "\"assistant\"");
+        assert_eq!(
+            serde_json::to_string(&Role::Assistant).unwrap(),
+            "\"assistant\""
+        );
         assert_eq!(serde_json::to_string(&Role::System).unwrap(), "\"system\"");
         assert_eq!(serde_json::to_string(&Role::Tool).unwrap(), "\"tool\"");
     }
@@ -763,7 +823,11 @@ mod search_prune_tests {
         assert_eq!(results.len(), 2);
 
         // Restore HOME
-        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
     }
 
     #[test]
@@ -800,7 +864,11 @@ mod search_prune_tests {
         assert!(list.iter().any(|s| s.id == "sess3"));
 
         // Restore HOME
-        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
     }
 
     #[test]
@@ -845,7 +913,11 @@ mod search_prune_tests {
         assert!(list.iter().any(|s| s.id == "new"));
 
         // Restore HOME
-        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
     }
 
     #[test]
@@ -858,7 +930,11 @@ mod search_prune_tests {
         let results = search_sessions("anything").unwrap();
         assert!(results.is_empty());
 
-        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
     }
 
     #[test]
@@ -880,17 +956,24 @@ mod search_prune_tests {
         let deleted = prune_sessions(&policy).unwrap();
         assert_eq!(deleted, 1);
 
-        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
     }
 
     #[test]
     fn test_search_options_builder() {
         let options = SearchOptions::new()
             .with_role(Role::User)
-            .with_date_range(Some("2026-01-01T00:00:00Z".to_string()), Some("2026-12-31T23:59:59Z".to_string()))
+            .with_date_range(
+                Some("2026-01-01T00:00:00Z".to_string()),
+                Some("2026-12-31T23:59:59Z".to_string()),
+            )
             .with_max_matches(10)
             .with_context_window(100);
-        
+
         assert_eq!(options.role_filter, Some(Role::User));
         assert_eq!(options.date_from, Some("2026-01-01T00:00:00Z".to_string()));
         assert_eq!(options.date_to, Some("2026-12-31T23:59:59Z".to_string()));
@@ -935,7 +1018,11 @@ mod search_prune_tests {
         assert_eq!(results[0].matches.len(), 1);
         assert_eq!(results[0].matches[0].role, Role::Assistant);
 
-        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
     }
 
     #[test]
@@ -960,14 +1047,18 @@ mod search_prune_tests {
         let results = search_sessions_with_options("hello", &options).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].matches.len(), 1);
-        
+
         let match_result = &results[0].matches[0];
         assert!(!match_result.context_before.is_empty());
         assert!(!match_result.context_after.is_empty());
         assert_eq!(match_result.matched_text, "hello");
         assert!(match_result.preview.contains("hello"));
 
-        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
     }
 
     #[test]
@@ -995,7 +1086,11 @@ mod search_prune_tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].matches.len(), 3); // Limited to 3
 
-        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
     }
 
     #[test]
@@ -1023,12 +1118,17 @@ mod search_prune_tests {
         let results = search_sessions("HELLO").unwrap();
         assert_eq!(results.len(), 1);
 
-        if let Some(h) = prev_home { std::env::set_var("HOME", h); } else { std::env::remove_var("HOME"); }
+        if let Some(h) = prev_home {
+            std::env::set_var("HOME", h);
+        } else {
+            std::env::remove_var("HOME");
+        }
     }
 
     #[test]
     fn test_session_new_with_tags() {
-        let session = Session::new_with_tags("test-model", vec!["tag1".to_string(), "tag2".to_string()]);
+        let session =
+            Session::new_with_tags("test-model", vec!["tag1".to_string(), "tag2".to_string()]);
         assert_eq!(session.tags, vec!["tag1".to_string(), "tag2".to_string()]);
         assert_eq!(session.model, "test-model");
     }
@@ -1050,7 +1150,8 @@ mod search_prune_tests {
 
     #[test]
     fn test_session_remove_tag() {
-        let mut session = Session::new_with_tags("test-model", vec!["tag1".to_string(), "tag2".to_string()]);
+        let mut session =
+            Session::new_with_tags("test-model", vec!["tag1".to_string(), "tag2".to_string()]);
         session.remove_tag("tag1").unwrap();
         assert!(!session.tags.contains(&"tag1".to_string()));
         assert!(session.tags.contains(&"tag2".to_string()));
@@ -1059,14 +1160,16 @@ mod search_prune_tests {
 
     #[test]
     fn test_session_clear_tags() {
-        let mut session = Session::new_with_tags("test-model", vec!["tag1".to_string(), "tag2".to_string()]);
+        let mut session =
+            Session::new_with_tags("test-model", vec!["tag1".to_string(), "tag2".to_string()]);
         session.clear_tags();
         assert!(session.tags.is_empty());
     }
 
     #[test]
     fn test_session_has_tag() {
-        let session = Session::new_with_tags("test-model", vec!["tag1".to_string(), "tag2".to_string()]);
+        let session =
+            Session::new_with_tags("test-model", vec!["tag1".to_string(), "tag2".to_string()]);
         assert!(session.has_tag("tag1"));
         assert!(session.has_tag("tag2"));
         assert!(!session.has_tag("tag3"));
@@ -1105,7 +1208,7 @@ mod search_prune_tests {
         let session = Session::new_with_id(
             "custom-id".to_string(),
             "test-model",
-            vec!["tag1".to_string()]
+            vec!["tag1".to_string()],
         );
         assert_eq!(session.id, "custom-id");
         assert_eq!(session.model, "test-model");
