@@ -166,10 +166,7 @@ mod tests {
 
     #[test]
     fn test_from_error_platform_failure() {
-        let platform_err = Error::PlatformFailure(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "DBus error",
-        )));
+        let platform_err = Error::PlatformFailure(Box::new(std::io::Error::other("DBus error")));
         let cred_err: CredentialError = platform_err.into();
         match cred_err {
             CredentialError::StoreError(msg) => {
@@ -242,8 +239,7 @@ mod tests {
     #[test]
     fn test_is_secure_store_available_returns_bool() {
         // Just verify it returns a boolean without panicking
-        let result = is_secure_store_available();
-        assert!(result == true || result == false);
+        let _: bool = is_secure_store_available();
     }
 
     // ============================================================

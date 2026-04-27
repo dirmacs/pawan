@@ -3140,7 +3140,7 @@ mod tests {
         app.handle_slash_command("/diff");
         assert!(!app.messages.is_empty());
         let content = app.messages.last().unwrap().text_content();
-        assert!(content.len() > 0);
+        assert!(!content.is_empty());
     }
 
     // ===== Export Format Tests =====
