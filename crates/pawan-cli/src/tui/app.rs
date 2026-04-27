@@ -20,11 +20,11 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame, Terminal,
 };
+use ratatui_textarea::{Input, TextArea};
 use regex::Regex;
 use std::io::{self, Stdout};
 use std::sync::OnceLock;
 use std::time::Instant;
-use ratatui_textarea::{Input, TextArea};
 use tokio::sync::mpsc;
 
 use super::fuzzy_search::{command_prefix, default_command_item_lines, FuzzySearchState};
@@ -125,7 +125,9 @@ pub struct SlashCommandRegistry {
 
 impl SlashCommandRegistry {
     pub fn new() -> Self {
-        Self { commands: Vec::new() }
+        Self {
+            commands: Vec::new(),
+        }
     }
 
     pub fn register(&mut self, cmd: SlashCommand) {
@@ -219,7 +221,6 @@ pub(crate) struct PermissionDialog {
     pub(crate) args_summary: String,
     pub(crate) respond: Option<tokio::sync::oneshot::Sender<bool>>,
 }
-
 
 impl<'a> App<'a> {
     pub fn new(
@@ -507,7 +508,10 @@ impl<'a> App<'a> {
         result
     }
 
-    pub(crate) async fn main_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
+    pub(crate) async fn main_loop(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<Stdout>>,
+    ) -> Result<()> {
         loop {
             self.refresh_keybind_context();
             terminal.draw(|f| self.ui(f)).map_err(PawanError::Io)?;
@@ -1626,7 +1630,6 @@ impl<'a> App<'a> {
     }
 }
 
-
 async fn agent_task(
     mut agent: PawanAgent,
     mut cmd_rx: mpsc::UnboundedReceiver<AgentCommand>,
@@ -1760,4 +1763,3 @@ pub async fn run_simple(mut agent: PawanAgent) -> Result<()> {
 
     Ok(())
 }
-

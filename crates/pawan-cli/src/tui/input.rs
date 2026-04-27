@@ -20,11 +20,11 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame, Terminal,
 };
+use ratatui_textarea::{Input, TextArea};
 use regex::Regex;
 use std::io::{self, Stdout};
 use std::sync::OnceLock;
 use std::time::Instant;
-use ratatui_textarea::{Input, TextArea};
 use tokio::sync::mpsc;
 
 use super::app::App;
