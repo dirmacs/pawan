@@ -5,25 +5,6 @@ use std::sync::{Arc, LazyLock};
 use arc_swap::{ArcSwap, Guard};
 use ratatui::style::Color;
 
-/// Human-readable name plus optional TOML blob (reserved for future custom themes).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ThemeEntry {
-    pub name: &'static str,
-    pub toml: &'static str,
-}
-
-/// Bundled palette metadata (TOML payloads are currently unused — colors live in `ALL_THEMES`).
-pub static BUNDLED_THEMES: &[ThemeEntry] = &[
-    ThemeEntry { name: "dracula", toml: "" },
-    ThemeEntry { name: "catppuccin_mocha", toml: "" },
-    ThemeEntry { name: "nord", toml: "" },
-    ThemeEntry { name: "tokyonight", toml: "" },
-    ThemeEntry { name: "gruvbox", toml: "" },
-    ThemeEntry { name: "monokai_pro", toml: "" },
-    ThemeEntry { name: "everforest", toml: "" },
-    ThemeEntry { name: "onedark", toml: "" },
-];
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Theme {
     pub name: &'static str,
