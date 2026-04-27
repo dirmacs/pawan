@@ -72,7 +72,7 @@ impl FuzzySearchState {
 
 /// Strips the description after `" — "` so we can run the slash command.
 pub fn command_prefix(line: &str) -> &str {
-    line.splitn(2, " — ")
+    line.split(" — ")
         .next()
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -101,7 +101,11 @@ mod tests {
 
     #[test]
     fn test_filter_updates_results() {
-        let items = vec!["apple".to_string(), "banana".to_string(), "apricot".to_string()];
+        let items = vec![
+            "apple".to_string(),
+            "banana".to_string(),
+            "apricot".to_string(),
+        ];
         let mut search = FuzzySearchState::new(items);
         search.filter("ap");
         assert!(search.results.iter().all(|r| r.contains("ap")));

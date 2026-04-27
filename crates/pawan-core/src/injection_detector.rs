@@ -44,10 +44,8 @@ fn system_prompt_leak_re() -> &'static Regex {
 fn hidden_entity_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| {
-        Regex::new(
-            r"(?i)&#(x0*20(0B|0C|0D|0E|0F|1[0-6])|[0-9]{4,6});|&#(x0*FEFF|X0*FEFF);",
-        )
-        .expect("valid regex")
+        Regex::new(r"(?i)&#(x0*20(0B|0C|0D|0E|0F|1[0-6])|[0-9]{4,6});|&#(x0*FEFF|X0*FEFF);")
+            .expect("valid regex")
     })
 }
 
@@ -280,9 +278,7 @@ impl InjectionDetector {
                 confidence: 0.88,
             });
         }
-        if (line.contains("_role_")
-            || line.contains("_system_")
-            || line.contains("_assistant_"))
+        if (line.contains("_role_") || line.contains("_system_") || line.contains("_assistant_"))
             && !looks_like_json_context(line)
         {
             return Some(InjectionFinding {
@@ -341,7 +337,7 @@ impl InjectionDetector {
 
     fn check_delimiter_trick(&self, line: &str, line_no: usize) -> Option<InjectionFinding> {
         let count = line.matches("```").count();
-        if count >= 2 && count % 2 == 0 && count >= 4 {
+        if count >= 2 && count.is_multiple_of(2) && count >= 4 {
             return Some(InjectionFinding {
                 kind: InjectionKind::DelimiterTrick,
                 line: line_no,
@@ -529,11 +525,10 @@ mod tests {
         let d = InjectionDetector::new();
         let r = d.scan("Hello {{name without closing on purpose");
         assert!(!r.clean);
-        assert!(
-            r.findings
-                .iter()
-                .any(|f| f.kind == InjectionKind::VariableInjection)
-        );
+        assert!(r
+            .findings
+            .iter()
+            .any(|f| f.kind == InjectionKind::VariableInjection));
     }
 
     #[test]

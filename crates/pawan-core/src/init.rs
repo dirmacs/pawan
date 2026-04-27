@@ -55,9 +55,7 @@ edition = "2021"
 rust-version = "1.75"
 "#
     );
-    let lib_rs = format!(
-        "/// Add two numbers.\npub fn add(a: i32, b: i32) -> i32 {{\n    a + b\n}}\n\n#[cfg(test)]\nmod tests {{\n    use super::*;\n\n    #[test]\n    fn it_works() {{\n        assert_eq!(add(2, 2), 4);\n    }}\n}}\n"
-    );
+    let lib_rs = "/// Add two numbers.\npub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n\n#[cfg(test)]\nmod tests {\n    use super::*;\n\n    #[test]\n    fn it_works() {\n        assert_eq!(add(2, 2), 4);\n    }\n}\n".to_string();
 
     ProjectSkeleton {
         name: name.to_string(),
