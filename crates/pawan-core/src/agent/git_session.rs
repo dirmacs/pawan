@@ -9,7 +9,7 @@
 
 use crate::agent::session::Session;
 use crate::{PawanError, Result};
-use gix::bstr::{BStr, ByteSlice};
+use gix::bstr::ByteSlice;
 use gix::object::tree::EntryKind;
 use gix::ObjectId;
 use serde::{Deserialize, Serialize};
