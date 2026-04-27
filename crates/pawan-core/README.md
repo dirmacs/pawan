@@ -1,6 +1,15 @@
-# pawan-core v0.4.8
+# pawan-core v0.4.13
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
+
+## What's New in v0.4.13
+
+- **Pure-Rust git engine** — replaced `libgit2` (C) with `gix` 0.82 (gitoxide). No C toolchain dep. `GitSessionStore` API unchanged; 789 tests pass.
+- **mold linker + split-debuginfo** — faster dev/test linking on Linux.
+- **Feature-gated heavy deps** — `deagle`, `tasks`, `git-sessions`, `lancor` optional; all in `default`. Faster cold builds when toggled off.
+- **Workspace dep deduplication** — `which`, `dirs`, `dotenvy`, `tempfile` promoted to workspace dependencies.
+- **Module splits** — `coordinator/types.rs` extracted (796→459 lines); `tools/git.rs` → `tools/git/` (5 files); `tools/native.rs` split into `native_search`, `mise`, `lsp_tool` submodules.
+- **Type deduplication** — `MessageRole` removed (dup of `agent::Role`); `to_definition()` alias removed; `FinishReason` canonical with `Display + Eq`.
 
 ## What's New in v0.4.8
 
@@ -24,7 +33,7 @@ Core library for the Pawan CLI coding agent. Contains the agent engine, tool sys
 - **Improved `/load` and `/resume`** — Opens session browser when called without arguments
 - **Enhanced scrolling** — PageUp/PageDown/Home/End keys and mouse wheel support in all popups (command palette, slash menu, session browser)
 - **Secure credential storage** — API keys stored in OS-native credential store (Keychain/Credential Manager/libsecret)
-- **Test stability** — All 722 library tests and 59 integration tests now pass consistently
+- **Test stability** — All 789 library tests and 59 integration tests now pass consistently
 
 ## Features
 

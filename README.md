@@ -157,7 +157,7 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.4.1)
+## TUI (v0.4.13)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets
@@ -245,7 +245,29 @@ Zero-cost local inference with cloud reliability as a safety net.
 
 Full triage: [dirmacs.github.io/pawan/triage/](https://dirmacs.github.io/pawan/triage/)
 
-## What's New in v0.4.1
+## What's New in v0.4.13
+
+### Build & Performance
+
+- **Pure-Rust git engine** — replaced `libgit2` (C library, ~40s cold compile) with `gix` 0.82 (gitoxide). No C toolchain dependency. Same public `GitSessionStore` API; 789 tests pass unchanged.
+- **mold linker** — switched to mold 2.30 for all dev/test builds; significantly faster linking on Linux.
+- **`split-debuginfo = unpacked`** — dev and test profiles keep debug info in `.dwo` files, reducing linker pressure.
+- **Feature-gated heavy deps** — `deagle`, `tasks`, `git-sessions`, `lancor` are now optional features; default still includes all of them. Cuts cold build time when building without code-intelligence or task-persistence layers.
+- **Workspace dep deduplication** — `which`, `dirs`, `dotenvy`, `tempfile` promoted to `[workspace.dependencies]`; eliminates version drift across crates.
+
+### Modularization
+
+- **`coordinator/types.rs` extracted** — `ToolCallingConfig`, `FinishReason`, `ConversationMessage`, `CoordinatorResult` live in their own file; `coordinator/mod.rs` reduced from 796 → 459 lines.
+- **`tools/git.rs` → `tools/git/`** — split into `status.rs`, `diff.rs`, `staging.rs`, `log.rs`, `branch.rs` submodules.
+- **`tools/native.rs` split** — `RipgrepTool`, `FdTool`, `SdTool`, `ErdTool` → `tools/native_search.rs`; `MiseTool` → `tools/mise.rs`; `LspTool` → `tools/lsp_tool.rs`. `native.rs` is now a 12-line re-export shim.
+
+### Type Deduplication
+
+- **`MessageRole` removed** — was identical to `agent::Role`; coordinator now uses `Role` directly.
+- **`to_definition()` alias removed** — forwarding alias to `thulp_definition()`; all callers updated.
+- **`FinishReason` canonical** — has `Display + PartialEq + Eq`; `events.rs` re-exports from coordinator.
+
+
 
 ### New TUI Features
 
@@ -264,7 +286,7 @@ Full triage: [dirmacs.github.io/pawan/triage/](https://dirmacs.github.io/pawan/t
 
 ### Test Improvements
 
-- **Test isolation** — All 722 library tests and 59 integration tests now pass consistently
+- **Test isolation** — All 789 library tests and 59 integration tests now pass consistently
 - **Serial test execution** — Tests modifying environment state run serially to prevent race conditions
 - **79 TUI tests** — Comprehensive coverage of all TUI functionality
 
