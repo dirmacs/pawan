@@ -242,7 +242,7 @@ impl MemoryStore {
             return Ok(());
         }
 
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        entries.sort_by_key(|(mtime, _path)| *mtime);
         let to_delete = entries.len().saturating_sub(keep_last);
         for (_, path) in entries.iter().take(to_delete) {
             let _ = fs::remove_file(path);

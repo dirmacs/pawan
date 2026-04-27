@@ -328,10 +328,7 @@ fn strip_existing_recalled_context_fences(content: &str) -> String {
     let mut s = content.to_string();
 
     // Remove any opening <recalled-context ...> tags (with optional attributes).
-    loop {
-        let Some(start) = s.find("<recalled-context") else {
-            break;
-        };
+    while let Some(start) = s.find("<recalled-context") {
         let Some(end) = s[start..].find('>') else {
             // If it's malformed, drop everything from the tag start.
             s.truncate(start);
@@ -1551,7 +1548,7 @@ impl PawanAgent {
                 let on_tool_cb = on_tool.as_ref();
 
                 let max_parallel = std::cmp::max(1, max_parallel_tools);
-                let results = stream::iter(pending.into_iter())
+                let results = stream::iter(pending)
                     .map(|(idx, tool_call)| async move {
                         let start = std::time::Instant::now();
 

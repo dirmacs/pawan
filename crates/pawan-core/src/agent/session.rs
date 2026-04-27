@@ -3,6 +3,7 @@
 use crate::agent::{Message, Role};
 use crate::{PawanError, Result};
 use serde::{Deserialize, Serialize};
+use std::cmp::Reverse;
 use std::path::PathBuf;
 
 const SESSION_LIST_PREVIEW_MAX_CHARS: usize = 60;
@@ -730,7 +731,7 @@ pub fn search_sessions_with_options(
         }
     }
 
-    results.sort_by(|a, b| b.matches.len().cmp(&a.matches.len()));
+    results.sort_by_key(|result| Reverse(result.matches.len()));
     Ok(results)
 }
 
