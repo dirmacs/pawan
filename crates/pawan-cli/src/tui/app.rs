@@ -74,6 +74,17 @@ pub(crate) struct App<'a> {
     pub(crate) file_completion_selected: usize,
     /// Welcome screen shown on first launch
     pub(crate) show_welcome: bool,
+    pub(crate) welcome_splash: super::splash::Splash,
+    /// Centralized theme system (ArcSwap-backed, thread-safe)
+    pub(crate) current_theme: String,
+    /// Accent color transition animation
+    pub(crate) accent_transition: super::theme::ColorTransition,
+    /// Activity feed for recent tool calls
+    pub(crate) activity_panel: super::activity_panel::ActivityPanel,
+    /// Sub-agent task queue display
+    pub(crate) queue_panel: super::queue_panel::QueuePanel,
+    /// Toggle activity side panel
+    pub(crate) show_activity_panel: bool,
     /// Permission dialog state — when Some, the agent is waiting for y/n
     pub(crate) permission_dialog: Option<PermissionDialog>,
     /// Auto-approve all tool calls for this session (set when user selects "yes to all")
@@ -211,6 +222,7 @@ const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/session", "Switch to a session by id"),
     ("/retry", "Retry the last assistant response"),
     ("/compact", "Compact the conversation context"),
+    ("/theme", "Switch color theme (e.g. /theme nord)"),
     ("/help", "Show this help list"),
     ("/?", "Show help (shorthand)"),
 ];
@@ -266,6 +278,12 @@ impl<'a> App<'a> {
             file_completion_query: String::new(),
             file_completion_selected: 0,
             show_welcome: true,
+            welcome_splash: super::splash::Splash::new(true),
+            current_theme: "dracula".to_string(),
+            accent_transition: super::theme::ColorTransition::new(super::theme::current().accent),
+            activity_panel: super::activity_panel::ActivityPanel::new(),
+            queue_panel: super::queue_panel::QueuePanel::new(),
+            show_activity_panel: false,
             permission_dialog: None,
             auto_approve_tools: false,
             cmd_tx,
