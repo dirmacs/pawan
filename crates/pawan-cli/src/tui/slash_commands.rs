@@ -984,6 +984,8 @@ impl<'a> App<'a> {
                             self.current_theme = t.name.to_string();
                             // Animate from current accent to new accent (captures in-flight color)
                             self.accent_transition.set(t.accent);
+                            self.status_bar
+                                .flash(format!("Switched to {} theme", t.name));
                             self.status = format!("Theme: {} — accent transition", t.name);
                         }
                         Err(_) => {
