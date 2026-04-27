@@ -1,5 +1,7 @@
 //! Shared types, enums, and helpers for the TUI.
 
+#![allow(unused_imports)]
+
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
