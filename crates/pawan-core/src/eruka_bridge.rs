@@ -640,6 +640,11 @@ core_max_tokens = 1000
         let client = ErukaClient::new(ErukaConfig::default());
         let session = Session {
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: vec![],
             id: "test-123".into(),
             model: "test-model".into(),
             messages: vec![],
@@ -756,6 +761,11 @@ core_max_tokens = 1000
         let client = ErukaClient::new(config);
         let session = Session {
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: vec![],
             id: "assistant-only".into(),
             model: "m".into(),
             messages: vec![Message {
