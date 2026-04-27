@@ -37,6 +37,7 @@ impl FuzzySearchState {
     /// Recompute `results` for `query` (case-insensitive `contains` on the display line).
     pub fn filter(&mut self, query: &str) {
         self.query = query.to_string();
+        self.selected = 0;
         let q = query.to_lowercase();
         self.results = if q.is_empty() {
             self.all_items
@@ -52,9 +53,6 @@ impl FuzzySearchState {
                 .cloned()
                 .collect()
         };
-        if self.selected >= self.results.len() {
-            self.selected = self.results.len().saturating_sub(1);
-        }
     }
 
     /// Move selection down.
