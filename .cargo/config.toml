@@ -1,0 +1,40 @@
+# Cargo build configuration for pawan workspace
+#
+# Goals: fast iterative dev builds, fast test runs.
+# Release profile (in Cargo.toml) keeps lto=true / codegen-units=1 for size/perf.
+
+[build]
+# Use mold — 5-10x faster than GNU ld for large Rust workspaces.
+# Falls back to ld if mold is absent (CI will still work).
+rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+# Compile to a ramdisk or fast temp dir if available; otherwise
+# the default target/ is fine. Comment-in to override:
+# target-dir = "/tmp/pawan-target"
+
+[profile.dev]
+# Optimise deps (external crates) at level 2 even in dev; pawan code
+# compiles at opt-level 0. This trades ~15 s extra on the very first build
+# for significantly faster incremental builds because heavy dep codegen
+# is cached and never rebuilt again.
+opt-level = 0
+debug = 1            # line tables only — much smaller, still good backtraces
+incremental = true
+codegen-units = 256  # max parallelism for incremental builds
+
+[profile.dev.package."*"]
+# All external crates: level-2 so they're fast at runtime but still compile
+# quickly (level 3 saves ~5% perf but adds compile time).
+opt-level = 2
+debug = false
+
+[profile.test]
+# Tests need the same incremental wins as dev.
+opt-level = 0
+debug = 1
+incremental = true
+codegen-units = 256
+
+[profile.test.package."*"]
+opt-level = 2
+debug = false

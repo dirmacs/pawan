@@ -1,38 +1,10 @@
-/// Pawan Agent - The core agent that handles tool-calling loops
-///
-/// This module provides the main `PawanAgent` which:
-/// - Manages conversation history
-/// - Coordinates tool calling with the LLM via pluggable backends
-/// - Provides streaming responses
-/// - Supports multiple LLM backends (NVIDIA API, Ollama, OpenAI)
-/// - Context management and token counting
-/// - Integration with Eruka for 3-tier memory injection
+//! Pawan Agent — core tool-calling loop and session management.
+//!
+//! Houses [`PawanAgent`], all LLM backends, session persistence,
+//! and the event stream. Wire types live in [`types`].
 
-//
-// This module provides the main `PawanAgent` which:
-// - Manages conversation history
-// - Coordinates tool calling with the LLM via pluggable backends
-// - Provides streaming responses
-// - Supports multiple LLM backends (NVIDIA API, Ollama, OpenAI)
-// - Context management and token counting
-// - Integration with Eruka for 3-tier memory injection
-/// Model information for available models
-/// Pawan Agent - The core agent that handles tool-calling loops
-///
-/// This module provides the main `PawanAgent` which:
-/// - Manages conversation history
-/// - Coordinates tool calling with the LLM via pluggable backends
-/// - Provides streaming responses
-/// - Supports multiple LLM backends (NVIDIA API, Ollama, OpenAI)
-/// - Context management and token counting
-/// - Integration with Eruka for 3-tier memory injection
-// Pawan Agent - The core agent that handles tool-calling loops
-//
-// This module provides the main `PawanAgent` which:
-// - Manages conversation history
-// - Coordinates tool calling with the LLM via pluggable backends
-// - Provides streaming responses
-// - Supports multiple LLM backends (NVIDIA API, Ollama, OpenAI)
+pub mod types;
+pub use types::*;
 
 pub mod backend;
 mod preflight;
@@ -54,138 +26,10 @@ use crate::tools::{ToolDefinition, ToolRegistry};
 use crate::{PawanError, Result};
 use backend::openai_compat::{OpenAiCompatBackend, OpenAiCompatConfig};
 use backend::LlmBackend;
-use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
-
-/// A message in the conversation
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Message {
-    /// Role of the message sender
-    pub role: Role,
-    /// Content of the message
-    pub content: String,
-    /// Tool calls (if any)
-    #[serde(default)]
-    pub tool_calls: Vec<ToolCallRequest>,
-    /// Tool results (if this is a tool result message)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_result: Option<ToolResultMessage>,
-}
-
-/// Role of a message sender
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum Role {
-    System,
-    User,
-    Assistant,
-    Tool,
-}
-
-/// A request to call a tool
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ToolCallRequest {
-    /// Unique ID for this tool call
-    pub id: String,
-    /// Name of the tool to call
-    pub name: String,
-    /// Arguments for the tool
-    pub arguments: Value,
-}
-
-/// Result from a tool execution
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ToolResultMessage {
-    /// ID of the tool call this result is for
-    pub tool_call_id: String,
-    /// The result content
-    pub content: Value,
-    /// Whether the tool executed successfully
-    pub success: bool,
-}
-
-/// Record of a tool call execution
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolCallRecord {
-    /// Unique ID for this tool call
-    pub id: String,
-    /// Name of the tool
-    pub name: String,
-    /// Arguments passed to the tool
-    pub arguments: Value,
-    /// Result from the tool
-    pub result: Value,
-    /// Whether execution was successful
-    pub success: bool,
-    /// Duration in milliseconds
-    pub duration_ms: u64,
-}
-
-/// Token usage from an LLM response
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct TokenUsage {
-    pub prompt_tokens: u64,
-    pub completion_tokens: u64,
-    pub total_tokens: u64,
-    /// Tokens spent on reasoning/thinking (subset of completion_tokens)
-    pub reasoning_tokens: u64,
-    /// Tokens spent on actual content/tool output (completion - reasoning)
-    pub action_tokens: u64,
-}
-
-/// LLM response from a generation request
-#[derive(Debug, Clone)]
-pub struct LLMResponse {
-    /// Text content of the response
-    pub content: String,
-    /// Reasoning/thinking content (separate from visible content)
-    pub reasoning: Option<String>,
-    /// Tool calls requested by the model
-    pub tool_calls: Vec<ToolCallRequest>,
-    /// Reason the response finished
-    pub finish_reason: String,
-    /// Token usage (if available)
-    pub usage: Option<TokenUsage>,
-}
-
-/// Result from a complete agent execution
-#[derive(Debug)]
-pub struct AgentResponse {
-    /// Final text response
-    pub content: String,
-    /// All tool calls made during execution
-    pub tool_calls: Vec<ToolCallRecord>,
-    /// Number of iterations taken
-    pub iterations: usize,
-    /// Cumulative token usage across all iterations
-    pub usage: TokenUsage,
-}
-
-/// Callback for receiving streaming tokens
-pub type TokenCallback = Box<dyn Fn(&str) + Send + Sync>;
-
-/// Callback for receiving tool call updates
-pub type ToolCallback = Box<dyn Fn(&ToolCallRecord) + Send + Sync>;
-
-/// Callback for tool call start notifications
-pub type ToolStartCallback = Box<dyn Fn(&str) + Send + Sync>;
-
-/// A permission request sent from the agent to the UI for approval.
-#[derive(Debug, Clone)]
-pub struct PermissionRequest {
-    /// Tool name requesting permission
-    pub tool_name: String,
-    /// Summary of arguments (e.g. bash command or file path)
-    pub args_summary: String,
-}
-
-/// Callback for requesting tool permission from the user.
-/// Returns true if the tool should be allowed, false to deny.
-pub type PermissionCallback =
-    Box<dyn Fn(PermissionRequest) -> tokio::sync::oneshot::Receiver<bool> + Send + Sync>;
 
 /// The main Pawan agent — handles conversation, tool calling, and self-healing.
 ///
@@ -3269,21 +3113,4 @@ let backend = MockBackend::with_text("Hello from coordinator!");
         // Should have executed multiple tool calls
         assert!(result.tool_calls.len() >= 3);
     }
-}
-/// Model information for available models
-pub struct ModelInfo {
-	/// Model name
-	pub name: String,
-	/// Model display name
-	pub display_name: String,
-	/// Model description
-	pub description: String,
-	/// Quality score (0-100)
-	pub quality_score: u8,
-	/// Whether the model is local
-	pub is_local: bool,
-	/// Whether the model is experimental
-	pub is_experimental: bool,
-	/// Model file path (for local models)
-	pub file_path: Option<String>,
 }

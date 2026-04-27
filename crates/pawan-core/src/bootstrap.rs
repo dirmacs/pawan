@@ -568,6 +568,7 @@ mod tests {
         // All tools missing — nothing to test.
     }
 
+    #[serial_test::serial(pawan_session_tests)]
     #[test]
     fn missing_deps_is_empty_on_fully_bootstrapped_box() {
         if !is_bootstrapped() {
@@ -627,6 +628,7 @@ mod tests {
         );
     }
 
+    #[serial_test::serial(pawan_session_tests)]
     #[test]
     fn uninstall_without_marker_file_is_ok() {
         // Calling uninstall on a box without a marker must NOT error —
@@ -648,7 +650,6 @@ mod tests {
 
         assert!(result.is_ok());
     }
-}
 
     #[test]
     fn bootstrap_report_summary_with_installs_only() {
@@ -820,6 +821,7 @@ mod tests {
         assert!(matches!(step.status, BootstrapStepStatus::Installed | BootstrapStepStatus::Failed(_)));
     }
 
+    #[serial_test::serial(pawan_session_tests)]
     #[test]
     fn ensure_deps_writes_marker_on_success() {
         use std::sync::Mutex;
@@ -847,6 +849,7 @@ mod tests {
         assert!(marker.exists(), "marker must be written on success");
     }
 
+    #[serial_test::serial(pawan_session_tests)]
     #[test]
     fn ensure_deps_includes_deagle_when_requested() {
         use std::sync::Mutex;
@@ -873,6 +876,7 @@ mod tests {
         assert_eq!(report.steps[0].name, "deagle");
     }
 
+    #[serial_test::serial(pawan_session_tests)]
     #[test]
     fn ensure_deps_with_force_reinstall() {
         use std::sync::Mutex;
@@ -899,6 +903,7 @@ mod tests {
         assert_eq!(report.steps[0].name, "deagle");
     }
 
+    #[serial_test::serial(pawan_session_tests)]
     #[test]
     fn uninstall_removes_marker_file() {
         use std::sync::Mutex;
@@ -923,6 +928,7 @@ mod tests {
         assert!(!marker.exists(), "marker must be removed");
     }
 
+    #[serial_test::serial(pawan_session_tests)]
     #[test]
     fn uninstall_with_purge_deagle_attempts_uninstall() {
         use std::sync::Mutex;
@@ -946,4 +952,4 @@ mod tests {
         // Will fail if deagle not installed, but we verify the attempt
         assert!(result.is_ok() || result.is_err());
         assert!(!marker.exists(), "marker must be removed regardless");
-    }
+    }}

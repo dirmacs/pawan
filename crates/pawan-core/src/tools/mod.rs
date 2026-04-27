@@ -8,6 +8,7 @@
 
 pub mod agent;
 pub mod bash;
+#[cfg(feature = "deagle")]
 pub mod deagle;
 pub mod edit;
 #[cfg(test)]
@@ -70,15 +71,6 @@ pub trait Tool: Send + Sync {
         self.thulp_definition()
             .validate_args(args)
             .map_err(|e| e.to_string())
-    }
-
-    /// Convert to ToolDefinition.
-    ///
-    /// Now identical to `thulp_definition()` since `ToolDefinition` is a
-    /// re-export of `thulp_core::ToolDefinition`. Kept as a separate method
-    /// for call-site compatibility.
-    fn to_definition(&self) -> ToolDefinition {
-        self.thulp_definition()
     }
 }
 
@@ -163,12 +155,15 @@ impl ToolRegistry {
         registry.register_with_tier(Arc::new(native::ZoxideTool::new(workspace_root.clone())), Extended);
         registry.register_with_tier(Arc::new(native::LspTool::new(workspace_root.clone())), Extended);
 
-        // ── Deagle code intelligence (Extended) ──
-        registry.register_with_tier(Arc::new(deagle::DeagleSearchTool::new(workspace_root.clone())), Extended);
-        registry.register_with_tier(Arc::new(deagle::DeagleKeywordTool::new(workspace_root.clone())), Extended);
-        registry.register_with_tier(Arc::new(deagle::DeagleSgTool::new(workspace_root.clone())), Extended);
-        registry.register_with_tier(Arc::new(deagle::DeagleStatsTool::new(workspace_root.clone())), Extended);
-        registry.register_with_tier(Arc::new(deagle::DeagleMapTool::new(workspace_root)), Extended);
+        // ── Deagle code intelligence (Extended, feature-gated) ──
+        #[cfg(feature = "deagle")]
+        {
+            registry.register_with_tier(Arc::new(deagle::DeagleSearchTool::new(workspace_root.clone())), Extended);
+            registry.register_with_tier(Arc::new(deagle::DeagleKeywordTool::new(workspace_root.clone())), Extended);
+            registry.register_with_tier(Arc::new(deagle::DeagleSgTool::new(workspace_root.clone())), Extended);
+            registry.register_with_tier(Arc::new(deagle::DeagleStatsTool::new(workspace_root.clone())), Extended);
+            registry.register_with_tier(Arc::new(deagle::DeagleMapTool::new(workspace_root)), Extended);
+        }
 
         registry
     }
@@ -219,7 +214,7 @@ impl ToolRegistry {
                     ToolTier::Extended => activated.contains(name.as_str()),
                 }
             })
-            .map(|(_, tool)| tool.to_definition())
+            .map(|(_, tool)| tool.thulp_definition())
             .collect()
     }
 
@@ -294,13 +289,13 @@ impl ToolRegistry {
             .filter(|(name, _)| {
                 self.tiers.get(name.as_str()).copied().unwrap_or(ToolTier::Standard) == ToolTier::Core
             })
-            .map(|(_, tool)| tool.to_definition())
+            .map(|(_, tool)| tool.thulp_definition())
             .collect();
 
         let remaining_slots = max_tools.saturating_sub(result.len());
         for (_, name) in scored.into_iter().take(remaining_slots) {
             if let Some(tool) = self.tools.get(&name) {
-                result.push(tool.to_definition());
+                result.push(tool.thulp_definition());
             }
         }
 
@@ -309,7 +304,7 @@ impl ToolRegistry {
 
     /// Get ALL tool definitions regardless of tier (for tests and introspection)
     pub fn get_all_definitions(&self) -> Vec<ToolDefinition> {
-        self.tools.values().map(|t| t.to_definition()).collect()
+        self.tools.values().map(|t| t.thulp_definition()).collect()
     }
 
     /// Activate an extended tool (makes it visible to the LLM)

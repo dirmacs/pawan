@@ -96,21 +96,8 @@ pub struct SessionEndEvent {
     pub finish_reason: FinishReason,
 }
 
-/// Why the agent session ended.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "message")]
-pub enum FinishReason {
-    /// The model produced a final response without needing more tool calls
-    Stop,
-    /// Hit the maximum iteration limit
-    MaxIterations,
-    /// An error occurred
-    Error(String),
-    /// An unknown tool was called
-    UnknownTool(String),
-    /// Session was cancelled by user
-    Cancelled,
-}
+/// Re-export canonical `FinishReason` from the coordinator.
+pub use crate::coordinator::FinishReason;
 
 /// A typed event emitted by the agent during execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]

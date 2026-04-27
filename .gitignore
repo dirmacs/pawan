@@ -14,3 +14,10 @@ docs/public/
 
 # Local planning / intel / notes — not part of the public repo
 /.planning/
+
+
+# Build/test artifacts that should never be committed
+lcov.info
+*.rlib
+*.gcda
+*.gcno
