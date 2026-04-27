@@ -5,8 +5,8 @@
 //!
 //! This wires the DIRMACS context engine into the coding agent.
 
-use crate::agent::{Message, Role};
 use crate::agent::session::Session;
+use crate::agent::{Message, Role};
 use crate::{PawanError, Result};
 use serde::{Deserialize, Serialize};
 
@@ -112,9 +112,10 @@ impl ErukaClient {
             return Ok(None);
         }
 
-        let body = resp.text().await.map_err(|e| {
-            PawanError::Agent(format!("Eruka body: {}", e))
-        })?;
+        let body = resp
+            .text()
+            .await
+            .map_err(|e| PawanError::Agent(format!("Eruka body: {}", e)))?;
 
         // Parse context fields and build memory string
         if let Ok(ctx) = serde_json::from_str::<ContextResponse>(&body) {
@@ -163,9 +164,9 @@ impl ErukaClient {
 
         if let Some(memory) = self.fetch_core_memory().await? {
             // Check if we already injected (avoid duplicates across iterations)
-            let already_injected = history.iter().any(|m| {
-                m.role == Role::System && m.content.contains("[Eruka Core Memory]")
-            });
+            let already_injected = history
+                .iter()
+                .any(|m| m.role == Role::System && m.content.contains("[Eruka Core Memory]"));
 
             if !already_injected {
                 history.insert(
@@ -191,7 +192,8 @@ impl ErukaClient {
         }
 
         let url = format!("{}/api/v1/context/search", self.config.url);
-        let mut req = self.http
+        let mut req = self
+            .http
             .post(&url)
             .json(&serde_json::json!({"query": query, "limit": 5}));
         if let Some(key) = &self.config.api_key {
@@ -211,10 +213,7 @@ impl ErukaClient {
 
         let body = resp.text().await.unwrap_or_default();
         if let Ok(results) = serde_json::from_str::<Vec<SearchResult>>(&body) {
-            Ok(results
-                .into_iter()
-                .filter_map(|r| r.content)
-                .collect())
+            Ok(results.into_iter().filter_map(|r| r.content).collect())
         } else {
             Ok(vec![])
         }
@@ -463,8 +462,8 @@ impl ErukaClient {
         };
 
         let body = resp.text().await.unwrap_or_default();
-        let context_data: serde_json::Value = serde_json::from_str(&body)
-            .unwrap_or(serde_json::Value::Null);
+        let context_data: serde_json::Value =
+            serde_json::from_str(&body).unwrap_or(serde_json::Value::Null);
 
         Ok(Some(serde_json::json!({
             "export_format": "eruka_context_core_v1",
@@ -506,20 +505,21 @@ impl ErukaClient {
             session.model,
             session.messages.len(),
             user_messages.join(" | "),
-            assistant_messages.last().map(|s| {
-                let trunc: String = s.chars().take(500).collect();
-                trunc
-            }).unwrap_or_default(),
+            assistant_messages
+                .last()
+                .map(|s| {
+                    let trunc: String = s.chars().take(500).collect();
+                    trunc
+                })
+                .unwrap_or_default(),
         );
 
         let url = format!("{}/api/v1/context", self.config.url);
-        let mut req = self.http
-            .post(&url)
-            .json(&serde_json::json!({
-                "path": format!("operations/sessions/{}", session.id),
-                "value": summary,
-                "source": "agent",
-            }));
+        let mut req = self.http.post(&url).json(&serde_json::json!({
+            "path": format!("operations/sessions/{}", session.id),
+            "value": summary,
+            "source": "agent",
+        }));
         if let Some(key) = &self.config.api_key {
             req = req
                 .header("X-Service-Key", key.as_str())
@@ -677,9 +677,9 @@ core_max_tokens = 1000
         ];
         // Even if enabled, inject should detect the existing marker and skip
         // (We can't actually fetch from eruka in tests, but we test the dedup check)
-        let already = history.iter().any(|m| {
-            m.role == Role::System && m.content.contains("[Eruka Core Memory]")
-        });
+        let already = history
+            .iter()
+            .any(|m| m.role == Role::System && m.content.contains("[Eruka Core Memory]"));
         assert!(already, "Should detect existing injection");
     }
 
@@ -699,8 +699,14 @@ core_max_tokens = 1000
         let toml = "enabled = true\n";
         let config: ErukaConfig = toml::from_str(toml).expect("should parse");
         assert!(config.enabled);
-        assert_eq!(config.url, "http://localhost:8081", "url default must apply");
-        assert_eq!(config.core_max_tokens, 500, "core_max_tokens default must apply");
+        assert_eq!(
+            config.url, "http://localhost:8081",
+            "url default must apply"
+        );
+        assert_eq!(
+            config.core_max_tokens, 500,
+            "core_max_tokens default must apply"
+        );
         assert_eq!(config.api_key, None, "api_key default must apply");
     }
 
@@ -801,16 +807,16 @@ core_max_tokens = 1000
             .write_context("identity/name", "pawan", "test", 1.0)
             .await
             .unwrap();
-        assert!(!ok, "disabled client must return false without calling network");
+        assert!(
+            !ok,
+            "disabled client must return false without calling network"
+        );
     }
 
     #[tokio::test]
     async fn sync_turn_disabled_returns_false() {
         let client = ErukaClient::new(ErukaConfig::default());
-        let ok = client
-            .sync_turn("hello", "world", "ses_abc")
-            .await
-            .unwrap();
+        let ok = client.sync_turn("hello", "world", "ses_abc").await.unwrap();
         assert!(!ok, "disabled client must short-circuit");
     }
 

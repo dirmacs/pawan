@@ -4,8 +4,8 @@
 //! allowing us to test the full agent workflow without a real LLM.
 #![allow(dead_code)]
 
-use pawan::agent::{PawanAgent, Role};
 use pawan::agent::session::Session;
+use pawan::agent::{PawanAgent, Role};
 use pawan::config::{HealingConfig, PawanConfig};
 use pawan::healing::{CompilerFixer, DiagnosticKind};
 use pawan::tools::ToolRegistry;
@@ -101,18 +101,48 @@ fn test_tiered_tool_visibility() {
 
     // Core tools must always be visible
     assert!(visible_names.contains(&"bash"), "bash should be core");
-    assert!(visible_names.contains(&"read_file"), "read_file should be core");
-    assert!(visible_names.contains(&"write_file"), "write_file should be core");
-    assert!(visible_names.contains(&"edit_file"), "edit_file should be core");
-    assert!(visible_names.contains(&"ast_grep"), "ast_grep should be core");
-    assert!(visible_names.contains(&"glob_search"), "glob_search should be core");
-    assert!(visible_names.contains(&"grep_search"), "grep_search should be core");
+    assert!(
+        visible_names.contains(&"read_file"),
+        "read_file should be core"
+    );
+    assert!(
+        visible_names.contains(&"write_file"),
+        "write_file should be core"
+    );
+    assert!(
+        visible_names.contains(&"edit_file"),
+        "edit_file should be core"
+    );
+    assert!(
+        visible_names.contains(&"ast_grep"),
+        "ast_grep should be core"
+    );
+    assert!(
+        visible_names.contains(&"glob_search"),
+        "glob_search should be core"
+    );
+    assert!(
+        visible_names.contains(&"grep_search"),
+        "grep_search should be core"
+    );
 
     // Extended tools should NOT be visible by default
-    assert!(!visible_names.contains(&"rg"), "rg should be hidden (extended)");
-    assert!(!visible_names.contains(&"fd"), "fd should be hidden (extended)");
-    assert!(!visible_names.contains(&"mise"), "mise should be hidden (extended)");
-    assert!(!visible_names.contains(&"lsp"), "lsp should be hidden (extended)");
+    assert!(
+        !visible_names.contains(&"rg"),
+        "rg should be hidden (extended)"
+    );
+    assert!(
+        !visible_names.contains(&"fd"),
+        "fd should be hidden (extended)"
+    );
+    assert!(
+        !visible_names.contains(&"mise"),
+        "mise should be hidden (extended)"
+    );
+    assert!(
+        !visible_names.contains(&"lsp"),
+        "lsp should be hidden (extended)"
+    );
 
     // But they should exist in all_definitions
     assert!(all_names.contains(&"rg"));
@@ -139,7 +169,11 @@ fn test_tool_activation_multiple() {
     registry.activate("lsp");
 
     let after = registry.get_definitions().len();
-    assert_eq!(after, before + 3, "Three extended tools should now be visible");
+    assert_eq!(
+        after,
+        before + 3,
+        "Three extended tools should now be visible"
+    );
 
     // Activating same tool twice is idempotent
     registry.activate("rg");
@@ -537,12 +571,16 @@ async fn test_agent_simple_execution() {
     let config = PawanConfig::default();
 
     let backend = MockBackend::new(vec![MockResponse::text("Hello! I'm Pawan.")]);
-    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
-        .with_backend(Box::new(backend));
+    let mut agent =
+        PawanAgent::new(config, temp_dir.path().to_path_buf()).with_backend(Box::new(backend));
 
     let response = agent.execute("Say hello").await;
 
-    assert!(response.is_ok(), "Agent execution failed: {:?}", response.err());
+    assert!(
+        response.is_ok(),
+        "Agent execution failed: {:?}",
+        response.err()
+    );
     let response = response.unwrap();
     assert_eq!(response.content, "Hello! I'm Pawan.");
     assert_eq!(response.iterations, 1);
@@ -568,8 +606,8 @@ async fn test_agent_tool_call_loop() {
         MockResponse::text("The file contains: hello world"),
     ]);
 
-    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
-        .with_backend(Box::new(backend));
+    let mut agent =
+        PawanAgent::new(config, temp_dir.path().to_path_buf()).with_backend(Box::new(backend));
 
     let response = agent.execute("What is in hello.txt?").await.unwrap();
 
@@ -591,8 +629,8 @@ async fn test_agent_heal_prompt_sent() {
     let backend = MockBackend::new(vec![MockResponse::text(
         "I'll heal this project: cargo check shows no errors.",
     )]);
-    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
-        .with_backend(Box::new(backend));
+    let mut agent =
+        PawanAgent::new(config, temp_dir.path().to_path_buf()).with_backend(Box::new(backend));
 
     let response = agent.heal().await;
 
@@ -627,8 +665,8 @@ async fn test_agent_tool_denied_by_permission() {
         MockResponse::text("I couldn't run that command."),
     ]);
 
-    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
-        .with_backend(Box::new(backend));
+    let mut agent =
+        PawanAgent::new(config, temp_dir.path().to_path_buf()).with_backend(Box::new(backend));
 
     let response = agent.execute("Delete everything").await.unwrap();
 
@@ -659,8 +697,8 @@ async fn test_context_pruning() {
     responses.push(MockResponse::text("Done reading all files."));
 
     let backend = MockBackend::new(responses);
-    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
-        .with_backend(Box::new(backend));
+    let mut agent =
+        PawanAgent::new(config, temp_dir.path().to_path_buf()).with_backend(Box::new(backend));
 
     let response = agent.execute("Read many files").await.unwrap();
 
@@ -677,12 +715,15 @@ async fn test_context_pruning() {
     );
     // Verify that pruning occurred by checking history length
     // The history should be much shorter than the original 20+ messages
-    assert!(history_len <= 10, "History should be pruned but has {} messages", history_len);
+    assert!(
+        history_len <= 10,
+        "History should be pruned but has {} messages",
+        history_len
+    );
 
     // Verify the first message is the user prompt (system prompt is handled by backend)
     assert_eq!(agent.history()[0].role, Role::User);
     assert_eq!(agent.history()[0].content, "Read many files");
-	
 }
 
 /// Test spawn_agents parallel execution
@@ -726,13 +767,15 @@ async fn test_spawn_agents_parallel() {
     }
 }
 
-
 /// Test model fallback chain configuration
 #[test]
 fn test_model_fallback_chain() {
     // Test default config has no fallback models
     let config = PawanConfig::default();
-    assert!(config.fallback_models.is_empty(), "Default should have no fallback models");
+    assert!(
+        config.fallback_models.is_empty(),
+        "Default should have no fallback models"
+    );
 
     // Test setting fallback models directly
     let mut config = PawanConfig::default();
@@ -759,10 +802,12 @@ fn test_model_fallback_chain() {
     std::env::set_var("PAWAN_FALLBACK_MODELS", "");
     let mut config = PawanConfig::default();
     config.apply_env_overrides();
-    assert!(config.fallback_models.is_empty(), "Empty env should give no fallback models");
+    assert!(
+        config.fallback_models.is_empty(),
+        "Empty env should give no fallback models"
+    );
     std::env::remove_var("PAWAN_FALLBACK_MODELS");
 }
-
 
 /// Test that tool results exceeding max_result_chars are truncated
 
@@ -786,19 +831,24 @@ async fn test_tool_result_truncation() {
         MockResponse::text("I read the large file."),
     ]);
 
-    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
-        .with_backend(Box::new(backend));
+    let mut agent =
+        PawanAgent::new(config, temp_dir.path().to_path_buf()).with_backend(Box::new(backend));
 
     let response = agent.execute("Read the large file").await.unwrap();
 
     assert_eq!(response.content, "I read the large file.");
 
     // Check that tool result in history was truncated
-    let tool_messages: Vec<_> = agent.history().iter()
+    let tool_messages: Vec<_> = agent
+        .history()
+        .iter()
         .filter(|m| m.role == Role::Tool)
         .collect();
 
-    assert!(!tool_messages.is_empty(), "Should have tool messages in history");
+    assert!(
+        !tool_messages.is_empty(),
+        "Should have tool messages in history"
+    );
 
     // The tool result content should be truncated
     let tool_content = &tool_messages[0].content;
@@ -868,7 +918,9 @@ async fn test_prompt_permission_blocks_write_bash() {
 
     let temp_dir = TempDir::new().unwrap();
     let mut config = PawanConfig::default();
-    config.permissions.insert("bash".to_string(), ToolPermission::Prompt);
+    config
+        .permissions
+        .insert("bash".to_string(), ToolPermission::Prompt);
 
     let backend = MockBackend::new(vec![
         // LLM tries a write command
@@ -876,8 +928,8 @@ async fn test_prompt_permission_blocks_write_bash() {
         MockResponse::text("I need approval for that."),
     ]);
 
-    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
-        .with_backend(Box::new(backend));
+    let mut agent =
+        PawanAgent::new(config, temp_dir.path().to_path_buf()).with_backend(Box::new(backend));
 
     let response = agent.execute("Clean the build directory").await.unwrap();
 
@@ -894,7 +946,9 @@ async fn test_prompt_permission_allows_read_only_bash() {
 
     let temp_dir = TempDir::new().unwrap();
     let mut config = PawanConfig::default();
-    config.permissions.insert("bash".to_string(), ToolPermission::Prompt);
+    config
+        .permissions
+        .insert("bash".to_string(), ToolPermission::Prompt);
 
     let backend = MockBackend::new(vec![
         // LLM tries a read-only command
@@ -902,14 +956,17 @@ async fn test_prompt_permission_allows_read_only_bash() {
         MockResponse::text("Here are the files."),
     ]);
 
-    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
-        .with_backend(Box::new(backend));
+    let mut agent =
+        PawanAgent::new(config, temp_dir.path().to_path_buf()).with_backend(Box::new(backend));
 
     let response = agent.execute("List files").await.unwrap();
 
     // Read-only command should be auto-allowed under Prompt
     assert_eq!(response.tool_calls.len(), 1);
-    assert!(response.tool_calls[0].success, "Read-only bash should succeed under Prompt permission");
+    assert!(
+        response.tool_calls[0].success,
+        "Read-only bash should succeed under Prompt permission"
+    );
 }
 
 /// Test bash validation blocks dangerous commands regardless of permission
@@ -925,14 +982,17 @@ async fn test_bash_validation_blocks_dangerous() {
         MockResponse::text("I couldn't do that."),
     ]);
 
-    let mut agent = PawanAgent::new(config, temp_dir.path().to_path_buf())
-        .with_backend(Box::new(backend));
+    let mut agent =
+        PawanAgent::new(config, temp_dir.path().to_path_buf()).with_backend(Box::new(backend));
 
     let response = agent.execute("Delete root").await.unwrap();
 
     // Bash validation should block even with Allow permission
     assert_eq!(response.tool_calls.len(), 1);
-    assert!(!response.tool_calls[0].success, "Dangerous command should be blocked by validation");
+    assert!(
+        !response.tool_calls[0].success,
+        "Dangerous command should be blocked by validation"
+    );
 }
 
 /// Test ToolPermission::resolve defaults
@@ -943,16 +1003,31 @@ fn test_permission_resolve_integration() {
 
     // Empty config: everything defaults to Allow
     let empty: HashMap<String, ToolPermission> = HashMap::new();
-    assert_eq!(ToolPermission::resolve("bash", &empty), ToolPermission::Allow);
-    assert_eq!(ToolPermission::resolve("read_file", &empty), ToolPermission::Allow);
+    assert_eq!(
+        ToolPermission::resolve("bash", &empty),
+        ToolPermission::Allow
+    );
+    assert_eq!(
+        ToolPermission::resolve("read_file", &empty),
+        ToolPermission::Allow
+    );
 
     // Explicit overrides take precedence
     let mut perms = HashMap::new();
     perms.insert("bash".into(), ToolPermission::Prompt);
     perms.insert("write_file".into(), ToolPermission::Deny);
-    assert_eq!(ToolPermission::resolve("bash", &perms), ToolPermission::Prompt);
-    assert_eq!(ToolPermission::resolve("write_file", &perms), ToolPermission::Deny);
-    assert_eq!(ToolPermission::resolve("read_file", &perms), ToolPermission::Allow);
+    assert_eq!(
+        ToolPermission::resolve("bash", &perms),
+        ToolPermission::Prompt
+    );
+    assert_eq!(
+        ToolPermission::resolve("write_file", &perms),
+        ToolPermission::Deny
+    );
+    assert_eq!(
+        ToolPermission::resolve("read_file", &perms),
+        ToolPermission::Allow
+    );
 }
 
 // ============================================================================
@@ -966,7 +1041,11 @@ async fn test_eval_read_file_output_quality() {
     use pawan::tools::Tool;
 
     let tmp = TempDir::new().unwrap();
-    std::fs::write(tmp.path().join("test.rs"), "fn main() {\n    println!(\"hello\");\n}\n").unwrap();
+    std::fs::write(
+        tmp.path().join("test.rs"),
+        "fn main() {\n    println!(\"hello\");\n}\n",
+    )
+    .unwrap();
 
     let tool = ReadFileTool::new(tmp.path().into());
     let result = tool.execute(json!({"path": "test.rs"})).await.unwrap();
@@ -994,7 +1073,10 @@ async fn test_eval_grep_search_output_quality() {
     let matches = files[0]["matches"].as_array().unwrap();
     // Each match should have line number and content
     for m in matches {
-        assert!(m["line"].as_u64().is_some(), "Match should have line number");
+        assert!(
+            m["line"].as_u64().is_some(),
+            "Match should have line number"
+        );
         assert!(m["content"].as_str().is_some(), "Match should have content");
     }
 }
@@ -1007,7 +1089,10 @@ async fn test_eval_bash_output_quality() {
 
     let tmp = TempDir::new().unwrap();
     let tool = BashTool::new(tmp.path().into());
-    let result = tool.execute(json!({"command": "echo 'eval test'", "description": "test echo"})).await.unwrap();
+    let result = tool
+        .execute(json!({"command": "echo 'eval test'", "description": "test echo"}))
+        .await
+        .unwrap();
 
     // Upskill-style: verify all expected fields present
     assert_tool_result_contains(&result, &["eval test", "success"]);
@@ -1027,7 +1112,10 @@ async fn test_eval_write_file_output_quality() {
     let tmp = TempDir::new().unwrap();
     let tool = WriteFileTool::new(tmp.path().into());
     let content = "fn main() {}\n";
-    let result = tool.execute(json!({"path": "test.rs", "content": content})).await.unwrap();
+    let result = tool
+        .execute(json!({"path": "test.rs", "content": content}))
+        .await
+        .unwrap();
 
     assert_eq!(result["success"], true);
     assert!(result["bytes_written"].as_u64().unwrap() > 0);
@@ -1041,8 +1129,10 @@ async fn test_eval_write_file_output_quality() {
 #[test]
 fn test_use_ares_backend_default_false() {
     let config = PawanConfig::default();
-    assert_eq!(config.use_ares_backend, false,
-        "use_ares_backend must default to false to preserve existing behavior");
+    assert_eq!(
+        config.use_ares_backend, false,
+        "use_ares_backend must default to false to preserve existing behavior"
+    );
 }
 
 /// Config field `use_ares_backend` round-trips through TOML serialization
@@ -1052,8 +1142,10 @@ fn test_use_ares_backend_toml_roundtrip() {
     config.use_ares_backend = true;
 
     let serialized = toml::to_string(&config).unwrap();
-    assert!(serialized.contains("use_ares_backend = true"),
-        "serialized TOML should contain the flag");
+    assert!(
+        serialized.contains("use_ares_backend = true"),
+        "serialized TOML should contain the flag"
+    );
 
     let parsed: PawanConfig = toml::from_str(&serialized).unwrap();
     assert_eq!(parsed.use_ares_backend, true);
@@ -1106,7 +1198,10 @@ fn test_skills_repo_toml_roundtrip() {
     assert!(serialized.contains("/opt/dirmacs-skills"));
 
     let parsed: PawanConfig = toml::from_str(&serialized).unwrap();
-    assert_eq!(parsed.skills_repo, Some(PathBuf::from("/opt/dirmacs-skills")));
+    assert_eq!(
+        parsed.skills_repo,
+        Some(PathBuf::from("/opt/dirmacs-skills"))
+    );
 }
 
 /// resolve_skills_repo returns None when nothing is configured
@@ -1183,7 +1278,11 @@ fn test_discover_skills_finds_real_skill_files() {
 
     // Create a non-skill subdirectory that should be ignored
     std::fs::create_dir_all(tmp.path().join("not-a-skill")).unwrap();
-    std::fs::write(tmp.path().join("not-a-skill").join("README.md"), "not a skill").unwrap();
+    std::fs::write(
+        tmp.path().join("not-a-skill").join("README.md"),
+        "not a skill",
+    )
+    .unwrap();
 
     let mut config = PawanConfig::default();
     config.skills_repo = Some(tmp.path().to_path_buf());
@@ -1210,8 +1309,11 @@ fn test_env_var_overrides_config_skills_repo() {
     config.skills_repo = Some(tmp.path().to_path_buf());
 
     let resolved = config.resolve_skills_repo();
-    assert_eq!(resolved.as_deref(), Some(env_tmp.path()),
-        "env var should take priority over config");
+    assert_eq!(
+        resolved.as_deref(),
+        Some(env_tmp.path()),
+        "env var should take priority over config"
+    );
 
     std::env::remove_var("PAWAN_SKILLS_REPO");
 }

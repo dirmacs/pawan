@@ -374,8 +374,7 @@ pub async fn distill_eval_refine_save(
 /// Save a GeneratedSkill as a SKILL.md file in a named subdirectory.
 pub fn save_skill(skill: &GeneratedSkill, output_dir: &Path) -> Result<PathBuf> {
     let skill_dir = output_dir.join(&skill.name);
-    std::fs::create_dir_all(&skill_dir)
-        .map_err(PawanError::Io)?;
+    std::fs::create_dir_all(&skill_dir).map_err(PawanError::Io)?;
 
     let content = format_skill_md(skill);
     let path = skill_dir.join("SKILL.md");
@@ -395,10 +394,7 @@ fn format_skill_md(skill: &GeneratedSkill) -> String {
         skill.frontmatter.clone()
     };
 
-    let frontmatter_yaml = format!(
-        "name: {}\ndescription: {}",
-        skill.name, skill.description
-    );
+    let frontmatter_yaml = format!("name: {}\ndescription: {}", skill.name, skill.description);
 
     let mut md = String::new();
     md.push_str("---\n");
@@ -442,10 +438,7 @@ pub fn skills_dir() -> Result<PathBuf> {
 /// A session needs at least 1 user message and 1 tool call to be useful.
 pub fn is_distillable(session: &Session) -> bool {
     let has_user_msg = session.messages.iter().any(|m| m.role == Role::User);
-    let has_tool_calls = session
-        .messages
-        .iter()
-        .any(|m| !m.tool_calls.is_empty());
+    let has_tool_calls = session.messages.iter().any(|m| !m.tool_calls.is_empty());
     let min_messages = session.messages.len() >= 4; // system + user + assistant + tool result
 
     has_user_msg && has_tool_calls && min_messages
@@ -526,9 +519,9 @@ mod tests {
                     }),
                 },
             ],
-        total_tokens: 1500,
-        iteration_count: 2,
-        tags: Vec::new(),
+            total_tokens: 1500,
+            iteration_count: 2,
+            tags: Vec::new(),
         }
     }
 
@@ -656,10 +649,10 @@ mod tests {
                     tool_result: None,
                 },
             ],
-        total_tokens: 100,
-        iteration_count: 1,
-        tags: Vec::new(),
-    };
+            total_tokens: 100,
+            iteration_count: 1,
+            tags: Vec::new(),
+        };
         assert!(!is_distillable(&session));
     }
 
@@ -760,12 +753,15 @@ mod tests {
                     }),
                 },
             ],
-        total_tokens: 100,
-        iteration_count: 1,
-        tags: Vec::new(),
-    };
+            total_tokens: 100,
+            iteration_count: 1,
+            tags: Vec::new(),
+        };
         // Has user + tools but only 3 messages < min_messages (4)
-        assert!(!is_distillable(&session), "sessions with <4 messages must not be distillable");
+        assert!(
+            !is_distillable(&session),
+            "sessions with <4 messages must not be distillable"
+        );
     }
 
     #[test]
@@ -791,7 +787,7 @@ mod tests {
             }],
             total_tokens: 0,
             iteration_count: 0,
-        tags: Vec::new(),
+            tags: Vec::new(),
         };
         let teacher = session_to_teacher(&session, &make_usage());
         assert_eq!(teacher.task_description, "Unknown task");
@@ -813,7 +809,10 @@ mod tests {
         };
         let md = format_skill_md(&skill);
         assert!(md.contains("## Do this"), "content must be present");
-        assert!(!md.contains("## Test Cases"), "no test cases ⇒ no test section");
+        assert!(
+            !md.contains("## Test Cases"),
+            "no test cases ⇒ no test section"
+        );
         assert!(!md.contains("```json"), "no test cases ⇒ no json fence");
     }
 
@@ -838,7 +837,10 @@ mod tests {
         let md = format_skill_md(&skill);
         assert!(md.contains("name: skill-with-meta"));
         assert!(md.contains("description: Has extra metadata"));
-        assert!(md.contains("version:"), "extra 'version' field must be emitted");
+        assert!(
+            md.contains("version:"),
+            "extra 'version' field must be emitted"
+        );
         assert!(md.contains("tags:"), "extra 'tags' field must be emitted");
     }
 
@@ -870,8 +872,14 @@ mod tests {
         assert_eq!(p1, p2, "second save should write to the same path");
 
         let content = std::fs::read_to_string(&p2).unwrap();
-        assert!(content.contains("v2 body"), "file should contain v2 content");
-        assert!(!content.contains("v1 body"), "v1 content should be overwritten");
+        assert!(
+            content.contains("v2 body"),
+            "file should contain v2 content"
+        );
+        assert!(
+            !content.contains("v1 body"),
+            "v1 content should be overwritten"
+        );
     }
 
     // ─── Edge cases for skill distillation helpers ──────────────────────
@@ -894,7 +902,7 @@ mod tests {
             messages: vec![],
             total_tokens: 0,
             iteration_count: 0,
-        tags: Vec::new(),
+            tags: Vec::new(),
         };
         assert!(
             !is_distillable(&session),
@@ -950,7 +958,7 @@ mod tests {
             ],
             total_tokens: 0,
             iteration_count: 0,
-        tags: Vec::new(),
+            tags: Vec::new(),
         };
         assert!(
             !is_distillable(&session),
@@ -1010,7 +1018,7 @@ mod tests {
             ],
             total_tokens: 100,
             iteration_count: 2,
-        tags: Vec::new(),
+            tags: Vec::new(),
         };
         let usage = PawanUsage {
             prompt_tokens: 50,
@@ -1025,7 +1033,11 @@ mod tests {
             3,
             "session_to_teacher must collect all 3 tool calls across 2 assistant messages"
         );
-        let names: Vec<&str> = teacher.tool_calls.iter().map(|tc| tc.name.as_str()).collect();
+        let names: Vec<&str> = teacher
+            .tool_calls
+            .iter()
+            .map(|tc| tc.name.as_str())
+            .collect();
         assert!(names.contains(&"read_file"));
         assert!(names.contains(&"write_file"));
         assert!(names.contains(&"bash"));
@@ -1054,7 +1066,7 @@ mod tests {
             }],
             total_tokens: 0,
             iteration_count: 0,
-        tags: Vec::new(),
+            tags: Vec::new(),
         };
         let usage = PawanUsage::default();
         let teacher = session_to_teacher(&session, &usage);
