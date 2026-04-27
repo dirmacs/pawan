@@ -422,7 +422,117 @@ struct App<'a> {
     history: Vec<String>,
     /// Current position in history (None means not browsing history)
     history_position: Option<usize>,
+    /// Set while a slash command is being dispatched
+    slash_inflight: Option<String>,
+    /// Slash command registry (metadata + shared handler)
+    slash_registry: SlashCommandRegistry,
 }
+
+/// Registered TUI `/command` (names are explicit, including short aliases)
+#[allow(private_interfaces, dead_code)]
+pub struct SlashCommand {
+    pub name: String,
+    pub description: String,
+    /// All built-ins share a single entrypoint that defers to `App::slash_route`
+    pub handler: fn(&mut App<'_>, &[&str]) -> Result<()>,
+    /// Extra tab-completion options (e.g. model id hints) — optional
+    pub completion: Vec<String>,
+}
+
+/// Registry of slash commands shown in /help, completion, and dispatch allow-list
+pub struct SlashCommandRegistry {
+    commands: Vec<SlashCommand>,
+}
+
+impl SlashCommandRegistry {
+    pub fn new() -> Self {
+        Self { commands: Vec::new() }
+    }
+
+    pub fn register(&mut self, cmd: SlashCommand) {
+        self.commands.push(cmd);
+    }
+
+    pub fn get(&self, name: &str) -> Option<&SlashCommand> {
+        self.commands.iter().find(|c| c.name == name)
+    }
+
+    /// Prefix match on the command name (e.g. `/m` returns `/model`, `/m`, ...).
+    pub fn complete(&self, prefix: &str) -> Vec<&SlashCommand> {
+        let p = prefix.to_lowercase();
+        self.commands
+            .iter()
+            .filter(|c| c.name.to_lowercase().starts_with(&p))
+            .collect()
+    }
+
+    pub fn all(&self) -> &[SlashCommand] {
+        &self.commands
+    }
+
+    /// Help string for /help, derived from the registry
+    fn help_text(&self) -> String {
+        let mut cmds: Vec<&SlashCommand> = self.commands.iter().collect();
+        cmds.sort_by(|a, b| a.name.cmp(&b.name));
+        let mut out = String::new();
+        for c in cmds {
+            out.push_str(&format!("{:<18} - {}\n", c.name, c.description));
+        }
+        out
+    }
+
+    pub fn built_in() -> Self {
+        const H: fn(&mut App<'_>, &[&str]) -> Result<()> = App::universal_slash_entry;
+        let mut r = Self::new();
+        for (name, desc) in BUILTIN_SLASH_COMMANDS {
+            r.register(SlashCommand {
+                name: (*name).to_string(),
+                description: (*desc).to_string(),
+                handler: H,
+                completion: vec![],
+            });
+        }
+        r
+    }
+}
+const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
+    ("/clear", "Clear chat history"),
+    ("/c", "Clear chat history (shorthand)"),
+    ("/model", "Show or switch LLM model"),
+    ("/m", "Show or switch model (shorthand)"),
+    ("/tools", "List available tools"),
+    ("/t", "List tools (shorthand)"),
+    ("/search", "Web search via Daedra"),
+    ("/s", "Web search (shorthand)"),
+    ("/handoff", "Hand off conversation to a new session"),
+    ("/heal", "Auto-fix build errors"),
+    ("/h", "Heal (shorthand)"),
+    ("/quit", "Exit pawan"),
+    ("/q", "Exit (shorthand)"),
+    ("/exit", "Exit pawan (alias)"),
+    ("/export", "Export conversation to a file"),
+    ("/e", "Export (shorthand)"),
+    ("/diff", "Show git diff"),
+    ("/d", "Show git diff (shorthand)"),
+    ("/import", "Import conversation from JSON"),
+    ("/fork", "Clone current session to a new one"),
+    ("/dump", "Copy conversation to clipboard"),
+    ("/share", "Export session and print a shareable path"),
+    ("/save", "Save current conversation as a session"),
+    ("/sessions", "Browse and manage saved sessions"),
+    ("/ss", "Search saved sessions"),
+    ("/searchsessions", "Search saved sessions (alias)"),
+    ("/prune", "Prune old saved sessions"),
+    ("/tag", "Manage session tags (add/rm/list/clear)"),
+    ("/load", "Load a saved session"),
+    ("/resume", "Resume a saved session"),
+    ("/new", "Start a fresh conversation"),
+    ("/session", "Switch to a session by id"),
+    ("/retry", "Retry the last assistant response"),
+    ("/compact", "Compact the conversation context"),
+    ("/help", "Show this help list"),
+    ("/?", "Show help (shorthand)"),
+];
 
 /// State for an active permission prompt dialog
 struct PermissionDialog {
@@ -493,6 +603,8 @@ impl<'a> App<'a> {
             last_autosave: Instant::now(),
             history: Vec::new(),
             history_position: None,
+            slash_inflight: None,
+            slash_registry: SlashCommandRegistry::built_in(),
         }
     }
 
@@ -524,6 +636,29 @@ impl<'a> App<'a> {
     }
 
     fn keybind_status_hint(&self) -> String {
+        if self.is_slash_popup_active() {
+            let text: String = self.input.lines().join("\n");
+            let mut q = text.trim().to_lowercase();
+            if q.starts_with(':') {
+                if q == ":" {
+                    q = "/".to_string();
+                } else {
+                    q = format!("/{}", &q[1..]);
+                }
+            }
+            if let Some(cmd) = self.slash_registry.get(&q) {
+                return format!("cmd {} — {}", cmd.name, cmd.description);
+            }
+            let matches = self.slash_registry.complete(&q);
+            if matches.len() == 1 {
+                let c = matches[0];
+                return format!("cmd {} — {}", c.name, c.description);
+            }
+            if matches.is_empty() {
+                return "cmd: (no matches) — keep typing or Esc".to_string();
+            }
+            return format!("cmd: {} matches — ↑↓ pick", matches.len());
+        }
         fn row(actions: &[KeyAction]) -> String {
             actions
                 .iter()
@@ -1482,7 +1617,7 @@ impl<'a> App<'a> {
 
         // Save to history (only for non-slash commands)
         let trimmed = content.trim();
-        if !trimmed.starts_with('/') {
+        if !trimmed.starts_with('/') && !trimmed.starts_with(':') {
             self.history.push(content.clone());
             self.history_position = None; // Reset history position when submitting new message
         }
@@ -1497,7 +1632,7 @@ impl<'a> App<'a> {
         let trimmed = content.trim();
 
         // Handle slash commands
-        if trimmed.starts_with('/') {
+        if trimmed.starts_with('/') || (trimmed.starts_with(':') && trimmed != ":") {
             self.handle_slash_command(trimmed);
             return;
         }
@@ -1512,12 +1647,56 @@ impl<'a> App<'a> {
         let _ = self.cmd_tx.send(AgentCommand::Execute(content));
     }
 
+    /// Shared entry used by all registered `SlashCommand.handler` pointers
+    pub fn universal_slash_entry(app: &mut App<'_>, args: &[&str]) -> Result<()> {
+        let c: String = app
+            .slash_inflight
+            .as_deref()
+            .ok_or_else(|| PawanError::Agent("internal: missing slash context".to_string()))?
+            .to_string();
+        let a = args.get(0).map(|s| *s).unwrap_or("");
+        app.slash_route(&c, a);
+        Ok(())
+    }
+
     /// Handle slash commands locally without sending to the agent
     fn handle_slash_command(&mut self, cmd: &str) {
-        let parts: Vec<&str> = cmd.splitn(2, ' ').collect();
+        let s = cmd.trim();
+        let normalized: String = if s.starts_with(':') {
+            if s == ":" {
+                "/".to_string()
+            } else {
+                format!("/{}", &s[1..])
+            }
+        } else {
+            s.to_string()
+        };
+        let parts: Vec<&str> = normalized.splitn(2, ' ').collect();
         let command = parts[0];
-        let arg = parts.get(1).map(|s| s.trim()).unwrap_or("");
+        let arg = parts.get(1).map(|x| x.trim()).unwrap_or("");
 
+        if self.slash_registry.get(command).is_none() {
+            self.messages.push(DisplayMessage::new_text(
+                Role::System,
+                format!("Unknown command: {}. Type /help for available commands.", command),
+            ));
+            return;
+        }
+
+        if let Some(sc) = self.slash_registry.get(command) {
+            self.slash_inflight = Some(sc.name.clone());
+            let a: [&str; 1] = [arg];
+            let sargs: &[&str] = if arg.is_empty() { &[] } else { &a };
+            let res = (sc.handler)(self, sargs);
+            self.slash_inflight = None;
+            if let Err(e) = res {
+                self.messages
+                    .push(DisplayMessage::new_text(Role::System, e.to_string()));
+            }
+        }
+    }
+
+    fn slash_route(&mut self, command: &str, arg: &str) {
         match command {
             "/clear" | "/c" => {
                 self.messages.clear();
@@ -1855,6 +2034,86 @@ impl<'a> App<'a> {
                 }
             }
 
+
+            "/save" => {
+                if self.messages.is_empty() {
+                    self.messages.push(DisplayMessage::new_text(
+                        Role::System,
+                        "Nothing to save. Start chatting first.",
+                    ));
+                    self.status = "Nothing to save".to_string();
+                } else {
+                    let mut session = if let Some(ref sid) = self.current_session_id {
+                        match Session::load(sid) {
+                            Ok(mut s) => {
+                                s.model = self.model_name.clone();
+                                s.tags = self.session_tags.clone();
+                                s.total_tokens = self.total_tokens;
+                                s.iteration_count = self.iteration_count;
+                                s
+                            }
+                            Err(_) => Session::new_with_id(
+                                sid.clone(),
+                                &self.model_name,
+                                self.session_tags.clone(),
+                            ),
+                        }
+                    } else {
+                        let mut ns =
+                            Session::new_with_tags(&self.model_name, self.session_tags.clone());
+                        self.current_session_id = Some(ns.id.clone());
+                        ns.total_tokens = self.total_tokens;
+                        ns.iteration_count = self.iteration_count;
+                        ns
+                    };
+                    session.messages.clear();
+                    for dm in &self.messages {
+                        let mut tc = String::new();
+                        let mut calls = Vec::new();
+                        for b in &dm.blocks {
+                            match b {
+                                ContentBlock::Text { content, .. } => {
+                                    if !tc.is_empty() {
+                                        tc.push('\n');
+                                    }
+                                    tc.push_str(content);
+                                }
+                                ContentBlock::ToolCall { state, .. } => {
+                                    if let ToolBlockState::Done { ref record, .. } = &**state {
+                                        calls.push(ToolCallRequest {
+                                            id: record.id.clone(),
+                                            name: record.name.clone(),
+                                            arguments: record.arguments.clone(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        if !tc.trim().is_empty() || !calls.is_empty() {
+                            session.messages.push(Message {
+                                role: dm.role.clone(),
+                                content: tc,
+                                tool_calls: calls,
+                                tool_result: None,
+                            });
+                        }
+                    }
+                    match session.save() {
+                        Ok(p) => {
+                            let ps = p.to_string_lossy().to_string();
+                            self.messages.push(DisplayMessage::new_text(
+                                Role::System,
+                                format!("Session saved: {}", ps),
+                            ));
+                            self.status = "Session saved".to_string();
+                        }
+                        Err(e) => self.messages.push(DisplayMessage::new_text(
+                            Role::System,
+                            format!("Save failed: {}", e),
+                        )),
+                    }
+                }
+            }
             "/share" => {
                 if self.messages.is_empty() {
                     self.messages.push(DisplayMessage::new_text(
@@ -2248,37 +2507,86 @@ impl<'a> App<'a> {
                 }
             }
             "/help" | "/?" => {
-                let help_text = r#"/model [name]  - show visual model selector or switch model
-/sessions     - browse and manage saved sessions
-/save         - save current conversation as a session
-/load <id>    - load a saved session
-/resume <id>  - resume a saved session
-/new          - start a fresh conversation
-/search <query> - web search via Daedra
-/tools         - list available tools
-:/heal          - auto-fix build errors
-:/handoff       - generate focused context for new session
-:/export [path] - export conversation to markdown
-:/diff        - show git diff
-:/fork        - clone session to new one
-:/dump        - copy conversation to clipboard
-:/share       - export session and print path
-:/compact [strategy] - compact session (default/aggressive/conservative)
-:/clear         - clear chat history
-:/quit          - exit pawan
-:/exit          - exit pawan (alias for /quit)
-:/help          - show this help"#;
+                let help_text = self.slash_registry.help_text();
                 self.messages
                     .push(DisplayMessage::new_text(Role::System, help_text));
             }
+            "/session" => {
+                if arg.is_empty() {
+                    self.messages.push(DisplayMessage::new_text(
+                        Role::System,
+                        "Usage: /session <id> — switch to a saved session. Use /sessions to browse."
+                            .to_string(),
+                    ));
+                } else {
+                    match Session::load(arg) {
+                        Ok(s) => {
+                            let sid = s.id.clone();
+                            let msg_count = s.messages.len();
+                            self.model_name = s.model.clone();
+                            self.current_session_id = Some(sid.clone());
+                            self.session_tags = s.tags.clone();
+                            self.messages = App::messages_from_session(s.messages);
+                            self.scroll = 0;
+                            self.status = format!("Switched to session: {}", sid);
+                            self.messages.push(DisplayMessage::new_text(
+                                Role::System,
+                                format!("Switched to session: {} ({} messages)", sid, msg_count),
+                            ));
+                        }
+                        Err(e) => {
+                            self.messages.push(DisplayMessage::new_text(
+                                Role::System,
+                                format!("Failed to load session: {}", e),
+                            ));
+                        }
+                    }
+                }
+            }
+            "/retry" => {
+                if self.processing {
+                    self.messages.push(DisplayMessage::new_text(
+                        Role::System,
+                        "Cannot retry while a response is in progress.".to_string(),
+                    ));
+                } else if self.messages.iter().rposition(|m| m.role == Role::Assistant).is_none() {
+                    self.messages.push(DisplayMessage::new_text(
+                        Role::System,
+                        "No assistant message to retry.".to_string(),
+                    ));
+                } else {
+                    let assistant_i = self
+                        .messages
+                        .iter()
+                        .rposition(|m| m.role == Role::Assistant)
+                        .unwrap();
+                    self.messages.truncate(assistant_i);
+                    if let Some(user) = self.messages.iter().rfind(|m| m.role == Role::User) {
+                        let user_text = user.text_content();
+                        if user_text.trim().is_empty() {
+                            self.messages.push(DisplayMessage::new_text(
+                                Role::System,
+                                "Cannot retry: last user message is empty.".to_string(),
+                            ));
+                        } else {
+                            self.processing = true;
+                            self.status = "Retrying...".to_string();
+                            let _ = self.cmd_tx.send(AgentCommand::Execute(user_text));
+                        }
+                    } else {
+                        self.messages.push(DisplayMessage::new_text(
+                            Role::System,
+                            "No user message to retry.".to_string(),
+                        ));
+                    }
+                }
+            }
+
             _ => {
-                self.messages.push(DisplayMessage::new_text(
-                    Role::System,
-                    format!(
-                        "Unknown command: {}. Type /help for available commands.",
-                        command
-                    ),
-                ));
+                debug_assert!(
+                    false,
+                    "unregistered slash command in slash_route match: {command}"
+                );
             }
         }
     }
@@ -3625,42 +3933,32 @@ impl<'a> App<'a> {
     fn is_slash_popup_active(&self) -> bool {
         let text: String = self.input.lines().join("\n");
         let trimmed = text.trim();
-        trimmed.starts_with('/') && !trimmed.contains(' ')
+        trimmed.starts_with('/') || (trimmed.starts_with(':') && !trimmed.contains(' '))
     }
 
     /// Get filtered slash command items based on current input.
-    fn slash_items(&self) -> Vec<(&str, &str)> {
-        let all_items: Vec<(&str, &str)> = vec![
-            ("/help", "Show available commands"),
-            ("/model", "Show or switch LLM model"),
-            ("/sessions", "Browse and manage saved sessions"),
-            ("/save", "Save current conversation as a session"),
-            ("/load", "Load a saved session"),
-            ("/resume", "Resume a saved session"),
-            ("/new", "Start a fresh conversation"),
-            ("/search", "Web search via Daedra"),
-            ("/tools", "List available tools"),
-            ("/heal", "Auto-fix build errors"),
-            ("/export", "Export conversation to markdown"),
-            ("/diff", "Show git diff (use --cached for staged changes)"),
-            ("/fork", "Clone current session to a new one"),
-            ("/dump", "Copy conversation to clipboard"),
-            ("/share", "Export session and print shareable path"),
-            (
-                "/compact",
-                "Compact session (default/aggressive/conservative)",
-            ),
-            ("/clear", "Clear chat history"),
-            ("/quit", "Exit pawan"),
-            ("/exit", "Exit pawan (alias for /quit)"),
-        ];
+    fn slash_items(&self) -> Vec<(String, String)> {
+        let mut all: Vec<(String, String)> = self
+            .slash_registry
+            .all()
+            .iter()
+            .map(|c| (c.name.clone(), c.description.clone()))
+            .collect();
+        all.sort_by(|a, b| a.0.cmp(&b.0));
+
         let text: String = self.input.lines().join("\n");
-        let q = text.trim().to_lowercase();
-        if q == "/" {
-            return all_items;
+        let mut q = text.trim().to_lowercase();
+        if q.starts_with(':') {
+            if q == ":" {
+                q = "/".to_string();
+            } else {
+                q = format!("/{}", &q[1..]);
+            }
         }
-        all_items
-            .into_iter()
+        if q == "/" {
+            return all;
+        }
+        all.into_iter()
             .filter(|(cmd, _)| cmd.to_lowercase().starts_with(&q))
             .collect()
     }
@@ -4440,6 +4738,33 @@ impl<'a> App<'a> {
         f.render_widget(status, area);
     }
 }
+
+/// Fuzzy-search catalog lines: registry + common model shortcuts
+pub(crate) fn default_slash_fuzzy_lines() -> Vec<String> {
+    let r = SlashCommandRegistry::built_in();
+    let mut out: Vec<String> = r
+        .all()
+        .iter()
+        .map(|c| format!("{} — {}", c.name, c.description))
+        .collect();
+    out.sort();
+    // Model shortcut lines (kept from the old static palette)
+    out.extend(
+        [
+            ("/model qwen/qwen3.5-122b-a10b", "Qwen 3.5 122B (S tier, fast)"),
+            ("/model minimaxai/minimax-m2.5", "MiniMax M2.5 (SWE 80.2%)"),
+            ("/model stepfun-ai/step-3.5-flash", "Step 3.5 Flash (S+ tier)"),
+            (
+                "/model mistralai/mistral-small-4-119b-2603",
+                "Mistral Small 4 119B",
+            ),
+        ]
+        .into_iter()
+        .map(|(c, d)| format!("{c} — {d}")),
+    );
+    out
+}
+
 
 async fn agent_task(
     mut agent: PawanAgent,
@@ -6882,7 +7207,7 @@ mod tests {
     fn test_slash_items_includes_all_commands() {
         let app = test_app();
         let items = app.slash_items();
-        let commands: Vec<_> = items.iter().map(|(cmd, _)| *cmd).collect();
+        let commands: Vec<_> = items.iter().map(|(cmd, _)| cmd.as_str()).collect::<Vec<_>>();
         assert!(commands.contains(&"/sessions"));
         assert!(commands.contains(&"/save"));
         assert!(commands.contains(&"/load"));
@@ -6891,6 +7216,8 @@ mod tests {
         assert!(commands.contains(&"/model"));
         assert!(commands.contains(&"/export"));
         assert!(commands.contains(&"/compact"));
+        assert!(commands.contains(&"/session"));
+        assert!(commands.contains(&"/retry"));
     }
     // ===== Auto-save Tests =====
     #[test]

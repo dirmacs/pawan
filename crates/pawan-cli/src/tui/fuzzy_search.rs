@@ -81,42 +81,7 @@ pub fn command_prefix(line: &str) -> &str {
 
 /// Default command palette lines (order matches prior static palette).
 pub fn default_command_item_lines() -> Vec<String> {
-    [
-        ("/help", "Show available commands"),
-        ("/model", "Show or switch LLM model"),
-        (
-            "/model qwen/qwen3.5-122b-a10b",
-            "Qwen 3.5 122B (S tier, fast)",
-        ),
-        ("/model minimaxai/minimax-m2.5", "MiniMax M2.5 (SWE 80.2%)"),
-        (
-            "/model stepfun-ai/step-3.5-flash",
-            "Step 3.5 Flash (S+ tier)",
-        ),
-        (
-            "/model mistralai/mistral-small-4-119b-2603",
-            "Mistral Small 4 119B",
-        ),
-        ("/search", "Web search via Daedra"),
-        ("/tools", "List available tools"),
-        ("/heal", "Auto-fix build errors"),
-        ("/export", "Export conversation to markdown"),
-        ("/diff", "Show git diff (use --cached for staged changes)"),
-        ("/import", "Import conversation from JSON file"),
-        ("/fork", "Clone current session to a new one"),
-        ("/dump", "Copy conversation to clipboard"),
-        ("/share", "Export session and print shareable path"),
-        (
-            "/compact",
-            "Compact session (default/aggressive/conservative)",
-        ),
-        ("/clear", "Clear chat history"),
-        ("/quit", "Exit pawan"),
-        ("/exit", "Exit pawan (alias for /quit)"),
-    ]
-    .into_iter()
-    .map(|(c, d)| format!("{c} — {d}"))
-    .collect()
+    super::default_slash_fuzzy_lines()
 }
 
 #[cfg(test)]
