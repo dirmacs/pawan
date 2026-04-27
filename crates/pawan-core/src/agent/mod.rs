@@ -1434,7 +1434,6 @@ impl PawanAgent {
                     if let Some(ref callback) = on_tool {
                         callback(&record);
                     }
-                    all_tool_calls.push(record.clone());
                     ordered_records[idx] = Some(record);
                     ordered_tool_messages[idx] = Some(Message {
                         role: Role::Tool,
@@ -1493,7 +1492,6 @@ impl PawanAgent {
                                 if let Some(ref callback) = on_tool {
                                     callback(&record);
                                 }
-                                all_tool_calls.push(record.clone());
                                 ordered_records[idx] = Some(record);
                                 ordered_tool_messages[idx] = Some(Message {
                                     role: Role::Tool,
@@ -1519,7 +1517,6 @@ impl PawanAgent {
                                 if let Some(ref callback) = on_tool {
                                     callback(&record);
                                 }
-                                all_tool_calls.push(record.clone());
                                 ordered_records[idx] = Some(record);
                                 ordered_tool_messages[idx] = Some(Message {
                                     role: Role::Tool,

@@ -68,17 +68,17 @@ fn test_tool_registry_definitions() {
 
     let definitions = registry.get_all_definitions();
 
-    // 34 total tools (7 core + 15 standard + 7 extended + 5 deagle extended)
-    assert_eq!(definitions.len(), 34);
+    // 36 total tools (7 core + 17 standard + 7 extended + 5 deagle extended)
+    assert_eq!(definitions.len(), 36);
 
-    // get_definitions should only return core + standard (22 tools, not extended)
+    // get_definitions should only return core + standard (24 tools, not extended)
     let visible = registry.get_definitions();
-    assert_eq!(visible.len(), 22);
+    assert_eq!(visible.len(), 24);
 
     // After activating an extended tool, it becomes visible
     registry.activate("mise");
     let visible_after = registry.get_definitions();
-    assert_eq!(visible_after.len(), 23);
+    assert_eq!(visible_after.len(), 25);
 
     // Each definition should have name, description, and parameters
     for def in &definitions {
@@ -475,8 +475,8 @@ async fn test_agent_tool_definitions() {
     let agent = PawanAgent::new(config, temp_dir.path().to_path_buf());
     let definitions = agent.get_tool_definitions();
 
-    // get_tool_definitions returns visible tools (core + standard = 22)
-    assert_eq!(definitions.len(), 22);
+    // get_tool_definitions returns visible tools (core + standard = 24)
+    assert_eq!(definitions.len(), 24);
 
     // Verify tool names
     let names: Vec<&str> = definitions.iter().map(|d| d.name.as_str()).collect();
@@ -1081,9 +1081,9 @@ fn test_agent_with_ares_backend_flag_fallback() {
 
     // Should construct without panicking regardless of feature flag state
     let agent = PawanAgent::new(config, temp_dir.path().to_path_buf());
-    // Agent has 22 visible tools (core + standard)
+    // Agent has 24 visible tools (core + standard)
     let defs = agent.get_tool_definitions();
-    assert_eq!(defs.len(), 22);
+    assert_eq!(defs.len(), 24);
 }
 
 // ─── Phase 7: dstack-style skill discovery ─────────────────────────────────
