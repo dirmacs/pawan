@@ -47,11 +47,10 @@ pub(crate) async fn run_git(
     Ok((status.success(), stdout, stderr))
 }
 
-
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::Tool;
+    use super::*;
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -59,21 +58,53 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         // Verify all git tools have correct names and non-empty schemas
         let tools: Vec<(&str, Box<dyn Tool>)> = vec![
-            ("git_status", Box::new(status::GitStatusTool::new(tmp.path().into()))),
-            ("git_diff", Box::new(diff::GitDiffTool::new(tmp.path().into()))),
-            ("git_add", Box::new(staging::GitAddTool::new(tmp.path().into()))),
-            ("git_commit", Box::new(staging::GitCommitTool::new(tmp.path().into()))),
+            (
+                "git_status",
+                Box::new(status::GitStatusTool::new(tmp.path().into())),
+            ),
+            (
+                "git_diff",
+                Box::new(diff::GitDiffTool::new(tmp.path().into())),
+            ),
+            (
+                "git_add",
+                Box::new(staging::GitAddTool::new(tmp.path().into())),
+            ),
+            (
+                "git_commit",
+                Box::new(staging::GitCommitTool::new(tmp.path().into())),
+            ),
             ("git_log", Box::new(log::GitLogTool::new(tmp.path().into()))),
-            ("git_blame", Box::new(log::GitBlameTool::new(tmp.path().into()))),
-            ("git_branch", Box::new(branch::GitBranchTool::new(tmp.path().into()))),
-            ("git_checkout", Box::new(branch::GitCheckoutTool::new(tmp.path().into()))),
-            ("git_stash", Box::new(branch::GitStashTool::new(tmp.path().into()))),
+            (
+                "git_blame",
+                Box::new(log::GitBlameTool::new(tmp.path().into())),
+            ),
+            (
+                "git_branch",
+                Box::new(branch::GitBranchTool::new(tmp.path().into())),
+            ),
+            (
+                "git_checkout",
+                Box::new(branch::GitCheckoutTool::new(tmp.path().into())),
+            ),
+            (
+                "git_stash",
+                Box::new(branch::GitStashTool::new(tmp.path().into())),
+            ),
         ];
         for (expected_name, tool) in &tools {
             assert_eq!(tool.name(), *expected_name, "Tool name mismatch");
-            assert!(!tool.description().is_empty(), "Missing description for {}", expected_name);
+            assert!(
+                !tool.description().is_empty(),
+                "Missing description for {}",
+                expected_name
+            );
             let schema = tool.parameters_schema();
-            assert!(schema.is_object(), "Schema should be object for {}", expected_name);
+            assert!(
+                schema.is_object(),
+                "Schema should be object for {}",
+                expected_name
+            );
         }
     }
 }

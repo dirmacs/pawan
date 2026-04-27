@@ -80,7 +80,11 @@ impl Transport for PawanTransport {
     }
 
     async fn call(&self, call: &ToolCall) -> ThulpResult<ToolResult> {
-        match self.registry.execute(&call.tool, call.arguments.clone()).await {
+        match self
+            .registry
+            .execute(&call.tool, call.arguments.clone())
+            .await
+        {
             Ok(value) => Ok(ToolResult::success(value)),
             Err(e) => Ok(ToolResult::failure(format!("{}", e))),
         }
@@ -128,13 +132,12 @@ pub mod built_in_skills {
     ///
     /// Input variables: none
     pub fn test_and_report() -> Skill {
-        Skill::new("test_and_report", "Run cargo test and capture output")
-            .with_step(SkillStep {
-                name: "test".to_string(),
-                tool: "bash".to_string(),
-                arguments: json!({ "command": "cargo test --workspace 2>&1 | tail -20" }),
-                ..Default::default()
-            })
+        Skill::new("test_and_report", "Run cargo test and capture output").with_step(SkillStep {
+            name: "test".to_string(),
+            tool: "bash".to_string(),
+            arguments: json!({ "command": "cargo test --workspace 2>&1 | tail -20" }),
+            ..Default::default()
+        })
     }
 
     /// Deagle map → stats → search pipeline for codebase exploration.
@@ -196,7 +199,11 @@ mod tests {
         let transport = PawanTransport::new(registry);
         let tools = transport.list_tools().await.unwrap();
         // Should return all 34 tools (7 core + 15 standard + 12 extended)
-        assert!(tools.len() >= 30, "Expected at least 30 tools, got {}", tools.len());
+        assert!(
+            tools.len() >= 30,
+            "Expected at least 30 tools, got {}",
+            tools.len()
+        );
     }
 
     #[test]
@@ -230,7 +237,10 @@ mod tests {
         // call() always returns Ok(ToolResult) — failures are encoded in the
         // ToolResult, not as Err (so skill executors can decide policy).
         let result = transport.call(&call).await.unwrap();
-        assert!(!result.success, "unknown tool should produce a failure result");
+        assert!(
+            !result.success,
+            "unknown tool should produce a failure result"
+        );
     }
 
     #[tokio::test]
@@ -295,7 +305,11 @@ mod tests {
         ]
         .into_iter()
         .collect();
-        assert_eq!(names.len(), 3, "all 3 built-in skills must have unique names");
+        assert_eq!(
+            names.len(),
+            3,
+            "all 3 built-in skills must have unique names"
+        );
     }
 
     // Suppress unused imports warning for PathBuf when tests compile but
@@ -331,7 +345,11 @@ mod tests {
         // The commit arguments must still reference the template variable
         let commit_args = &skill.steps[2].arguments;
         let msg = commit_args["message"].as_str().unwrap();
-        assert!(msg.contains("{{message}}"), "commit should use {{{{message}}}} template, got: {}", msg);
+        assert!(
+            msg.contains("{{message}}"),
+            "commit should use {{{{message}}}} template, got: {}",
+            msg
+        );
     }
 
     #[test]
@@ -358,7 +376,10 @@ mod tests {
         // symbol input must be declared + referenced in search step
         assert!(skill.inputs.contains(&"symbol".to_string()));
         let search_args = &skill.steps[2].arguments;
-        assert!(search_args["query"].as_str().unwrap().contains("{{symbol}}"));
+        assert!(search_args["query"]
+            .as_str()
+            .unwrap()
+            .contains("{{symbol}}"));
     }
 
     #[test]
@@ -380,7 +401,9 @@ mod tests {
                 assert!(
                     registry.has_tool(&step.tool),
                     "skill {:?} step {:?} references unregistered tool {:?}",
-                    skill.name, step.name, step.tool,
+                    skill.name,
+                    step.name,
+                    step.tool,
                 );
             }
         }

@@ -33,7 +33,10 @@ pub fn validate_bash_command(command: &str) -> (BashSafety, &'static str) {
         (":(){:|:&};:", "refuses fork bomb"),
         ("dd if=", "refuses raw disk writes"),
         ("> /dev/sd", "refuses raw device writes"),
-        ("chmod -R 777 /", "refuses recursive permission change on root"),
+        (
+            "chmod -R 777 /",
+            "refuses recursive permission change on root",
+        ),
     ];
     for (pattern, reason) in &blocked {
         if cmd.contains(pattern) {
@@ -44,7 +47,10 @@ pub fn validate_bash_command(command: &str) -> (BashSafety, &'static str) {
     // Block: piped remote code execution (curl/wget ... | sh/bash)
     if (cmd.contains("curl ") || cmd.contains("wget ")) && cmd.contains("| ") {
         let after_pipe = cmd.rsplit('|').next().unwrap_or("").trim();
-        if after_pipe.starts_with("sh") || after_pipe.starts_with("bash") || after_pipe.starts_with("sudo") {
+        if after_pipe.starts_with("sh")
+            || after_pipe.starts_with("bash")
+            || after_pipe.starts_with("sudo")
+        {
             return (BashSafety::Block, "refuses piped remote code execution");
         }
     }
@@ -122,24 +128,83 @@ fn is_single_command_read_only(cmd: &str) -> bool {
     // Known read-only commands
     let read_only_binaries = [
         // File inspection
-        "cat", "head", "tail", "less", "more", "wc", "file", "stat", "du", "df",
+        "cat",
+        "head",
+        "tail",
+        "less",
+        "more",
+        "wc",
+        "file",
+        "stat",
+        "du",
+        "df",
         // Search
-        "grep", "rg", "ag", "find", "fd", "locate", "which", "whereis", "type",
+        "grep",
+        "rg",
+        "ag",
+        "find",
+        "fd",
+        "locate",
+        "which",
+        "whereis",
+        "type",
         // Directory listing
-        "ls", "tree", "erd", "exa", "lsd",
+        "ls",
+        "tree",
+        "erd",
+        "exa",
+        "lsd",
         // Git read-only
-        "git log", "git status", "git diff", "git show", "git blame", "git branch",
-        "git remote", "git tag", "git stash list",
+        "git log",
+        "git status",
+        "git diff",
+        "git show",
+        "git blame",
+        "git branch",
+        "git remote",
+        "git tag",
+        "git stash list",
         // Cargo read-only
-        "cargo check", "cargo clippy", "cargo test", "cargo doc", "cargo tree",
-        "cargo metadata", "cargo bench",
+        "cargo check",
+        "cargo clippy",
+        "cargo test",
+        "cargo doc",
+        "cargo tree",
+        "cargo metadata",
+        "cargo bench",
         // System info
-        "uname", "hostname", "whoami", "id", "env", "printenv", "date", "uptime",
-        "free", "top", "ps", "lsof", "netstat", "ss",
+        "uname",
+        "hostname",
+        "whoami",
+        "id",
+        "env",
+        "printenv",
+        "date",
+        "uptime",
+        "free",
+        "top",
+        "ps",
+        "lsof",
+        "netstat",
+        "ss",
         // Text processing (read-only when not redirecting)
-        "echo", "printf", "jq", "yq", "sort", "uniq", "cut", "awk", "sed",
+        "echo",
+        "printf",
+        "jq",
+        "yq",
+        "sort",
+        "uniq",
+        "cut",
+        "awk",
+        "sed",
         // Other
-        "pwd", "realpath", "basename", "dirname", "test", "true", "false",
+        "pwd",
+        "realpath",
+        "basename",
+        "dirname",
+        "test",
+        "true",
+        "false",
     ];
 
     // Check multi-word commands first (e.g. "git log")
@@ -280,14 +345,23 @@ impl Tool for BashTool {
         let (safety, reason) = validate_bash_command(command);
         match safety {
             BashSafety::Block => {
-                tracing::error!(command = command, reason = reason, "Blocked dangerous bash command");
+                tracing::error!(
+                    command = command,
+                    reason = reason,
+                    "Blocked dangerous bash command"
+                );
                 return Err(crate::PawanError::Tool(format!(
                     "Command blocked: {} — {}",
-                    command.chars().take(80).collect::<String>(), reason
+                    command.chars().take(80).collect::<String>(),
+                    reason
                 )));
             }
             BashSafety::Warn => {
-                tracing::warn!(command = command, reason = reason, "Potentially destructive bash command");
+                tracing::warn!(
+                    command = command,
+                    reason = reason,
+                    "Potentially destructive bash command"
+                );
             }
             BashSafety::Safe => {}
         }
@@ -442,7 +516,10 @@ mod tests {
     async fn test_bash_exit_code() {
         let tmp = TempDir::new().unwrap();
         let tool = BashTool::new(tmp.path().to_path_buf());
-        let r = tool.execute(serde_json::json!({"command": "false"})).await.unwrap();
+        let r = tool
+            .execute(serde_json::json!({"command": "false"}))
+            .await
+            .unwrap();
         assert!(!r["success"].as_bool().unwrap());
         assert_eq!(r["exit_code"].as_i64().unwrap(), 1);
     }
@@ -451,7 +528,10 @@ mod tests {
     async fn test_bash_cwd() {
         let tmp = TempDir::new().unwrap();
         let tool = BashTool::new(tmp.path().to_path_buf());
-        let r = tool.execute(serde_json::json!({"command": "pwd"})).await.unwrap();
+        let r = tool
+            .execute(serde_json::json!({"command": "pwd"}))
+            .await
+            .unwrap();
         let stdout = r["stdout"].as_str().unwrap();
         assert!(stdout.contains(tmp.path().to_str().unwrap()));
     }
@@ -468,7 +548,14 @@ mod tests {
 
     #[test]
     fn test_validate_safe_commands() {
-        let safe = ["echo hello", "ls -la", "cargo test", "git status", "cat file.txt", "grep foo bar"];
+        let safe = [
+            "echo hello",
+            "ls -la",
+            "cargo test",
+            "git status",
+            "cat file.txt",
+            "grep foo bar",
+        ];
         for cmd in &safe {
             let (level, _) = validate_bash_command(cmd);
             assert_eq!(level, BashSafety::Safe, "Expected Safe for: {}", cmd);
@@ -488,7 +575,13 @@ mod tests {
         ];
         for cmd in &blocked {
             let (level, reason) = validate_bash_command(cmd);
-            assert_eq!(level, BashSafety::Block, "Expected Block for: {} (reason: {})", cmd, reason);
+            assert_eq!(
+                level,
+                BashSafety::Block,
+                "Expected Block for: {} (reason: {})",
+                cmd,
+                reason
+            );
         }
     }
 
@@ -504,7 +597,13 @@ mod tests {
         ];
         for cmd in &warned {
             let (level, reason) = validate_bash_command(cmd);
-            assert_eq!(level, BashSafety::Warn, "Expected Warn for: {} (reason: {})", cmd, reason);
+            assert_eq!(
+                level,
+                BashSafety::Warn,
+                "Expected Warn for: {} (reason: {})",
+                cmd,
+                reason
+            );
         }
     }
 
@@ -530,7 +629,11 @@ mod tests {
         let result = tool.execute(json!({"command": "rm -rf /"})).await;
         assert!(result.is_err(), "Blocked command should return error");
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("blocked"), "Error should mention 'blocked': {}", err);
+        assert!(
+            err.contains("blocked"),
+            "Error should mention 'blocked': {}",
+            err
+        );
     }
 
     // --- is_read_only tests ---
@@ -538,12 +641,30 @@ mod tests {
     #[test]
     fn test_read_only_commands() {
         let read_only = [
-            "ls -la", "cat src/main.rs", "head -20 file.txt", "tail -f log",
-            "grep 'pattern' src/", "rg 'pattern'", "find . -name '*.rs'",
-            "git log --oneline", "git status", "git diff", "git blame src/lib.rs",
-            "cargo check", "cargo clippy", "cargo test", "cargo tree",
-            "pwd", "whoami", "echo hello", "wc -l file.txt",
-            "tree", "du -sh .", "df -h", "ps aux", "env",
+            "ls -la",
+            "cat src/main.rs",
+            "head -20 file.txt",
+            "tail -f log",
+            "grep 'pattern' src/",
+            "rg 'pattern'",
+            "find . -name '*.rs'",
+            "git log --oneline",
+            "git status",
+            "git diff",
+            "git blame src/lib.rs",
+            "cargo check",
+            "cargo clippy",
+            "cargo test",
+            "cargo tree",
+            "pwd",
+            "whoami",
+            "echo hello",
+            "wc -l file.txt",
+            "tree",
+            "du -sh .",
+            "df -h",
+            "ps aux",
+            "env",
         ];
         for cmd in &read_only {
             assert!(is_read_only(cmd), "Expected read-only: {}", cmd);
@@ -553,10 +674,18 @@ mod tests {
     #[test]
     fn test_not_read_only_commands() {
         let not_ro = [
-            "rm file.txt", "mkdir -p dir", "mv a b", "cp a b",
-            "git commit -m 'msg'", "git push", "git merge branch",
-            "cargo build", "npm install", "pip install pkg",
-            "echo hello > file.txt", "cat foo >> bar.txt",
+            "rm file.txt",
+            "mkdir -p dir",
+            "mv a b",
+            "cp a b",
+            "git commit -m 'msg'",
+            "git push",
+            "git merge branch",
+            "cargo build",
+            "npm install",
+            "pip install pkg",
+            "echo hello > file.txt",
+            "cat foo >> bar.txt",
             "sed -i 's/old/new/' file.txt",
         ];
         for cmd in &not_ro {
@@ -597,7 +726,9 @@ mod tests {
                 safety,
                 BashSafety::Block,
                 "Expected {} to be Blocked, got {:?} ({})",
-                cmd, safety, reason
+                cmd,
+                safety,
+                reason
             );
         }
     }
@@ -615,7 +746,8 @@ mod tests {
             safety,
             BashSafety::Block,
             "dd if=... must be blocked, got {:?} ({})",
-            safety, reason
+            safety,
+            reason
         );
     }
 
@@ -765,4 +897,3 @@ mod tests {
         assert_eq!(level, BashSafety::Block, "whitespace must be trimmed");
     }
 }
-

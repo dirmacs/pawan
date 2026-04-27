@@ -63,7 +63,8 @@ impl AresBackend {
                     id: tc.id.clone(),
                     name: tc.name.clone(),
                     arguments: tc.arguments.clone(),
-    }).collect();
+                })
+                .collect();
 
             let tool_call_id = msg.tool_result.as_ref().map(|tr| tr.tool_call_id.clone());
 
@@ -86,19 +87,20 @@ impl AresBackend {
                 name: t.name.clone(),
                 description: t.description.clone(),
                 parameters: t.to_mcp_input_schema(),
-    }).collect()
-}
+            })
+            .collect()
+    }
     /// Convert ares LLMResponse to pawan LLMResponse
     fn from_ares_response(&self, resp: ares::llm::LLMResponse) -> LLMResponse {
-    let tool_calls: Vec<ToolCallRequest> = resp
-        .tool_calls
-        .iter()
-        .map(|tc| ToolCallRequest {
-            id: tc.id.clone(),
-            name: tc.name.clone(),
-            arguments: tc.arguments.clone(),
-        })
-        .collect();
+        let tool_calls: Vec<ToolCallRequest> = resp
+            .tool_calls
+            .iter()
+            .map(|tc| ToolCallRequest {
+                id: tc.id.clone(),
+                name: tc.name.clone(),
+                arguments: tc.arguments.clone(),
+            })
+            .collect();
 
         let usage = resp.usage.as_ref().map(|u| TokenUsage {
             prompt_tokens: u.prompt_tokens as u64,
@@ -187,11 +189,18 @@ mod tests {
             Ok("default".to_string())
         }
 
-        async fn generate_with_system(&self, _system: &str, _prompt: &str) -> ares::types::Result<String> {
+        async fn generate_with_system(
+            &self,
+            _system: &str,
+            _prompt: &str,
+        ) -> ares::types::Result<String> {
             Ok("default".to_string())
         }
 
-        async fn generate_with_history(&self, _messages: &[(String, String)]) -> ares::types::Result<ares::llm::LLMResponse> {
+        async fn generate_with_history(
+            &self,
+            _messages: &[(String, String)],
+        ) -> ares::types::Result<ares::llm::LLMResponse> {
             Ok(ares::llm::LLMResponse {
                 content: "default".to_string(),
                 tool_calls: vec![],
@@ -200,7 +209,11 @@ mod tests {
             })
         }
 
-        async fn generate_with_tools(&self, _prompt: &str, _tools: &[ares::types::ToolDefinition]) -> ares::types::Result<ares::llm::LLMResponse> {
+        async fn generate_with_tools(
+            &self,
+            _prompt: &str,
+            _tools: &[ares::types::ToolDefinition],
+        ) -> ares::types::Result<ares::llm::LLMResponse> {
             Ok(ares::llm::LLMResponse {
                 content: "default".to_string(),
                 tool_calls: vec![],
@@ -231,15 +244,31 @@ mod tests {
             }
         }
 
-        async fn stream(&self, _prompt: &str) -> ares::types::Result<Box<dyn futures::Stream<Item = ares::types::Result<String>> + Send + Unpin>> {
+        async fn stream(
+            &self,
+            _prompt: &str,
+        ) -> ares::types::Result<
+            Box<dyn futures::Stream<Item = ares::types::Result<String>> + Send + Unpin>,
+        > {
             Ok(Box::new(futures::stream::empty()))
         }
 
-        async fn stream_with_system(&self, _system: &str, _prompt: &str) -> ares::types::Result<Box<dyn futures::Stream<Item = ares::types::Result<String>> + Send + Unpin>> {
+        async fn stream_with_system(
+            &self,
+            _system: &str,
+            _prompt: &str,
+        ) -> ares::types::Result<
+            Box<dyn futures::Stream<Item = ares::types::Result<String>> + Send + Unpin>,
+        > {
             Ok(Box::new(futures::stream::empty()))
         }
 
-        async fn stream_with_history(&self, _messages: &[(String, String)]) -> ares::types::Result<Box<dyn futures::Stream<Item = ares::types::Result<String>> + Send + Unpin>> {
+        async fn stream_with_history(
+            &self,
+            _messages: &[(String, String)],
+        ) -> ares::types::Result<
+            Box<dyn futures::Stream<Item = ares::types::Result<String>> + Send + Unpin>,
+        > {
             Ok(Box::new(futures::stream::empty()))
         }
 
@@ -278,7 +307,10 @@ mod tests {
         let result = backend.to_ares_messages(&messages);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].content, "system");
-        assert!(matches!(result[0].role, ares::llm::coordinator::MessageRole::System));
+        assert!(matches!(
+            result[0].role,
+            ares::llm::coordinator::MessageRole::System
+        ));
     }
 
     #[test]
@@ -323,11 +355,26 @@ mod tests {
         ];
         let result = backend.to_ares_messages(&messages);
         assert_eq!(result.len(), 5); // 1 system prompt + 4 messages
-        assert!(matches!(result[0].role, ares::llm::coordinator::MessageRole::System));
-        assert!(matches!(result[1].role, ares::llm::coordinator::MessageRole::System));
-        assert!(matches!(result[2].role, ares::llm::coordinator::MessageRole::User));
-        assert!(matches!(result[3].role, ares::llm::coordinator::MessageRole::Assistant));
-        assert!(matches!(result[4].role, ares::llm::coordinator::MessageRole::Tool));
+        assert!(matches!(
+            result[0].role,
+            ares::llm::coordinator::MessageRole::System
+        ));
+        assert!(matches!(
+            result[1].role,
+            ares::llm::coordinator::MessageRole::System
+        ));
+        assert!(matches!(
+            result[2].role,
+            ares::llm::coordinator::MessageRole::User
+        ));
+        assert!(matches!(
+            result[3].role,
+            ares::llm::coordinator::MessageRole::Assistant
+        ));
+        assert!(matches!(
+            result[4].role,
+            ares::llm::coordinator::MessageRole::Tool
+        ));
     }
 
     #[test]
@@ -399,15 +446,15 @@ mod tests {
     }
 
     #[test]
-fn test_to_ares_tools_single() {
-    let client = Box::new(MockLLMClient::new()) as Box<dyn ares::llm::LLMClient>;
-    let backend = AresBackend::new(client, "system".to_string());
-    let schema = json!({"type": "object", "properties": {"path": {"type": "string"}}});
-    let tools = vec![ToolDefinition {
-        name: "test_tool".to_string(),
-        description: "A test tool".to_string(),
-        parameters: thulp_core::ToolDefinition::parse_mcp_input_schema(&schema).unwrap(),
-    }];
+    fn test_to_ares_tools_single() {
+        let client = Box::new(MockLLMClient::new()) as Box<dyn ares::llm::LLMClient>;
+        let backend = AresBackend::new(client, "system".to_string());
+        let schema = json!({"type": "object", "properties": {"path": {"type": "string"}}});
+        let tools = vec![ToolDefinition {
+            name: "test_tool".to_string(),
+            description: "A test tool".to_string(),
+            parameters: thulp_core::ToolDefinition::parse_mcp_input_schema(&schema).unwrap(),
+        }];
         let result = backend.to_ares_tools(&tools);
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].name, "test_tool");
@@ -415,23 +462,23 @@ fn test_to_ares_tools_single() {
     }
 
     #[test]
-fn test_to_ares_tools_multiple() {
-    let client = Box::new(MockLLMClient::new()) as Box<dyn ares::llm::LLMClient>;
-    let backend = AresBackend::new(client, "system".to_string());
-    let schema1 = json!({"type": "object"});
-    let schema2 = json!({"type": "object"});
-    let tools = vec![
-        ToolDefinition {
-            name: "tool1".to_string(),
-            description: "First tool".to_string(),
-            parameters: thulp_core::ToolDefinition::parse_mcp_input_schema(&schema1).unwrap(),
-        },
-        ToolDefinition {
-            name: "tool2".to_string(),
-            description: "Second tool".to_string(),
-            parameters: thulp_core::ToolDefinition::parse_mcp_input_schema(&schema2).unwrap(),
-        },
-    ];
+    fn test_to_ares_tools_multiple() {
+        let client = Box::new(MockLLMClient::new()) as Box<dyn ares::llm::LLMClient>;
+        let backend = AresBackend::new(client, "system".to_string());
+        let schema1 = json!({"type": "object"});
+        let schema2 = json!({"type": "object"});
+        let tools = vec![
+            ToolDefinition {
+                name: "tool1".to_string(),
+                description: "First tool".to_string(),
+                parameters: thulp_core::ToolDefinition::parse_mcp_input_schema(&schema1).unwrap(),
+            },
+            ToolDefinition {
+                name: "tool2".to_string(),
+                description: "Second tool".to_string(),
+                parameters: thulp_core::ToolDefinition::parse_mcp_input_schema(&schema2).unwrap(),
+            },
+        ];
         let result = backend.to_ares_tools(&tools);
         assert_eq!(result.len(), 2);
         assert_eq!(result[0].name, "tool1");
@@ -668,14 +715,13 @@ fn test_to_ares_tools_multiple() {
             tool_calls: vec![],
             tool_result: None,
         }];
-    let tools = vec![ToolDefinition {
-        name: "bash".to_string(),
-        description: "Execute bash command".to_string(),
-        parameters: thulp_core::ToolDefinition::parse_mcp_input_schema(&schema).unwrap(),
-    }];
+        let tools = vec![ToolDefinition {
+            name: "bash".to_string(),
+            description: "Execute bash command".to_string(),
+            parameters: thulp_core::ToolDefinition::parse_mcp_input_schema(&schema).unwrap(),
+        }];
         let result = backend.generate(&messages, &tools, None).await.unwrap();
         assert_eq!(result.tool_calls.len(), 1);
         assert_eq!(result.tool_calls[0].name, "bash");
     }
 }
-

@@ -1,5 +1,5 @@
-use super::run_git;
 use super::super::Tool;
+use super::run_git;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -60,14 +60,36 @@ impl Tool for GitDiffTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("git_diff")
             .description(self.description())
-            .parameter(Parameter::builder("staged").param_type(ParameterType::Boolean).required(false)
-                .description("Show staged changes only (--cached). Default: false (shows unstaged)").build())
-            .parameter(Parameter::builder("file").param_type(ParameterType::String).required(false)
-                .description("Specific file to diff (optional)").build())
-            .parameter(Parameter::builder("base").param_type(ParameterType::String).required(false)
-                .description("Base commit/branch to diff against (e.g., 'main', 'HEAD~3')").build())
-            .parameter(Parameter::builder("stat").param_type(ParameterType::Boolean).required(false)
-                .description("Show diffstat summary instead of full diff").build())
+            .parameter(
+                Parameter::builder("staged")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description(
+                        "Show staged changes only (--cached). Default: false (shows unstaged)",
+                    )
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("file")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Specific file to diff (optional)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("base")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Base commit/branch to diff against (e.g., 'main', 'HEAD~3')")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("stat")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Show diffstat summary instead of full diff")
+                    .build(),
+            )
             .build()
     }
 
@@ -190,8 +212,18 @@ mod tests {
         let temp_dir = setup_git_repo().await;
         // Create, add, commit a file
         std::fs::write(temp_dir.path().join("f.txt"), "original").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(temp_dir.path()).output().await.unwrap();
-        Command::new("git").args(["commit", "-m", "init"]).current_dir(temp_dir.path()).output().await.unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
         // Modify the file
         std::fs::write(temp_dir.path().join("f.txt"), "modified").unwrap();
 

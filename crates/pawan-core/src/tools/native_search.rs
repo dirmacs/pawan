@@ -39,11 +39,19 @@ pub(crate) async fn auto_install(binary: &str, cwd: &std::path::Path) -> bool {
     } else {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
         let local = format!("{}/.local/bin/mise", home);
-        if std::path::Path::new(&local).exists() { local } else { return false; }
+        if std::path::Path::new(&local).exists() {
+            local
+        } else {
+            return false;
+        }
     };
 
     let pkg = mise_package_name(binary);
-    tracing::info!(binary = binary, package = pkg, "Auto-installing missing tool via mise");
+    tracing::info!(
+        binary = binary,
+        package = pkg,
+        "Auto-installing missing tool via mise"
+    );
 
     let result = tokio::process::Command::new(&mise_bin)
         .args(["install", pkg, "-y"])
@@ -77,17 +85,29 @@ pub(crate) async fn auto_install(binary: &str, cwd: &std::path::Path) -> bool {
 }
 
 /// Ensure a binary is available, auto-installing via mise if needed.
-pub(crate) async fn ensure_binary(name: &str, cwd: &std::path::Path) -> Result<(), crate::PawanError> {
-    if binary_exists(name) { return Ok(()); }
-    if auto_install(name, cwd).await && binary_exists(name) { return Ok(()); }
+pub(crate) async fn ensure_binary(
+    name: &str,
+    cwd: &std::path::Path,
+) -> Result<(), crate::PawanError> {
+    if binary_exists(name) {
+        return Ok(());
+    }
+    if auto_install(name, cwd).await && binary_exists(name) {
+        return Ok(());
+    }
     Err(crate::PawanError::Tool(format!(
         "{} not found and auto-install failed. Install manually: mise install {}",
-        name, mise_package_name(name)
+        name,
+        mise_package_name(name)
     )))
 }
 
 /// Execute a command and capture stdout, stderr, and success status.
-pub(crate) async fn run_cmd(cmd: &str, args: &[&str], cwd: &std::path::Path) -> Result<(String, String, bool), String> {
+pub(crate) async fn run_cmd(
+    cmd: &str,
+    args: &[&str],
+    cwd: &std::path::Path,
+) -> Result<(String, String, bool), String> {
     let output = tokio::process::Command::new(cmd)
         .args(args)
         .current_dir(cwd)
@@ -117,7 +137,9 @@ impl RipgrepTool {
 
 #[async_trait]
 impl Tool for RipgrepTool {
-    fn name(&self) -> &str { "rg" }
+    fn name(&self) -> &str {
+        "rg"
+    }
 
     fn description(&self) -> &str {
         "ripgrep — blazing fast regex search across files. Returns matching lines with file paths \
@@ -223,7 +245,8 @@ impl Tool for RipgrepTool {
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         ensure_binary("rg", &self.workspace_root).await?;
-        let pattern = args["pattern"].as_str()
+        let pattern = args["pattern"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("pattern required".into()))?;
         let search_path = args["path"].as_str().unwrap_or(".");
         let max_count = args["max_count"].as_u64().unwrap_or(20);
@@ -232,8 +255,12 @@ impl Tool for RipgrepTool {
         let max_count_str = max_count.to_string();
         let ctx_str = context.to_string();
         let mut cmd_args = vec![
-            "--line-number", "--no-heading", "--color", "never",
-            "--max-count", &max_count_str,
+            "--line-number",
+            "--no-heading",
+            "--color",
+            "never",
+            "--max-count",
+            &max_count_str,
         ];
         if context > 0 {
             cmd_args.extend_from_slice(&["--context", &ctx_str]);
@@ -267,7 +294,8 @@ impl Tool for RipgrepTool {
             self.workspace_root.clone()
         };
 
-        let (stdout, stderr, success) = run_cmd("rg", &cmd_args, &cwd).await
+        let (stdout, stderr, success) = run_cmd("rg", &cmd_args, &cwd)
+            .await
             .map_err(crate::PawanError::Tool)?;
 
         let match_count = stdout.lines().filter(|l| !l.is_empty()).count();
@@ -296,7 +324,9 @@ impl FdTool {
 
 #[async_trait]
 impl Tool for FdTool {
-    fn name(&self) -> &str { "fd" }
+    fn name(&self) -> &str {
+        "fd"
+    }
 
     fn description(&self) -> &str {
         "fd — fast file finder. Finds files and directories by name pattern. \
@@ -377,18 +407,22 @@ impl Tool for FdTool {
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         ensure_binary("fd", &self.workspace_root).await?;
-        let pattern = args["pattern"].as_str()
+        let pattern = args["pattern"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("pattern required".into()))?;
 
         let mut cmd_args: Vec<String> = vec!["--color".into(), "never".into()];
         if let Some(ext) = args["extension"].as_str() {
-            cmd_args.push("-e".into()); cmd_args.push(ext.into());
+            cmd_args.push("-e".into());
+            cmd_args.push(ext.into());
         }
         if let Some(t) = args["type_filter"].as_str() {
-            cmd_args.push("-t".into()); cmd_args.push(t.into());
+            cmd_args.push("-t".into());
+            cmd_args.push(t.into());
         }
         if let Some(d) = args["max_depth"].as_u64() {
-            cmd_args.push("--max-depth".into()); cmd_args.push(d.to_string());
+            cmd_args.push("--max-depth".into());
+            cmd_args.push(d.to_string());
         }
         if args["hidden"].as_bool().unwrap_or(false) {
             cmd_args.push("--hidden".into());
@@ -399,7 +433,8 @@ impl Tool for FdTool {
         }
 
         let cmd_args_ref: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-        let (stdout, stderr, _) = run_cmd("fd", &cmd_args_ref, &self.workspace_root).await
+        let (stdout, stderr, _) = run_cmd("fd", &cmd_args_ref, &self.workspace_root)
+            .await
             .map_err(crate::PawanError::Tool)?;
 
         let max_results = args["max_results"].as_u64().unwrap_or(50) as usize;
@@ -433,7 +468,9 @@ impl SdTool {
 
 #[async_trait]
 impl Tool for SdTool {
-    fn name(&self) -> &str { "sd" }
+    fn name(&self) -> &str {
+        "sd"
+    }
 
     fn description(&self) -> &str {
         "sd — fast find-and-replace across files. Like sed but simpler syntax and faster. \
@@ -491,11 +528,14 @@ impl Tool for SdTool {
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         ensure_binary("sd", &self.workspace_root).await?;
-        let find = args["find"].as_str()
+        let find = args["find"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("find required".into()))?;
-        let replace = args["replace"].as_str()
+        let replace = args["replace"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("replace required".into()))?;
-        let path = args["path"].as_str()
+        let path = args["path"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("path required".into()))?;
 
         let mut cmd_args = vec![];
@@ -504,7 +544,8 @@ impl Tool for SdTool {
         }
         cmd_args.extend_from_slice(&[find, replace, path]);
 
-        let (stdout, stderr, success) = run_cmd("sd", &cmd_args, &self.workspace_root).await
+        let (stdout, stderr, success) = run_cmd("sd", &cmd_args, &self.workspace_root)
+            .await
             .map_err(crate::PawanError::Tool)?;
 
         Ok(json!({
@@ -529,7 +570,9 @@ impl ErdTool {
 
 #[async_trait]
 impl Tool for ErdTool {
-    fn name(&self) -> &str { "tree" }
+    fn name(&self) -> &str {
+        "tree"
+    }
 
     fn description(&self) -> &str {
         "erdtree (erd) — fast filesystem tree with disk usage, file counts, and metadata. \
@@ -671,22 +714,26 @@ impl Tool for ErdTool {
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         // Auto-install erd if missing; fall back to fd if mise unavailable
         if !binary_exists("erd")
-            && (!auto_install("erd", &self.workspace_root).await || !binary_exists("erd")) {
-                let path = args["path"].as_str().unwrap_or(".");
-                let depth = args["depth"].as_u64().unwrap_or(3).to_string();
-                let cmd_args = vec![".", path, "--max-depth", &depth, "--color", "never"];
-                let (stdout, _, _) = run_cmd("fd", &cmd_args, &self.workspace_root).await
-                    .unwrap_or(("(erd and fd not available)".into(), String::new(), false));
-                return Ok(json!({ "tree": stdout, "tool": "fd-fallback" }));
-            }
+            && (!auto_install("erd", &self.workspace_root).await || !binary_exists("erd"))
+        {
+            let path = args["path"].as_str().unwrap_or(".");
+            let depth = args["depth"].as_u64().unwrap_or(3).to_string();
+            let cmd_args = vec![".", path, "--max-depth", &depth, "--color", "never"];
+            let (stdout, _, _) = run_cmd("fd", &cmd_args, &self.workspace_root)
+                .await
+                .unwrap_or(("(erd and fd not available)".into(), String::new(), false));
+            return Ok(json!({ "tree": stdout, "tool": "fd-fallback" }));
+        }
 
         let path = args["path"].as_str().unwrap_or(".");
         let depth_str = args["depth"].as_u64().unwrap_or(3).to_string();
 
         let mut cmd_args: Vec<String> = vec![
-            "--level".into(), depth_str,
+            "--level".into(),
+            depth_str,
             "--no-config".into(),
-            "--color".into(), "none".into(),
+            "--color".into(),
+            "none".into(),
         ];
 
         if let Some(du) = args["disk_usage"].as_str() {
@@ -704,18 +751,33 @@ impl Tool for ErdTool {
             cmd_args.extend(["--pattern".into(), p.into()]);
         }
 
-        if args["long"].as_bool().unwrap_or(false) { cmd_args.push("--long".into()); }
-        if args["hidden"].as_bool().unwrap_or(false) { cmd_args.push("--hidden".into()); }
-        if args["dirs_only"].as_bool().unwrap_or(false) { cmd_args.push("--dirs-only".into()); }
-        if args["human"].as_bool().unwrap_or(true) { cmd_args.push("--human".into()); }
-        if args["icons"].as_bool().unwrap_or(false) { cmd_args.push("--icons".into()); }
-        if args["no_ignore"].as_bool().unwrap_or(false) { cmd_args.push("--no-ignore".into()); }
-        if args["suppress_size"].as_bool().unwrap_or(false) { cmd_args.push("--suppress-size".into()); }
+        if args["long"].as_bool().unwrap_or(false) {
+            cmd_args.push("--long".into());
+        }
+        if args["hidden"].as_bool().unwrap_or(false) {
+            cmd_args.push("--hidden".into());
+        }
+        if args["dirs_only"].as_bool().unwrap_or(false) {
+            cmd_args.push("--dirs-only".into());
+        }
+        if args["human"].as_bool().unwrap_or(true) {
+            cmd_args.push("--human".into());
+        }
+        if args["icons"].as_bool().unwrap_or(false) {
+            cmd_args.push("--icons".into());
+        }
+        if args["no_ignore"].as_bool().unwrap_or(false) {
+            cmd_args.push("--no-ignore".into());
+        }
+        if args["suppress_size"].as_bool().unwrap_or(false) {
+            cmd_args.push("--suppress-size".into());
+        }
 
         cmd_args.push(path.into());
 
         let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-        let (stdout, stderr, success) = run_cmd("erd", &cmd_refs, &self.workspace_root).await
+        let (stdout, stderr, success) = run_cmd("erd", &cmd_refs, &self.workspace_root)
+            .await
             .map_err(crate::PawanError::Tool)?;
 
         Ok(json!({
@@ -741,7 +803,9 @@ impl GrepSearchTool {
 
 #[async_trait]
 impl Tool for GrepSearchTool {
-    fn name(&self) -> &str { "grep_search" }
+    fn name(&self) -> &str {
+        "grep_search"
+    }
 
     fn description(&self) -> &str {
         "Search for a pattern in files using ripgrep. Returns file paths and matching lines. \
@@ -778,7 +842,8 @@ impl Tool for GrepSearchTool {
                     .description("Path to search (default: workspace)")
                     .build(),
             )
-            .parameter(                Parameter::builder("include")
+            .parameter(
+                Parameter::builder("include")
                     .param_type(ParameterType::String)
                     .required(false)
                     .description("Glob to include (e.g. '*.rs')")
@@ -788,11 +853,19 @@ impl Tool for GrepSearchTool {
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
-        let pattern = args["pattern"].as_str()
+        let pattern = args["pattern"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("pattern required".into()))?;
         let path = args["path"].as_str().unwrap_or(".");
 
-        let mut cmd_args = vec!["--line-number", "--no-heading", "--color", "never", "--max-count", "30"];
+        let mut cmd_args = vec![
+            "--line-number",
+            "--no-heading",
+            "--color",
+            "never",
+            "--max-count",
+            "30",
+        ];
         let include;
         if let Some(glob) = args["include"].as_str() {
             include = format!("--glob={}", glob);
@@ -807,7 +880,8 @@ impl Tool for GrepSearchTool {
             self.workspace_root.clone()
         };
 
-        let (stdout, _, _) = run_cmd("rg", &cmd_args, &cwd).await
+        let (stdout, _, _) = run_cmd("rg", &cmd_args, &cwd)
+            .await
             .map_err(crate::PawanError::Tool)?;
 
         let lines: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).take(50).collect();
@@ -833,7 +907,9 @@ impl GlobSearchTool {
 
 #[async_trait]
 impl Tool for GlobSearchTool {
-    fn name(&self) -> &str { "glob_search" }
+    fn name(&self) -> &str {
+        "glob_search"
+    }
 
     fn description(&self) -> &str {
         "Find files by glob pattern. Returns list of matching file paths. \
@@ -873,12 +949,14 @@ impl Tool for GlobSearchTool {
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
-        let pattern = args["pattern"].as_str()
+        let pattern = args["pattern"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("pattern required".into()))?;
         let path = args["path"].as_str().unwrap_or(".");
 
         let cmd_args = vec!["--glob", pattern, "--color", "never", path];
-        let (stdout, _, _) = run_cmd("fd", &cmd_args, &self.workspace_root).await
+        let (stdout, _, _) = run_cmd("fd", &cmd_args, &self.workspace_root)
+            .await
             .map_err(crate::PawanError::Tool)?;
 
         let files: Vec<&str> = stdout.lines().filter(|l| !l.is_empty()).collect();
@@ -936,7 +1014,10 @@ mod tests {
     fn test_mise_package_name_passes_through_arbitrary_names() {
         assert_eq!(mise_package_name("foo"), "foo");
         assert_eq!(mise_package_name(""), "");
-        assert_eq!(mise_package_name("some-random-tool_v2"), "some-random-tool_v2");
+        assert_eq!(
+            mise_package_name("some-random-tool_v2"),
+            "some-random-tool_v2"
+        );
     }
 
     #[tokio::test]
@@ -946,7 +1027,10 @@ mod tests {
         assert_eq!(tool.name(), "rg");
         assert!(!tool.description().is_empty());
         let schema = tool.parameters_schema();
-        assert!(schema["required"].as_array().unwrap().contains(&serde_json::json!("pattern")));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("pattern")));
     }
 
     #[tokio::test]
@@ -956,7 +1040,10 @@ mod tests {
         assert_eq!(tool.name(), "fd");
         assert!(!tool.description().is_empty());
         let schema = tool.parameters_schema();
-        assert!(schema["required"].as_array().unwrap().contains(&serde_json::json!("pattern")));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("pattern")));
     }
 
     #[tokio::test]
@@ -987,7 +1074,10 @@ mod tests {
         let tool = GlobSearchTool::new(tmp.path().into());
         assert_eq!(tool.name(), "glob_search");
         let schema = tool.parameters_schema();
-        assert!(schema["required"].as_array().unwrap().contains(&serde_json::json!("pattern")));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("pattern")));
     }
 
     #[tokio::test]
@@ -996,7 +1086,10 @@ mod tests {
         let tool = GrepSearchTool::new(tmp.path().into());
         assert_eq!(tool.name(), "grep_search");
         let schema = tool.parameters_schema();
-        assert!(schema["required"].as_array().unwrap().contains(&serde_json::json!("pattern")));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("pattern")));
     }
 
     #[tokio::test]
@@ -1008,10 +1101,16 @@ mod tests {
 
         let tool = ErdTool::new(tmp.path().into());
         let result = tool.execute(serde_json::json!({})).await;
-        assert!(result.is_ok(), "tree tool should work with fallback: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "tree tool should work with fallback: {:?}",
+            result.err()
+        );
         let val = result.unwrap();
-        assert!(val["tree"].is_string() || val["output"].is_string(),
-                "Should produce tree output");
+        assert!(
+            val["tree"].is_string() || val["output"].is_string(),
+            "Should produce tree output"
+        );
     }
 
     #[tokio::test]
@@ -1066,9 +1165,16 @@ mod tests {
             .unwrap();
 
         let debug = format!("{}", result);
-        assert!(debug.contains("one.rs") || debug.contains("two.rs"),
-            "should find at least one .rs file, got: {}", debug);
-        assert!(!debug.contains("ignored.txt"), "should not match .txt, got: {}", debug);
+        assert!(
+            debug.contains("one.rs") || debug.contains("two.rs"),
+            "should find at least one .rs file, got: {}",
+            debug
+        );
+        assert!(
+            !debug.contains("ignored.txt"),
+            "should not match .txt, got: {}",
+            debug
+        );
     }
 
     #[tokio::test]
@@ -1097,7 +1203,8 @@ mod tests {
         assert!(
             ci_debug.len() > cs_debug.len(),
             "case_insensitive should find more matches.\nCS: {}\nCI: {}",
-            cs_debug, ci_debug
+            cs_debug,
+            ci_debug
         );
     }
 
@@ -1123,7 +1230,8 @@ mod tests {
         assert!(
             regex_debug.contains("axb") || regex_debug.len() > fixed_debug.len(),
             "regex mode should match more.\nregex: {}\nfixed: {}",
-            regex_debug, fixed_debug
+            regex_debug,
+            fixed_debug
         );
     }
 
@@ -1151,11 +1259,16 @@ mod tests {
         let files = result["files"].as_array().unwrap();
         let file_list: Vec<&str> = files.iter().filter_map(|v| v.as_str()).collect();
         for f in &file_list {
-            assert!(f.ends_with(".rs"), "extension filter leaked non-.rs file: {}", f);
+            assert!(
+                f.ends_with(".rs"),
+                "extension filter leaked non-.rs file: {}",
+                f
+            );
         }
         assert!(
             file_list.iter().any(|f| f.contains("keep")),
-            "expected to find keep.rs, got: {:?}", file_list
+            "expected to find keep.rs, got: {:?}",
+            file_list
         );
     }
 
@@ -1220,9 +1333,17 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let tool = RipgrepTool::new(tmp.path().into());
         let result = tool.execute(serde_json::json!({})).await;
-        assert!(result.is_err(), "missing pattern must return Err, got: {:?}", result);
+        assert!(
+            result.is_err(),
+            "missing pattern must return Err, got: {:?}",
+            result
+        );
         let err_msg = format!("{}", result.unwrap_err());
-        assert!(err_msg.contains("pattern"), "error must mention 'pattern', got: {}", err_msg);
+        assert!(
+            err_msg.contains("pattern"),
+            "error must mention 'pattern', got: {}",
+            err_msg
+        );
     }
 
     #[tokio::test]
@@ -1234,15 +1355,21 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let tool = SdTool::new(tmp.path().into());
 
-        let r1 = tool.execute(serde_json::json!({"replace": "new", "path": "f"})).await;
+        let r1 = tool
+            .execute(serde_json::json!({"replace": "new", "path": "f"}))
+            .await;
         assert!(r1.is_err(), "missing find must return Err");
         assert!(format!("{}", r1.unwrap_err()).contains("find"));
 
-        let r2 = tool.execute(serde_json::json!({"find": "old", "path": "f"})).await;
+        let r2 = tool
+            .execute(serde_json::json!({"find": "old", "path": "f"}))
+            .await;
         assert!(r2.is_err(), "missing replace must return Err");
         assert!(format!("{}", r2.unwrap_err()).contains("replace"));
 
-        let r3 = tool.execute(serde_json::json!({"find": "old", "replace": "new"})).await;
+        let r3 = tool
+            .execute(serde_json::json!({"find": "old", "replace": "new"}))
+            .await;
         assert!(r3.is_err(), "missing path must return Err");
         assert!(format!("{}", r3.unwrap_err()).contains("path"));
     }
@@ -1270,7 +1397,11 @@ mod tests {
             .unwrap();
 
         let match_count = result["match_count"].as_u64().unwrap();
-        assert!(match_count <= 3, "max_count=3 must limit results, got {}", match_count);
+        assert!(
+            match_count <= 3,
+            "max_count=3 must limit results, got {}",
+            match_count
+        );
         assert!(match_count >= 1, "should find at least one match");
     }
 
@@ -1283,7 +1414,11 @@ mod tests {
             .await
             .expect_err("glob_search without pattern must error");
         let msg = format!("{}", err);
-        assert!(msg.contains("pattern required"), "error message should say 'pattern required', got: {}", msg);
+        assert!(
+            msg.contains("pattern required"),
+            "error message should say 'pattern required', got: {}",
+            msg
+        );
     }
 
     #[tokio::test]
@@ -1295,7 +1430,11 @@ mod tests {
             .await
             .expect_err("grep_search without pattern must error");
         let msg = format!("{}", err);
-        assert!(msg.contains("pattern required"), "error message should say 'pattern required', got: {}", msg);
+        assert!(
+            msg.contains("pattern required"),
+            "error message should say 'pattern required', got: {}",
+            msg
+        );
     }
 
     #[tokio::test]

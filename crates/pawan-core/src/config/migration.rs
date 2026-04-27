@@ -3,10 +3,10 @@
 //! Applies sequential version upgrades to a [`PawanConfig`] loaded from disk,
 //! creating a timestamped backup before modifying anything.
 
+use super::{default_tool_idle_timeout, PawanConfig};
 use chrono::Utc;
-use tracing;
 use std::path::PathBuf;
-use super::{PawanConfig, default_tool_idle_timeout};
+use tracing;
 
 /// Latest config version understood by this build.
 const LATEST_CONFIG_VERSION: u32 = 1;
@@ -50,7 +50,10 @@ impl MigrationResult {
 /// applying any changes. Migration steps are applied sequentially; if any
 /// step fails the function returns early with a partial result and logs the
 /// error — the config is left in the partially-migrated state.
-pub fn migrate_to_latest(config: &mut PawanConfig, config_path: Option<&PathBuf>) -> MigrationResult {
+pub fn migrate_to_latest(
+    config: &mut PawanConfig,
+    config_path: Option<&PathBuf>,
+) -> MigrationResult {
     let current_version = config.config_version;
 
     if current_version >= LATEST_CONFIG_VERSION {
@@ -117,8 +120,13 @@ fn create_backup(config_path: &PathBuf) -> Result<PathBuf, String> {
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
     let backup_path = config_path.with_extension(format!("toml.backup.{}", timestamp));
 
-    std::fs::copy(config_path, &backup_path)
-        .map_err(|e| format!("Failed to create backup at {}: {}", backup_path.display(), e))?;
+    std::fs::copy(config_path, &backup_path).map_err(|e| {
+        format!(
+            "Failed to create backup at {}: {}",
+            backup_path.display(),
+            e
+        )
+    })?;
 
     tracing::info!(backup = %backup_path.display(), "Config backup created");
     Ok(backup_path)

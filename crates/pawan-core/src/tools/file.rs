@@ -23,24 +23,40 @@ pub fn validate_file_write(path: &Path) -> Result<(), &'static str> {
 
     // Block: sensitive credential/secret files
     let blocked_files = [
-        ".env", ".env.local", ".env.production",
-        "id_rsa", "id_ed25519", "id_ecdsa",
-        "credentials.json", "service-account.json",
-        ".npmrc", ".pypirc",
+        ".env",
+        ".env.local",
+        ".env.production",
+        "id_rsa",
+        "id_ed25519",
+        "id_ecdsa",
+        "credentials.json",
+        "service-account.json",
+        ".npmrc",
+        ".pypirc",
     ];
     if blocked_files.contains(&filename) {
         return Err("refuses to overwrite credential/secret file");
     }
 
     // Block: critical system paths
-    if path_str.starts_with("/etc/") || path_str.starts_with("/usr/") || path_str.starts_with("/bin/")
-        || path_str.starts_with("/sbin/") || path_str.starts_with("/boot/")
+    if path_str.starts_with("/etc/")
+        || path_str.starts_with("/usr/")
+        || path_str.starts_with("/bin/")
+        || path_str.starts_with("/sbin/")
+        || path_str.starts_with("/boot/")
     {
         return Err("refuses to write to system directory");
     }
 
     // Warn-level (allow but log): lock files
-    let warn_files = ["Cargo.lock", "package-lock.json", "yarn.lock", "pnpm-lock.yaml", "Gemfile.lock", "poetry.lock"];
+    let warn_files = [
+        "Cargo.lock",
+        "package-lock.json",
+        "yarn.lock",
+        "pnpm-lock.yaml",
+        "Gemfile.lock",
+        "poetry.lock",
+    ];
     if warn_files.contains(&filename) {
         tracing::warn!(path = %path_str, "Writing to lock file — usually auto-generated");
     }
@@ -134,12 +150,29 @@ impl Tool for ReadFileTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("read_file")
             .description(self.description())
-            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
-                .description("Path to the file to read (relative to workspace root or absolute)").build())
-            .parameter(Parameter::builder("offset").param_type(ParameterType::Integer).required(false)
-                .description("Line number to start reading from (0-based, optional)").build())
-            .parameter(Parameter::builder("limit").param_type(ParameterType::Integer).required(false)
-                .description("Maximum number of lines to read (optional, defaults to 2000)").build())
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description(
+                        "Path to the file to read (relative to workspace root or absolute)",
+                    )
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("offset")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Line number to start reading from (0-based, optional)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("limit")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Maximum number of lines to read (optional, defaults to 2000)")
+                    .build(),
+            )
             .build()
     }
 
@@ -257,10 +290,22 @@ impl Tool for WriteFileTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("write_file")
             .description(self.description())
-            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
-                .description("Path to the file to write (relative to workspace root or absolute)").build())
-            .parameter(Parameter::builder("content").param_type(ParameterType::String).required(true)
-                .description("Content to write to the file").build())
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description(
+                        "Path to the file to write (relative to workspace root or absolute)",
+                    )
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("content")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Content to write to the file")
+                    .build(),
+            )
             .build()
     }
 
@@ -278,7 +323,9 @@ impl Tool for WriteFileTool {
         // Validate write safety
         if let Err(reason) = validate_file_write(&full_path) {
             return Err(crate::PawanError::Tool(format!(
-                "Write blocked: {} — {}", full_path.display(), reason
+                "Write blocked: {} — {}",
+                full_path.display(),
+                reason
             )));
         }
 
@@ -363,12 +410,29 @@ impl Tool for ListDirectoryTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("list_directory")
             .description(self.description())
-            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
-                .description("Path to the directory to list (relative to workspace root or absolute)").build())
-            .parameter(Parameter::builder("recursive").param_type(ParameterType::Boolean).required(false)
-                .description("Whether to list recursively (default: false)").build())
-            .parameter(Parameter::builder("max_depth").param_type(ParameterType::Integer).required(false)
-                .description("Maximum depth for recursive listing (default: 3)").build())
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description(
+                        "Path to the directory to list (relative to workspace root or absolute)",
+                    )
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("recursive")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Whether to list recursively (default: false)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("max_depth")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Maximum depth for recursive listing (default: 3)")
+                    .build(),
+            )
             .build()
     }
 
@@ -520,10 +584,7 @@ mod tests {
         std::fs::write(&file_path, "alpha\nbeta\ngamma").unwrap();
 
         let tool = ReadFileTool::new(temp_dir.path().to_path_buf());
-        let result = tool
-            .execute(json!({"path": "numbered.txt"}))
-            .await
-            .unwrap();
+        let result = tool.execute(json!({"path": "numbered.txt"})).await.unwrap();
 
         let content = result["content"].as_str().unwrap();
         // Line 1 must be right-aligned in a 6-char field followed by a tab
@@ -594,10 +655,7 @@ mod tests {
     async fn test_write_file_missing_path_returns_error() {
         let temp_dir = TempDir::new().unwrap();
         let tool = WriteFileTool::new(temp_dir.path().to_path_buf());
-        let err = tool
-            .execute(json!({"content": "hello"}))
-            .await
-            .unwrap_err();
+        let err = tool.execute(json!({"content": "hello"})).await.unwrap_err();
         match err {
             crate::PawanError::Tool(msg) => assert!(msg.contains("path is required")),
             other => panic!("expected Tool error, got {:?}", other),
@@ -630,7 +688,10 @@ mod tests {
             .unwrap_err();
         match err {
             crate::PawanError::Tool(msg) => {
-                assert!(msg.contains("Write blocked"), "expected 'Write blocked' in: {msg}");
+                assert!(
+                    msg.contains("Write blocked"),
+                    "expected 'Write blocked' in: {msg}"
+                );
                 assert!(msg.contains(".git"), "expected '.git' in: {msg}");
             }
             other => panic!("expected Tool error, got {:?}", other),
@@ -656,7 +717,10 @@ mod tests {
         // Model passes absolute path with workspace root repeated
         let bad = "/home/user/workspace/home/user/workspace/leftist_heap/src/lib.rs";
         let result = normalize_path(&ws, bad);
-        assert_eq!(result, PathBuf::from("/home/user/workspace/leftist_heap/src/lib.rs"));
+        assert_eq!(
+            result,
+            PathBuf::from("/home/user/workspace/leftist_heap/src/lib.rs")
+        );
     }
 
     #[test]
@@ -664,7 +728,10 @@ mod tests {
         let ws = PathBuf::from("/home/user/workspace");
         let normal = "/home/user/workspace/trie/src/lib.rs";
         let result = normalize_path(&ws, normal);
-        assert_eq!(result, PathBuf::from("/home/user/workspace/trie/src/lib.rs"));
+        assert_eq!(
+            result,
+            PathBuf::from("/home/user/workspace/trie/src/lib.rs")
+        );
     }
 
     #[test]
@@ -672,7 +739,10 @@ mod tests {
         let ws = PathBuf::from("/home/user/workspace");
         let rel = "trie/src/lib.rs";
         let result = normalize_path(&ws, rel);
-        assert_eq!(result, PathBuf::from("/home/user/workspace/trie/src/lib.rs"));
+        assert_eq!(
+            result,
+            PathBuf::from("/home/user/workspace/trie/src/lib.rs")
+        );
     }
 
     #[test]
@@ -697,11 +767,7 @@ mod tests {
         ];
         for p in cases {
             let result = validate_file_write(Path::new(p));
-            assert!(
-                result.is_err(),
-                "Expected .git write to be blocked: {}",
-                p
-            );
+            assert!(result.is_err(), "Expected .git write to be blocked: {}", p);
             assert!(result.unwrap_err().contains(".git"));
         }
     }
@@ -749,11 +815,7 @@ mod tests {
         ];
         for p in system_paths {
             let result = validate_file_write(Path::new(p));
-            assert!(
-                result.is_err(),
-                "Expected system path {} to be blocked",
-                p
-            );
+            assert!(result.is_err(), "Expected system path {} to be blocked", p);
             assert!(result.unwrap_err().contains("system directory"));
         }
     }
@@ -868,10 +930,7 @@ mod tests {
         // `/etc/` prefix blocks writes to /etc. But a path like
         // "/home/user/etc/config" should NOT be blocked — /etc/ is the
         // start-of-string match, not a substring.
-        let allowed = [
-            "/home/user/etc/config.toml",
-            "/opt/pawan/etc/overrides.yml",
-        ];
+        let allowed = ["/home/user/etc/config.toml", "/opt/pawan/etc/overrides.yml"];
         for p in allowed {
             let result = validate_file_write(Path::new(p));
             assert!(

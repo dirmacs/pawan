@@ -1,5 +1,5 @@
-use super::run_git;
 use super::super::Tool;
+use super::run_git;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -52,10 +52,20 @@ impl Tool for GitAddTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("git_add")
             .description(self.description())
-            .parameter(Parameter::builder("files").param_type(ParameterType::Array).required(false)
-                .description("List of files to stage. Use [\".\"] to stage all changes.").build())
-            .parameter(Parameter::builder("all").param_type(ParameterType::Boolean).required(false)
-                .description("Stage all changes including untracked files (-A)").build())
+            .parameter(
+                Parameter::builder("files")
+                    .param_type(ParameterType::Array)
+                    .required(false)
+                    .description("List of files to stage. Use [\".\"] to stage all changes.")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("all")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Stage all changes including untracked files (-A)")
+                    .build(),
+            )
             .build()
     }
 
@@ -155,10 +165,20 @@ impl Tool for GitCommitTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("git_commit")
             .description(self.description())
-            .parameter(Parameter::builder("message").param_type(ParameterType::String).required(true)
-                .description("Commit message (required)").build())
-            .parameter(Parameter::builder("body").param_type(ParameterType::String).required(false)
-                .description("Extended commit body (optional)").build())
+            .parameter(
+                Parameter::builder("message")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Commit message (required)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("body")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Extended commit body (optional)")
+                    .build(),
+            )
             .build()
     }
 

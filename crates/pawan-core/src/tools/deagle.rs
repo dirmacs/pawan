@@ -578,9 +578,10 @@ impl Tool for DeagleMapTool {
         let workspace_root = self.workspace_root.clone();
         // Run the CPU-bound walk+parse+insert on a blocking thread so it
         // doesn't stall the tokio runtime.
-        let result = tokio::task::spawn_blocking(move || map_directory(&workspace_root, &index_root))
-            .await
-            .map_err(|e| crate::PawanError::Tool(format!("deagle map join: {}", e)))??;
+        let result =
+            tokio::task::spawn_blocking(move || map_directory(&workspace_root, &index_root))
+                .await
+                .map_err(|e| crate::PawanError::Tool(format!("deagle map join: {}", e)))??;
 
         Ok(json!({
             "output": result,
@@ -786,7 +787,13 @@ mod tests {
         let names: std::collections::HashSet<String> =
             tools.iter().map(|t| t.name().to_string()).collect();
         assert_eq!(names.len(), 5);
-        for expected in &["deagle_search", "deagle_keyword", "deagle_sg", "deagle_stats", "deagle_map"] {
+        for expected in &[
+            "deagle_search",
+            "deagle_keyword",
+            "deagle_sg",
+            "deagle_stats",
+            "deagle_map",
+        ] {
             assert!(names.contains(*expected), "missing {}", expected);
         }
     }
@@ -870,9 +877,9 @@ mod tests {
     fn test_deagle_map_schema_has_no_required() {
         let tool = DeagleMapTool::new(PathBuf::from("."));
         let schema = tool.parameters_schema();
-        let has_required = schema.get("required").is_some_and(|r| {
-            r.as_array().map(|a| !a.is_empty()).unwrap_or(false)
-        });
+        let has_required = schema
+            .get("required")
+            .is_some_and(|r| r.as_array().map(|a| !a.is_empty()).unwrap_or(false));
         assert!(!has_required);
     }
 

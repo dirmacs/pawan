@@ -1,12 +1,11 @@
 // Integration tests for session lifecycle features
 
+use pawan::agent::session::{prune_sessions, search_sessions, RetentionPolicy, Session};
 use pawan::agent::{Message, Role, ToolCallRequest, ToolResultMessage};
-use pawan::agent::session::{Session, RetentionPolicy, search_sessions, prune_sessions};
-use pawan::{Result, PawanError};
-use std::thread;
+use pawan::{PawanError, Result};
+use serial_test::serial;
 use std::time::Duration;
 use tempfile::tempdir;
-use serial_test::serial;
 
 #[test]
 #[serial]
@@ -14,7 +13,7 @@ fn roundtrip_save_load() -> Result<()> {
     let prev_home = std::env::var("HOME").ok();
     let tmp = tempdir()?;
     std::env::set_var("HOME", tmp.path());
-    
+
     let mut sess = Session::new("gpt-4");
     sess.add_tag("test").ok(); // ensure tags work
     sess.messages.push(Message {
@@ -28,10 +27,10 @@ fn roundtrip_save_load() -> Result<()> {
     assert_eq!(sess.id, loaded.id);
     assert_eq!(sess.model, loaded.model);
     assert_eq!(sess.messages, loaded.messages);
-    
+
     // cleanup
     std::fs::remove_file(path).ok();
-    
+
     // Restore original HOME
     if let Some(h) = prev_home {
         std::env::set_var("HOME", h);
@@ -103,7 +102,7 @@ fn tool_call_preservation_roundtrip() -> Result<()> {
     let prev_home = std::env::var("HOME").ok();
     let tmp = tempdir()?;
     std::env::set_var("HOME", tmp.path());
-    
+
     let mut sess = Session::new("gpt-4");
     let tool_call = ToolCallRequest {
         id: "call1".into(),
@@ -130,13 +129,25 @@ fn tool_call_preservation_roundtrip() -> Result<()> {
     assert_eq!(loaded_msg.tool_calls.len(), orig_msg.tool_calls.len());
     assert_eq!(loaded_msg.tool_calls[0].id, orig_msg.tool_calls[0].id);
     assert_eq!(loaded_msg.tool_calls[0].name, orig_msg.tool_calls[0].name);
-    assert_eq!(loaded_msg.tool_calls[0].arguments, orig_msg.tool_calls[0].arguments);
-    assert_eq!(loaded_msg.tool_result.as_ref().unwrap().tool_call_id, orig_msg.tool_result.as_ref().unwrap().tool_call_id);
-    assert_eq!(loaded_msg.tool_result.as_ref().unwrap().content, orig_msg.tool_result.as_ref().unwrap().content);
-    assert_eq!(loaded_msg.tool_result.as_ref().unwrap().success, orig_msg.tool_result.as_ref().unwrap().success);
-    
+    assert_eq!(
+        loaded_msg.tool_calls[0].arguments,
+        orig_msg.tool_calls[0].arguments
+    );
+    assert_eq!(
+        loaded_msg.tool_result.as_ref().unwrap().tool_call_id,
+        orig_msg.tool_result.as_ref().unwrap().tool_call_id
+    );
+    assert_eq!(
+        loaded_msg.tool_result.as_ref().unwrap().content,
+        orig_msg.tool_result.as_ref().unwrap().content
+    );
+    assert_eq!(
+        loaded_msg.tool_result.as_ref().unwrap().success,
+        orig_msg.tool_result.as_ref().unwrap().success
+    );
+
     std::fs::remove_file(path).ok();
-    
+
     // Restore original HOME
     if let Some(h) = prev_home {
         std::env::set_var("HOME", h);
@@ -165,10 +176,20 @@ fn search_sessions_multiple_results() -> Result<()> {
     std::env::set_var("HOME", tmp.path());
     // create two sessions with distinct content
     let mut s1 = Session::new("m1");
-    s1.messages.push(Message { role: Role::User, content: "unique term alpha".into(), tool_calls: vec![], tool_result: None });
+    s1.messages.push(Message {
+        role: Role::User,
+        content: "unique term alpha".into(),
+        tool_calls: vec![],
+        tool_result: None,
+    });
     s1.save()?;
     let mut s2 = Session::new("m2");
-    s2.messages.push(Message { role: Role::User, content: "beta content".into(), tool_calls: vec![], tool_result: None });
+    s2.messages.push(Message {
+        role: Role::User,
+        content: "beta content".into(),
+        tool_calls: vec![],
+        tool_result: None,
+    });
     s2.save()?;
     let results = search_sessions("alpha").unwrap();
     assert_eq!(results.len(), 1);
@@ -193,12 +214,20 @@ fn prune_sessions_respects_policy() -> Result<()> {
     for i in 0..3 {
         let mut s = Session::new("m");
         s.id = format!("sess{}", i);
-        s.updated_at = format!("2020-01-0{}T00:00:00Z", i+1);
+        s.updated_at = format!("2020-01-0{}T00:00:00Z", i + 1);
         let path = dir.join(format!("{}.json", s.id));
-        std::fs::write(&path, serde_json::to_string_pretty(&s).map_err(|e| PawanError::Config(format!("JSON serialize error: {}", e)))?)?;
+        std::fs::write(
+            &path,
+            serde_json::to_string_pretty(&s)
+                .map_err(|e| PawanError::Config(format!("JSON serialize error: {}", e)))?,
+        )?;
     }
     // keep only most recent (max_sessions = 1)
-    let policy = RetentionPolicy { max_age_days: None, max_sessions: Some(1), keep_tags: vec![] };
+    let policy = RetentionPolicy {
+        max_age_days: None,
+        max_sessions: Some(1),
+        keep_tags: vec![],
+    };
     let deleted = prune_sessions(&policy)?;
     assert_eq!(deleted, 2);
     let list = Session::list()?;

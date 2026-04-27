@@ -5,8 +5,8 @@
 //!   - `mise`          — MiseTool, ZoxideTool
 //!   - `lsp_tool`      — AstGrepTool, LspTool
 
-pub use super::native_search::{
-    RipgrepTool, FdTool, SdTool, ErdTool, GrepSearchTool, GlobSearchTool,
-};
-pub use super::mise::{MiseTool, ZoxideTool};
 pub use super::lsp_tool::{AstGrepTool, LspTool};
+pub use super::mise::{MiseTool, ZoxideTool};
+pub use super::native_search::{
+    ErdTool, FdTool, GlobSearchTool, GrepSearchTool, RipgrepTool, SdTool,
+};

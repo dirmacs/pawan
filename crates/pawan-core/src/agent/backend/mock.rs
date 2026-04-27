@@ -17,12 +17,12 @@
 //! ```
 
 use crate::agent::backend::LlmBackend;
-use crate::agent::{LLMResponse, Message, ToolCallRequest, TokenCallback, TokenUsage};
-#[allow(unused_imports)]
-use serde_json::json;
+use crate::agent::{LLMResponse, Message, TokenCallback, TokenUsage, ToolCallRequest};
 use crate::tools::ToolDefinition;
 use crate::Result;
 use async_trait::async_trait;
+#[allow(unused_imports)]
+use serde_json::json;
 use serde_json::Value;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -132,11 +132,14 @@ impl MockScenario {
             ],
             Self::EditRoundtrip => vec![
                 MockResponse::tool_call("read_file", serde_json::json!({"path": "test.rs"})),
-                MockResponse::tool_call("edit_file", serde_json::json!({
-                    "path": "test.rs",
-                    "old_string": "old",
-                    "new_string": "new"
-                })),
+                MockResponse::tool_call(
+                    "edit_file",
+                    serde_json::json!({
+                        "path": "test.rs",
+                        "old_string": "old",
+                        "new_string": "new"
+                    }),
+                ),
                 MockResponse::text("Edit complete."),
             ],
         }
@@ -305,7 +308,10 @@ mod tests {
             tool_calls: vec![],
             tool_result: None,
         }];
-        assert_eq!(MockScenario::detect(&messages), Some(MockScenario::TextOnly));
+        assert_eq!(
+            MockScenario::detect(&messages),
+            Some(MockScenario::TextOnly)
+        );
     }
 
     #[test]
@@ -316,7 +322,10 @@ mod tests {
             tool_calls: vec![],
             tool_result: None,
         }];
-        assert_eq!(MockScenario::detect(&messages), Some(MockScenario::ReadFileRoundtrip));
+        assert_eq!(
+            MockScenario::detect(&messages),
+            Some(MockScenario::ReadFileRoundtrip)
+        );
     }
 
     #[test]
@@ -352,7 +361,9 @@ mod tests {
     fn test_scenario_responses_read_file() {
         let responses = MockScenario::ReadFileRoundtrip.responses();
         assert_eq!(responses.len(), 2);
-        assert!(matches!(&responses[0], MockResponse::ToolCall { name, .. } if name == "read_file"));
+        assert!(
+            matches!(&responses[0], MockResponse::ToolCall { name, .. } if name == "read_file")
+        );
         assert!(matches!(&responses[1], MockResponse::Text(_)));
     }
 
@@ -367,8 +378,12 @@ mod tests {
     fn test_scenario_responses_edit_roundtrip() {
         let responses = MockScenario::EditRoundtrip.responses();
         assert_eq!(responses.len(), 3);
-        assert!(matches!(&responses[0], MockResponse::ToolCall { name, .. } if name == "read_file"));
-        assert!(matches!(&responses[1], MockResponse::ToolCall { name, .. } if name == "edit_file"));
+        assert!(
+            matches!(&responses[0], MockResponse::ToolCall { name, .. } if name == "read_file")
+        );
+        assert!(
+            matches!(&responses[1], MockResponse::ToolCall { name, .. } if name == "edit_file")
+        );
         assert!(matches!(&responses[2], MockResponse::Text(_)));
     }
 

@@ -7,7 +7,9 @@
 //! that provide structured JSON output and auto-install hints.
 
 pub mod agent;
+pub mod ares_bridge;
 pub mod bash;
+pub mod batch;
 #[cfg(feature = "deagle")]
 pub mod deagle;
 pub mod edit;
@@ -17,10 +19,10 @@ pub mod file;
 pub mod git;
 pub mod lsp_tool;
 pub mod mise;
-pub mod native_search;
 pub mod native;
+pub mod native_search;
 pub mod search;
-pub mod ares_bridge;
+pub mod task;
 
 use async_trait::async_trait;
 use serde_json::Value;
@@ -125,47 +127,154 @@ impl ToolRegistry {
 
         // ── Core tier: always visible to LLM ──
         registry.register_with_tier(Arc::new(bash::BashTool::new(workspace_root.clone())), Core);
-        registry.register_with_tier(Arc::new(file::ReadFileTool::new(workspace_root.clone())), Core);
-        registry.register_with_tier(Arc::new(file::WriteFileTool::new(workspace_root.clone())), Core);
-        registry.register_with_tier(Arc::new(edit::EditFileTool::new(workspace_root.clone())), Core);
-        registry.register_with_tier(Arc::new(native::AstGrepTool::new(workspace_root.clone())), Core);
-        registry.register_with_tier(Arc::new(native::GlobSearchTool::new(workspace_root.clone())), Core);
-        registry.register_with_tier(Arc::new(native::GrepSearchTool::new(workspace_root.clone())), Core);
+        registry.register_with_tier(
+            Arc::new(file::ReadFileTool::new(workspace_root.clone())),
+            Core,
+        );
+        registry.register_with_tier(
+            Arc::new(file::WriteFileTool::new(workspace_root.clone())),
+            Core,
+        );
+        registry.register_with_tier(
+            Arc::new(edit::EditFileTool::new(workspace_root.clone())),
+            Core,
+        );
+        registry.register_with_tier(
+            Arc::new(native::AstGrepTool::new(workspace_root.clone())),
+            Core,
+        );
+        registry.register_with_tier(
+            Arc::new(native::GlobSearchTool::new(workspace_root.clone())),
+            Core,
+        );
+        registry.register_with_tier(
+            Arc::new(native::GrepSearchTool::new(workspace_root.clone())),
+            Core,
+        );
 
         // ── Standard tier: visible by default ──
-        registry.register_with_tier(Arc::new(file::ListDirectoryTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(edit::EditFileLinesTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(edit::InsertAfterTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(edit::AppendFileTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(git::GitStatusTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(git::GitDiffTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(git::GitAddTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(git::GitCommitTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(git::GitLogTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(git::GitBlameTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(git::GitBranchTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(git::GitCheckoutTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(git::GitStashTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(agent::SpawnAgentsTool::new(workspace_root.clone())), Standard);
-        registry.register_with_tier(Arc::new(agent::SpawnAgentTool::new(workspace_root.clone())), Standard);
+        registry.register_with_tier(
+            Arc::new(file::ListDirectoryTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(edit::EditFileLinesTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(edit::InsertAfterTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(edit::AppendFileTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(git::GitStatusTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(git::GitDiffTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(git::GitAddTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(git::GitCommitTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(git::GitLogTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(git::GitBlameTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(git::GitBranchTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(git::GitCheckoutTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(git::GitStashTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(agent::SpawnAgentsTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(agent::SpawnAgentTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(batch::BatchTool::new(workspace_root.clone())),
+            Standard,
+        );
+        registry.register_with_tier(
+            Arc::new(task::TaskTool::new(workspace_root.clone())),
+            Standard,
+        );
 
         // ── Extended tier: hidden until first use ──
-        registry.register_with_tier(Arc::new(native::RipgrepTool::new(workspace_root.clone())), Extended);
-        registry.register_with_tier(Arc::new(native::FdTool::new(workspace_root.clone())), Extended);
-        registry.register_with_tier(Arc::new(native::SdTool::new(workspace_root.clone())), Extended);
-        registry.register_with_tier(Arc::new(native::ErdTool::new(workspace_root.clone())), Extended);
-        registry.register_with_tier(Arc::new(native::MiseTool::new(workspace_root.clone())), Extended);
-        registry.register_with_tier(Arc::new(native::ZoxideTool::new(workspace_root.clone())), Extended);
-        registry.register_with_tier(Arc::new(native::LspTool::new(workspace_root.clone())), Extended);
+        registry.register_with_tier(
+            Arc::new(native::RipgrepTool::new(workspace_root.clone())),
+            Extended,
+        );
+        registry.register_with_tier(
+            Arc::new(native::FdTool::new(workspace_root.clone())),
+            Extended,
+        );
+        registry.register_with_tier(
+            Arc::new(native::SdTool::new(workspace_root.clone())),
+            Extended,
+        );
+        registry.register_with_tier(
+            Arc::new(native::ErdTool::new(workspace_root.clone())),
+            Extended,
+        );
+        registry.register_with_tier(
+            Arc::new(native::MiseTool::new(workspace_root.clone())),
+            Extended,
+        );
+        registry.register_with_tier(
+            Arc::new(native::ZoxideTool::new(workspace_root.clone())),
+            Extended,
+        );
+        registry.register_with_tier(
+            Arc::new(native::LspTool::new(workspace_root.clone())),
+            Extended,
+        );
 
         // ── Deagle code intelligence (Extended, feature-gated) ──
         #[cfg(feature = "deagle")]
         {
-            registry.register_with_tier(Arc::new(deagle::DeagleSearchTool::new(workspace_root.clone())), Extended);
-            registry.register_with_tier(Arc::new(deagle::DeagleKeywordTool::new(workspace_root.clone())), Extended);
-            registry.register_with_tier(Arc::new(deagle::DeagleSgTool::new(workspace_root.clone())), Extended);
-            registry.register_with_tier(Arc::new(deagle::DeagleStatsTool::new(workspace_root.clone())), Extended);
-            registry.register_with_tier(Arc::new(deagle::DeagleMapTool::new(workspace_root)), Extended);
+            registry.register_with_tier(
+                Arc::new(deagle::DeagleSearchTool::new(workspace_root.clone())),
+                Extended,
+            );
+            registry.register_with_tier(
+                Arc::new(deagle::DeagleKeywordTool::new(workspace_root.clone())),
+                Extended,
+            );
+            registry.register_with_tier(
+                Arc::new(deagle::DeagleSgTool::new(workspace_root.clone())),
+                Extended,
+            );
+            registry.register_with_tier(
+                Arc::new(deagle::DeagleStatsTool::new(workspace_root.clone())),
+                Extended,
+            );
+            registry.register_with_tier(
+                Arc::new(deagle::DeagleMapTool::new(workspace_root)),
+                Extended,
+            );
         }
 
         registry
@@ -210,9 +319,15 @@ impl ToolRegistry {
     /// Extended tools become visible after first use or explicit activation.
     pub fn get_definitions(&self) -> Vec<ToolDefinition> {
         let activated = self.activated.lock().unwrap_or_else(|e| e.into_inner());
-        self.tools.iter()
+        self.tools
+            .iter()
             .filter(|(name, _)| {
-                match self.tiers.get(name.as_str()).copied().unwrap_or(ToolTier::Standard) {
+                match self
+                    .tiers
+                    .get(name.as_str())
+                    .copied()
+                    .unwrap_or(ToolTier::Standard)
+                {
                     ToolTier::Core | ToolTier::Standard => true,
                     ToolTier::Extended => activated.contains(name.as_str()),
                 }
@@ -233,42 +348,94 @@ impl ToolRegistry {
         let mut scored: Vec<(i32, String)> = Vec::new();
 
         for name in self.tools.keys() {
-            let tier = self.tiers.get(name.as_str()).copied().unwrap_or(ToolTier::Standard);
+            let tier = self
+                .tiers
+                .get(name.as_str())
+                .copied()
+                .unwrap_or(ToolTier::Standard);
 
             // Core tools always included — skip scoring
-            if tier == ToolTier::Core { continue; }
+            if tier == ToolTier::Core {
+                continue;
+            }
 
             // Score based on keyword overlap — use precomputed cache
-            let tool_text = self.tool_text_cache.get(name.as_str())
+            let tool_text = self
+                .tool_text_cache
+                .get(name.as_str())
                 .map(|s| s.as_str())
                 .unwrap_or("");
             let mut score: i32 = 0;
 
             for word in &query_words {
-                if word.len() < 3 { continue; } // skip short words
-                if tool_text.contains(word) { score += 2; }
+                if word.len() < 3 {
+                    continue;
+                } // skip short words
+                if tool_text.contains(word) {
+                    score += 2;
+                }
             }
 
             // Bonus for keyword categories
-            let search_words = ["search", "find", "web", "query", "look", "google", "bing", "wikipedia"];
-            let git_words = ["git", "commit", "branch", "diff", "status", "log", "stash", "checkout", "blame"];
-            let file_words = ["file", "read", "write", "edit", "append", "insert", "directory", "list"];
-            let code_words = ["refactor", "rename", "replace", "ast", "lsp", "symbol", "function", "struct"];
-            let tool_words = ["install", "mise", "tool", "runtime", "build", "test", "cargo"];
+            let search_words = [
+                "search",
+                "find",
+                "web",
+                "query",
+                "look",
+                "google",
+                "bing",
+                "wikipedia",
+            ];
+            let git_words = [
+                "git", "commit", "branch", "diff", "status", "log", "stash", "checkout", "blame",
+            ];
+            let file_words = [
+                "file",
+                "read",
+                "write",
+                "edit",
+                "append",
+                "insert",
+                "directory",
+                "list",
+            ];
+            let code_words = [
+                "refactor", "rename", "replace", "ast", "lsp", "symbol", "function", "struct",
+            ];
+            let tool_words = [
+                "install", "mise", "tool", "runtime", "build", "test", "cargo",
+            ];
 
             for word in &query_words {
-                if search_words.contains(word) && tool_text.contains("search") { score += 3; }
-                if git_words.contains(word) && tool_text.contains("git") { score += 3; }
-                if file_words.contains(word) && (tool_text.contains("file") || tool_text.contains("edit")) { score += 3; }
-                if code_words.contains(word) && (tool_text.contains("ast") || tool_text.contains("lsp")) { score += 3; }
-                if tool_words.contains(word) && tool_text.contains("mise") { score += 3; }
+                if search_words.contains(word) && tool_text.contains("search") {
+                    score += 3;
+                }
+                if git_words.contains(word) && tool_text.contains("git") {
+                    score += 3;
+                }
+                if file_words.contains(word)
+                    && (tool_text.contains("file") || tool_text.contains("edit"))
+                {
+                    score += 3;
+                }
+                if code_words.contains(word)
+                    && (tool_text.contains("ast") || tool_text.contains("lsp"))
+                {
+                    score += 3;
+                }
+                if tool_words.contains(word) && tool_text.contains("mise") {
+                    score += 3;
+                }
             }
 
             // MCP tools get a boost — especially web search when query mentions web/internet/online
             if name.starts_with("mcp_") {
                 score += 1;
                 if name.contains("search") || name.contains("web") {
-                    let web_words = ["web", "search", "internet", "online", "find", "look up", "google"];
+                    let web_words = [
+                        "web", "search", "internet", "online", "find", "look up", "google",
+                    ];
                     if web_words.iter().any(|w| query_lower.contains(w)) {
                         score += 10; // Strong boost — this is what the user wants
                     }
@@ -277,7 +444,9 @@ impl ToolRegistry {
 
             // Activated extended tools get a boost (user has used them before)
             let activated = self.activated.lock().unwrap_or_else(|e| e.into_inner());
-            if tier == ToolTier::Extended && activated.contains(name.as_str()) { score += 2; }
+            if tier == ToolTier::Extended && activated.contains(name.as_str()) {
+                score += 2;
+            }
 
             if score > 0 || tier == ToolTier::Standard {
                 scored.push((score, name.clone()));
@@ -288,9 +457,15 @@ impl ToolRegistry {
         scored.sort_by(|a, b| b.0.cmp(&a.0));
 
         // Collect: all Core tools + top-K scored tools
-        let mut result: Vec<ToolDefinition> = self.tools.iter()
+        let mut result: Vec<ToolDefinition> = self
+            .tools
+            .iter()
             .filter(|(name, _)| {
-                self.tiers.get(name.as_str()).copied().unwrap_or(ToolTier::Standard) == ToolTier::Core
+                self.tiers
+                    .get(name.as_str())
+                    .copied()
+                    .unwrap_or(ToolTier::Standard)
+                    == ToolTier::Core
             })
             .map(|(_, tool)| tool.thulp_definition())
             .collect();
@@ -313,7 +488,10 @@ impl ToolRegistry {
     /// Activate an extended tool (makes it visible to the LLM)
     pub fn activate(&self, name: &str) {
         if self.tools.contains_key(name) {
-            self.activated.lock().unwrap_or_else(|e| e.into_inner()).insert(name.to_string());
+            self.activated
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .insert(name.to_string());
         }
     }
 
@@ -378,7 +556,14 @@ mod tests {
     fn test_registry_with_defaults_contains_core_tools() {
         let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
         // Must include core tools that are always visible to the LLM
-        for name in &["bash", "read_file", "write_file", "edit_file", "grep_search", "glob_search"] {
+        for name in &[
+            "bash",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "grep_search",
+            "glob_search",
+        ] {
             assert!(
                 registry.has_tool(name),
                 "default registry missing core tool: {}",
@@ -403,8 +588,14 @@ mod tests {
             .collect();
 
         // Extended tools must NOT be in initial visible list
-        assert!(!initial.contains(&"rg".to_string()), "rg should be hidden until activated");
-        assert!(!initial.contains(&"fd".to_string()), "fd should be hidden until activated");
+        assert!(
+            !initial.contains(&"rg".to_string()),
+            "rg should be hidden until activated"
+        );
+        assert!(
+            !initial.contains(&"fd".to_string()),
+            "fd should be hidden until activated"
+        );
         // Core tools must be present
         assert!(initial.contains(&"bash".to_string()));
         assert!(initial.contains(&"read_file".to_string()));
@@ -416,8 +607,14 @@ mod tests {
             .iter()
             .map(|d| d.name.clone())
             .collect();
-        assert!(after.contains(&"rg".to_string()), "rg should be visible after activate");
-        assert!(after.len() > initial.len(), "activation should grow visible set");
+        assert!(
+            after.contains(&"rg".to_string()),
+            "rg should be visible after activate"
+        );
+        assert!(
+            after.len() > initial.len(),
+            "activation should grow visible set"
+        );
     }
 
     #[test]
@@ -532,7 +729,9 @@ mod tests {
             1,
             "register_with_tier of an existing name must replace, not duplicate"
         );
-        let def = registry.get("dup").expect("dup should exist after overwrite");
+        let def = registry
+            .get("dup")
+            .expect("dup should exist after overwrite");
         assert_eq!(def.description(), "second registration");
         // Tier was upgraded to Core — must remain visible without explicit activation.
         let visible: Vec<String> = registry
@@ -568,7 +767,11 @@ mod tests {
             .expect_err("execute on missing tool should fail");
         match err {
             crate::PawanError::NotFound(msg) => {
-                assert!(msg.contains("nonexistent_tool"), "error should name the missing tool, got: {}", msg);
+                assert!(
+                    msg.contains("nonexistent_tool"),
+                    "error should name the missing tool, got: {}",
+                    msg
+                );
             }
             other => panic!("expected PawanError::NotFound, got: {:?}", other),
         }
@@ -581,7 +784,15 @@ mod tests {
         // the LLM should never lose access to its file/bash/grep/glob primitives.
         let selected = registry.select_for_query("xyzzy plover", 5);
         let names: Vec<String> = selected.iter().map(|d| d.name.clone()).collect();
-        for core in &["bash", "read_file", "write_file", "edit_file", "grep_search", "glob_search", "ast_grep"] {
+        for core in &[
+            "bash",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "grep_search",
+            "glob_search",
+            "ast_grep",
+        ] {
             assert!(
                 names.contains(&core.to_string()),
                 "select_for_query must include core tool {} regardless of query, got {:?}",

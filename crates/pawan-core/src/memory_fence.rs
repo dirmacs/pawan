@@ -3,6 +3,7 @@
 use crate::memory::{Memory, MemoryStore, now_rfc3339};
 use crate::{PawanError, Result};
 use std::cmp::Ordering;
+use std::collections::HashSet;
 
 /// Maximum key length in Unicode scalar values (after sanitization).
 pub const MAX_KEY_CHARS: usize = 256;
@@ -84,6 +85,21 @@ impl SessionScopedMemory {
             .into_iter()
             .filter(|m| m.source_session == self.session_id || m.is_shared())
             .collect();
+
+        let mut seen: HashSet<String> = hits.iter().map(|m| m.key.clone()).collect();
+        if let Ok(keys) = self.store.list() {
+            for k in keys {
+                if seen.contains(&k) {
+                    continue;
+                }
+                if let Ok(m) = self.store.load(&k) {
+                    if m.is_shared() {
+                        seen.insert(m.key.clone());
+                        hits.push(m);
+                    }
+                }
+            }
+        }
 
         hits.sort_by(|a, b| {
             let s = b
@@ -280,5 +296,42 @@ mod tests {
         assert!(keys.contains(&"note.a"));
         assert!(keys.contains(&"note.b"));
         assert!(!keys.contains(&"note.c"));
+    }
+
+    #[test]
+    fn test_session_scoped_memory_requires_non_empty_session_id() {
+        let dir = TempDir::new().unwrap();
+        let store = MemoryStore::new(dir.path().join("memories"));
+        let scoped = SessionScopedMemory::new(store, String::new());
+        let m = Memory {
+            key: "k".to_string(),
+            content: "c".to_string(),
+            source_session: String::new(),
+            created_at: now_rfc3339(),
+            updated_at: now_rfc3339(),
+            relevance_score: 0.1,
+        };
+        assert!(scoped.save(&m).is_err());
+    }
+
+    #[test]
+    fn test_get_relevant_empty_query_returns_empty() {
+        let dir = TempDir::new().unwrap();
+        let store = MemoryStore::new(dir.path().join("memories"));
+        let scoped = SessionScopedMemory::new(store, "s".to_string());
+        let out = scoped.get_relevant("   ", 10).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn test_sanitize_and_validate_key_edge_cases() {
+        assert_eq!(sanitize_key(""), "");
+        assert_eq!(sanitize_key("a@b"), "ab");
+        assert!(validate_key("valid.key-1_").is_ok());
+        let empty_content = sanitize_content("");
+        assert!(empty_content.is_empty());
+        let big = "x".repeat(MAX_CONTENT_BYTES + 10_000);
+        let capped = sanitize_content(&big);
+        assert!(capped.len() <= MAX_CONTENT_BYTES);
     }
 }

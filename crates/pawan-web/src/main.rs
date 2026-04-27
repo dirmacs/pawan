@@ -6,12 +6,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
-    Router,
-    Json,
     extract::{Path, State},
     http::StatusCode,
     response::sse::{Event, Sse},
     routing::{delete, get, post},
+    Json, Router,
 };
 use futures::stream::Stream;
 use futures::StreamExt;
@@ -20,10 +19,7 @@ use tokio::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 
-use pawan::agent::{
-    PawanAgent, TokenCallback, ToolCallback, ToolStartCallback,
-    ToolCallRecord,
-};
+use pawan::agent::{PawanAgent, TokenCallback, ToolCallRecord, ToolCallback, ToolStartCallback};
 use pawan::config::PawanConfig;
 
 mod sessions;
@@ -142,14 +138,17 @@ fn read_aegis_peers() -> Vec<serde_json::Value> {
         Some(t) => t,
         None => return vec![],
     };
-    peers.iter().map(|(name, config)| {
-        serde_json::json!({
-            "name": name,
-            "agent_id": format!("pawan@{}", name),
-            "ip": config.get("ip").and_then(|v| v.as_str()),
-            "groups": config.get("groups").and_then(|v| v.as_array()),
+    peers
+        .iter()
+        .map(|(name, config)| {
+            serde_json::json!({
+                "name": name,
+                "agent_id": format!("pawan@{}", name),
+                "ip": config.get("ip").and_then(|v| v.as_str()),
+                "groups": config.get("groups").and_then(|v| v.as_array()),
+            })
         })
-    }).collect()
+        .collect()
 }
 
 async fn models_handler(State(state): State<AppState>) -> Json<ModelsResponse> {
@@ -174,7 +173,9 @@ async fn chat_handler(
     State(state): State<AppState>,
     Json(req): Json<ChatRequest>,
 ) -> Result<Json<ChatResponse>, (StatusCode, String)> {
-    let session_id = req.session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let session_id = req
+        .session_id
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
 
     let mut agents = state.agents.write().await;
     let agent = agents.entry(session_id.clone()).or_insert_with(|| {
@@ -197,7 +198,9 @@ async fn chat_stream_handler(
     State(state): State<AppState>,
     Json(req): Json<ChatRequest>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    let session_id = req.session_id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    let session_id = req
+        .session_id
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let message = req.message.clone();
     let config = (*state.config).clone();
     let workspace = state.workspace.clone();
@@ -249,14 +252,15 @@ async fn chat_stream_handler(
             Ok(response) => {
                 let _ = agent.save_session();
                 let _ = agent.archive_to_eruka().await;
-                let event = Event::default()
-                    .event("done")
-                    .data(serde_json::json!({
+                let event = Event::default().event("done").data(
+                    serde_json::json!({
                         "session_id": sid,
                         "content": response.content,
                         "iterations": response.iterations,
                         "tool_calls": response.tool_calls.len(),
-                    }).to_string());
+                    })
+                    .to_string(),
+                );
                 let _ = tx.send(event).await;
             }
             Err(e) => {
@@ -273,7 +277,8 @@ async fn chat_stream_handler(
     Sse::new(stream)
 }
 
-async fn list_sessions_handler() -> Result<Json<Vec<sessions::SessionSummary>>, (StatusCode, String)> {
+async fn list_sessions_handler() -> Result<Json<Vec<sessions::SessionSummary>>, (StatusCode, String)>
+{
     sessions::list_sessions()
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
@@ -436,11 +441,7 @@ mod tests {
     async fn test_create_session_returns_id() {
         let app = build_test_router(test_state());
         let resp = app
-            .oneshot(
-                Request::post("/api/sessions")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
+            .oneshot(Request::post("/api/sessions").body(Body::empty()).unwrap())
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -572,7 +573,11 @@ mod tests {
             .with_state(state);
 
         let resp = app
-            .oneshot(Request::get("/api/sessions/nonexistent-id").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::get("/api/sessions/nonexistent-id")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -587,7 +592,11 @@ mod tests {
             .with_state(state);
 
         let resp = app
-            .oneshot(Request::delete("/api/sessions/nonexistent-id").body(Body::empty()).unwrap())
+            .oneshot(
+                Request::delete("/api/sessions/nonexistent-id")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -616,7 +625,9 @@ mod tests {
 
         // Both GET and POST are valid for /api/sessions, so this test doesn't apply
         // The router has both handlers for this path
-        assert!(resp.status() == StatusCode::OK || resp.status() == StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(
+            resp.status() == StatusCode::OK || resp.status() == StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 
     #[tokio::test]
@@ -636,9 +647,8 @@ mod tests {
             .await
             .unwrap();
 
-
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-}
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
     #[tokio::test]
     async fn test_missing_content_type() {
         let state = test_state();
@@ -656,16 +666,19 @@ mod tests {
             .unwrap();
 
         // Without content-type header, should fail to parse
-        assert!(resp.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE || resp.status() == StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(
+            resp.status() == StatusCode::UNSUPPORTED_MEDIA_TYPE
+                || resp.status() == StatusCode::UNPROCESSABLE_ENTITY
+        );
     }
 
     #[tokio::test]
     async fn test_models_with_fallback_models() {
         use pawan::config::PawanConfig;
-        
+
         let mut config = PawanConfig::default();
         config.fallback_models = vec!["fallback-1".to_string(), "fallback-2".to_string()];
-        
+
         let state = AppState {
             agents: Arc::new(RwLock::new(HashMap::new())),
             config: Arc::new(config),
@@ -673,7 +686,7 @@ mod tests {
             agent_id: "test".to_string(),
             start_time: std::time::Instant::now(),
         };
-        
+
         let app = Router::new()
             .route("/api/models", get(models_handler))
             .with_state(state);
@@ -699,14 +712,21 @@ mod tests {
             .route("/api/health", get(health_handler))
             .with_state(state);
 
-        let resp1 = app.clone().oneshot(Request::get("/api/health").body(Body::empty()).unwrap()).await.unwrap();
+        let resp1 = app
+            .clone()
+            .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
         let json1 = body_json(resp1).await;
         let uptime1 = json1["uptime_secs"].as_u64().unwrap();
 
         // Small delay to ensure uptime increases
         tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
-        let resp2 = app.oneshot(Request::get("/api/health").body(Body::empty()).unwrap()).await.unwrap();
+        let resp2 = app
+            .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
         let json2 = body_json(resp2).await;
         let uptime2 = json2["uptime_secs"].as_u64().unwrap();
 
@@ -736,7 +756,7 @@ mod tests {
             .allow_origin(tower_http::cors::Any)
             .allow_methods(tower_http::cors::Any)
             .allow_headers(tower_http::cors::Any);
-        
+
         let app = Router::new()
             .route("/api/health", get(health_handler))
             .layer(cors)

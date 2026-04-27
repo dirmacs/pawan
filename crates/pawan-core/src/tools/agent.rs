@@ -7,11 +7,11 @@ use super::Tool;
 use crate::{PawanError, Result};
 use async_trait::async_trait;
 use serde_json::{json, Value};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::Stdio;
 use tokio::io::AsyncReadExt;
 use tokio::process::Command;
-use std::io::Write;
 use tracing;
 
 /// Tool for spawning a sub-agent (pawan subprocess)
@@ -88,16 +88,41 @@ impl Tool for SpawnAgentTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("spawn_agent")
             .description(self.description())
-            .parameter(Parameter::builder("prompt").param_type(ParameterType::String).required(true)
-                .description("The task/prompt for the sub-agent").build())
-            .parameter(Parameter::builder("model").param_type(ParameterType::String).required(false)
-                .description("Model to use (optional, defaults to parent's model)").build())
-            .parameter(Parameter::builder("timeout").param_type(ParameterType::Integer).required(false)
-                .description("Timeout in seconds (default: 120)").build())
-            .parameter(Parameter::builder("workspace").param_type(ParameterType::String).required(false)
-                .description("Workspace directory for the sub-agent (default: same as parent)").build())
-            .parameter(Parameter::builder("retries").param_type(ParameterType::Integer).required(false)
-                .description("Number of retry attempts on failure (default: 0, max: 2)").build())
+            .parameter(
+                Parameter::builder("prompt")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("The task/prompt for the sub-agent")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("model")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Model to use (optional, defaults to parent's model)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("timeout")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Timeout in seconds (default: 120)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("workspace")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Workspace directory for the sub-agent (default: same as parent)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("retries")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Number of retry attempts on failure (default: 0, max: 2)")
+                    .build(),
+            )
             .build()
     }
 
@@ -143,8 +168,17 @@ impl Tool for SpawnAgentTool {
 
             // Write initial status
             if let Ok(mut f) = std::fs::File::create(&status_path) {
-                let _ = write!(f, r#"{{"state":"running","prompt":"{}","started_at":"{}","attempt":{}}}"#,
-                    prompt.chars().take(100).collect::<String>().replace('"', "'"), started_at, attempt + 1);
+                let _ = write!(
+                    f,
+                    r#"{{"state":"running","prompt":"{}","started_at":"{}","attempt":{}}}"#,
+                    prompt
+                        .chars()
+                        .take(100)
+                        .collect::<String>()
+                        .replace('"', "'"),
+                    started_at,
+                    attempt + 1
+                );
             }
 
             let mut child = cmd.spawn().map_err(|e| {
@@ -177,11 +211,21 @@ impl Tool for SpawnAgentTool {
 
             if status.success() || attempt == max_retries {
                 // Update status file with completion
-                let duration_ms = chrono::Utc::now().signed_duration_since(chrono::DateTime::parse_from_rfc3339(&started_at).unwrap_or_default()).num_milliseconds();
+                let duration_ms = chrono::Utc::now()
+                    .signed_duration_since(
+                        chrono::DateTime::parse_from_rfc3339(&started_at).unwrap_or_default(),
+                    )
+                    .num_milliseconds();
                 if let Ok(mut f) = std::fs::File::create(&status_path) {
                     let state = if status.success() { "done" } else { "failed" };
-                    let _ = write!(f, r#"{{"state":"{}","exit_code":{},"duration_ms":{},"attempt":{}}}"#,
-                        state, status.code().unwrap_or(-1), duration_ms, attempt + 1);
+                    let _ = write!(
+                        f,
+                        r#"{{"state":"{}","exit_code":{},"duration_ms":{},"attempt":{}}}"#,
+                        state,
+                        status.code().unwrap_or(-1),
+                        duration_ms,
+                        attempt + 1
+                    );
                 }
 
                 return Ok(json!({
@@ -194,11 +238,16 @@ impl Tool for SpawnAgentTool {
             }
             // Failed but retries remaining — continue loop
             // Failed but retries remaining — continue loop
-            tracing::warn!(attempt = attempt + 1, "spawn_agent attempt failed, retrying");
+            tracing::warn!(
+                attempt = attempt + 1,
+                "spawn_agent attempt failed, retrying"
+            );
         }
 
         // Should not reach here, but satisfy the compiler
-        Err(PawanError::Tool("spawn_agent: all retry attempts exhausted".into()))
+        Err(PawanError::Tool(
+            "spawn_agent: all retry attempts exhausted".into(),
+        ))
     }
 }
 
@@ -290,9 +339,9 @@ impl Tool for SpawnAgentsTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::TempDir;
     #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
+    use tempfile::TempDir;
     #[test]
     fn test_spawn_agent_tool_name() {
         let tmp = TempDir::new().unwrap();
@@ -313,7 +362,11 @@ mod tests {
         let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
         let schema = tool.parameters_schema();
         assert!(schema["properties"]["prompt"].is_object());
-        assert!(schema["required"].as_array().unwrap().iter().any(|v| v == "prompt"));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == "prompt"));
     }
 
     #[test]
@@ -379,7 +432,10 @@ mod tests {
         let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
         let schema = tool.parameters_schema();
         let required = schema["required"].as_array().unwrap();
-        assert!(required.iter().any(|v| v == "tasks"), "tasks must be required");
+        assert!(
+            required.iter().any(|v| v == "tasks"),
+            "tasks must be required"
+        );
         // tasks should be declared as an array type with an items.required = [prompt]
         let tasks_type = schema["properties"]["tasks"]["type"].as_str();
         assert_eq!(tasks_type, Some("array"));
@@ -417,7 +473,11 @@ mod tests {
         let result = tool.execute(json!({ "prompt": 42 })).await;
         assert!(result.is_err(), "non-string prompt must error");
         let err = format!("{}", result.unwrap_err());
-        assert!(err.contains("prompt"), "error should mention 'prompt', got: {}", err);
+        assert!(
+            err.contains("prompt"),
+            "error should mention 'prompt', got: {}",
+            err
+        );
     }
 
     #[tokio::test]
@@ -429,7 +489,11 @@ mod tests {
         let result = tool.execute(json!({ "tasks": "not an array" })).await;
         assert!(result.is_err(), "non-array tasks must error");
         let err = format!("{}", result.unwrap_err());
-        assert!(err.contains("tasks"), "error should mention 'tasks', got: {}", err);
+        assert!(
+            err.contains("tasks"),
+            "error should mention 'tasks', got: {}",
+            err
+        );
     }
 
     #[test]
@@ -534,10 +598,15 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join("target/release")).unwrap();
         let binary = tmp.path().join("target/release/pawan");
-        std::fs::write(&binary, r"#!/bin/sh
-exit 0").unwrap();
+        std::fs::write(
+            &binary,
+            r"#!/bin/sh
+exit 0",
+        )
+        .unwrap();
         #[cfg(unix)]
-        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
 
         let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
         let result = tool.execute(json!({"prompt": "test"})).await.unwrap();
@@ -549,13 +618,21 @@ exit 0").unwrap();
         let tmp = TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join("target/release")).unwrap();
         let binary = tmp.path().join("target/release/pawan");
-        std::fs::write(&binary, r"#!/bin/sh
-exit 0").unwrap();
+        std::fs::write(
+            &binary,
+            r"#!/bin/sh
+exit 0",
+        )
+        .unwrap();
         #[cfg(unix)]
-        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
 
         let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
-        let result = tool.execute(json!({"prompt": "test", "timeout": 60})).await.unwrap();
+        let result = tool
+            .execute(json!({"prompt": "test", "timeout": 60}))
+            .await
+            .unwrap();
         assert_eq!(result["success"], true);
     }
 
@@ -566,14 +643,17 @@ exit 0").unwrap();
         let binary = tmp.path().join("target/release/pawan");
         std::fs::write(&binary, "#!/bin/sh\necho '{\"content\":\"test response\"}'").unwrap();
         #[cfg(unix)]
-        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
 
         let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
-        let result = tool.execute(json!({"prompt": "test", "model": "gpt-4"})).await.unwrap();
+        let result = tool
+            .execute(json!({"prompt": "test", "model": "gpt-4"}))
+            .await
+            .unwrap();
         assert_eq!(result["success"], true);
         assert_eq!(result["result"]["content"], "test response");
     }
-
 
     #[tokio::test]
     async fn test_spawn_agent_retries_on_failure() {
@@ -588,30 +668,37 @@ exit 0").unwrap();
         );
         std::fs::write(&binary, script).unwrap();
         #[cfg(unix)]
-        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
 
         let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
-        let result = tool.execute(json!({
-            "prompt": "test",
-            "retries": 1
-        })).await.unwrap();
+        let result = tool
+            .execute(json!({
+                "prompt": "test",
+                "retries": 1
+            }))
+            .await
+            .unwrap();
         assert_eq!(result["success"], true);
         assert_eq!(result["attempt"], 2);
         assert_eq!(result["total_attempts"], 2);
     }
-
-
 
     #[tokio::test]
     async fn test_spawn_agent_stderr_captured() {
         let tmp = TempDir::new().unwrap();
         std::fs::create_dir_all(tmp.path().join("target/release")).unwrap();
         let binary = tmp.path().join("target/release/pawan");
-        std::fs::write(&binary, r"#!/bin/sh
+        std::fs::write(
+            &binary,
+            r"#!/bin/sh
 echo 'error message' >&2
-exit 0").unwrap();
+exit 0",
+        )
+        .unwrap();
         #[cfg(unix)]
-        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
 
         let tool = SpawnAgentTool::new(tmp.path().to_path_buf());
         let result = tool.execute(json!({"prompt": "test"})).await.unwrap();
@@ -627,14 +714,18 @@ exit 0").unwrap();
         let binary = tmp.path().join("target/release/pawan");
         std::fs::write(&binary, "#!/bin/sh\necho '{\"result\":\"done\"}'").unwrap();
         #[cfg(unix)]
-        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
 
         let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
-        let result = tool.execute(json!({
-            "tasks": [
-                {"prompt": "task1"}
-            ]
-        })).await.unwrap();
+        let result = tool
+            .execute(json!({
+                "tasks": [
+                    {"prompt": "task1"}
+                ]
+            }))
+            .await
+            .unwrap();
         assert_eq!(result["success"], true);
         assert_eq!(result["total_tasks"], 1);
         assert_eq!(result["results"].as_array().unwrap().len(), 1);
@@ -649,16 +740,20 @@ exit 0").unwrap();
         let binary = tmp.path().join("target/release/pawan");
         std::fs::write(&binary, "#!/bin/sh\necho '{\"result\":\"done\"}'").unwrap();
         #[cfg(unix)]
-        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&binary, std::os::unix::fs::PermissionsExt::from_mode(0o755))
+            .unwrap();
 
         let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
-        let result = tool.execute(json!({
-            "tasks": [
-                {"prompt": "task1"},
-                {"prompt": "task2"},
-                {"prompt": "task3"}
-            ]
-        })).await.unwrap();
+        let result = tool
+            .execute(json!({
+                "tasks": [
+                    {"prompt": "task1"},
+                    {"prompt": "task2"},
+                    {"prompt": "task3"}
+                ]
+            }))
+            .await
+            .unwrap();
         assert_eq!(result["success"], true);
         assert_eq!(result["total_tasks"], 3);
         assert_eq!(result["results"].as_array().unwrap().len(), 3);
@@ -668,12 +763,18 @@ exit 0").unwrap();
     async fn test_spawn_agents_task_missing_prompt() {
         let tmp = TempDir::new().unwrap();
         let tool = SpawnAgentsTool::new(tmp.path().to_path_buf());
-        let result = tool.execute(json!({
-            "tasks": [{"model": "gpt-4"}]
-        })).await.unwrap();
+        let result = tool
+            .execute(json!({
+                "tasks": [{"model": "gpt-4"}]
+            }))
+            .await
+            .unwrap();
         assert_eq!(result["success"], true);
         assert_eq!(result["total_tasks"], 1);
         assert_eq!(result["results"][0]["success"], false);
-        assert!(result["results"][0]["error"].as_str().unwrap().contains("prompt"));
+        assert!(result["results"][0]["error"]
+            .as_str()
+            .unwrap()
+            .contains("prompt"));
     }
 }

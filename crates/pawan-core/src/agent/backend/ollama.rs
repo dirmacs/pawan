@@ -307,8 +307,16 @@ impl LlmBackend for OllamaBackend {
                     model = self.model.as_str(),
                     provider = "ollama",
                     latency_ms,
-                    prompt_tokens = response.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
-                    completion_tokens = response.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+                    prompt_tokens = response
+                        .usage
+                        .as_ref()
+                        .map(|u| u.prompt_tokens)
+                        .unwrap_or(0),
+                    completion_tokens = response
+                        .usage
+                        .as_ref()
+                        .map(|u| u.completion_tokens)
+                        .unwrap_or(0),
                     finish_reason = response.finish_reason.as_str(),
                     response_len = response.content.len(),
                     "llm ok"
@@ -416,8 +424,16 @@ mod tests {
         assert_eq!(tool_msg["role"], "tool");
         let content = tool_msg["content"].as_str().unwrap();
         // serde_json::to_string produces a JSON-encoded string
-        assert!(content.contains("\"rows\""), "content should have rows: {}", content);
-        assert!(content.contains("42"), "content should have 42: {}", content);
+        assert!(
+            content.contains("\"rows\""),
+            "content should have rows: {}",
+            content
+        );
+        assert!(
+            content.contains("42"),
+            "content should have 42: {}",
+            content
+        );
     }
 
     #[test]

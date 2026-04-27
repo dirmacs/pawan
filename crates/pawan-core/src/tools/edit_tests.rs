@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod anchor_tests {
-    use crate::tools::edit::{EditFileLinesTool, InsertAfterTool, AppendFileTool};
+    use crate::tools::edit::{AppendFileTool, EditFileLinesTool, InsertAfterTool};
     use crate::tools::Tool;
     use serde_json::json;
     use tempfile::TempDir;
@@ -12,7 +12,10 @@ mod anchor_tests {
         let tool = EditFileLinesTool::new(tmp.path().into());
         let r = tool.execute(json!({"path":"f.rs","anchor_text":"line_b","anchor_count":1,"new_content":"replaced"})).await.unwrap();
         assert!(r["success"].as_bool().unwrap());
-        assert_eq!(std::fs::read_to_string(tmp.path().join("f.rs")).unwrap(), "line_a\nreplaced\nline_c\n");
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("f.rs")).unwrap(),
+            "line_a\nreplaced\nline_c\n"
+        );
     }
 
     #[tokio::test]
@@ -20,9 +23,15 @@ mod anchor_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "a\nb\nc\nd\ne\n").unwrap();
         let tool = EditFileLinesTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","anchor_text":"b","anchor_count":3,"new_content":"X"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"f.rs","anchor_text":"b","anchor_count":3,"new_content":"X"}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
-        assert_eq!(std::fs::read_to_string(tmp.path().join("f.rs")).unwrap(), "a\nX\ne\n");
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("f.rs")).unwrap(),
+            "a\nX\ne\n"
+        );
     }
 
     #[tokio::test]
@@ -30,7 +39,9 @@ mod anchor_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "hello\nworld\n").unwrap();
         let tool = EditFileLinesTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","anchor_text":"nope","new_content":"x"})).await;
+        let r = tool
+            .execute(json!({"path":"f.rs","anchor_text":"nope","new_content":"x"}))
+            .await;
         assert!(r.is_err());
     }
 
@@ -39,9 +50,15 @@ mod anchor_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "a\nb\nc\n").unwrap();
         let tool = InsertAfterTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","anchor_text":"b","content":"inserted"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"f.rs","anchor_text":"b","content":"inserted"}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
-        assert_eq!(std::fs::read_to_string(tmp.path().join("f.rs")).unwrap(), "a\nb\ninserted\nc\n");
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("f.rs")).unwrap(),
+            "a\nb\ninserted\nc\n"
+        );
     }
 
     #[tokio::test]
@@ -49,7 +66,9 @@ mod anchor_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "a\nb\n").unwrap();
         let tool = InsertAfterTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","anchor_text":"z","content":"x"})).await;
+        let r = tool
+            .execute(json!({"path":"f.rs","anchor_text":"z","content":"x"}))
+            .await;
         assert!(r.is_err());
     }
 
@@ -57,9 +76,14 @@ mod anchor_tests {
     async fn test_append_new() {
         let tmp = TempDir::new().unwrap();
         let tool = AppendFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"new.txt","content":"hello"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"new.txt","content":"hello"}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
-        assert!(std::fs::read_to_string(tmp.path().join("new.txt")).unwrap().contains("hello"));
+        assert!(std::fs::read_to_string(tmp.path().join("new.txt"))
+            .unwrap()
+            .contains("hello"));
     }
 
     #[tokio::test]
@@ -67,7 +91,9 @@ mod anchor_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.txt"), "old\n").unwrap();
         let tool = AppendFileTool::new(tmp.path().into());
-        tool.execute(json!({"path":"f.txt","content":"new"})).await.unwrap();
+        tool.execute(json!({"path":"f.txt","content":"new"}))
+            .await
+            .unwrap();
         let c = std::fs::read_to_string(tmp.path().join("f.txt")).unwrap();
         assert!(c.contains("old") && c.contains("new"));
     }
@@ -77,7 +103,10 @@ mod anchor_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "aa\nbb\ncc\n").unwrap();
         let tool = EditFileLinesTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","start_line":2,"end_line":2,"new_content":"XX"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"f.rs","start_line":2,"end_line":2,"new_content":"XX"}))
+            .await
+            .unwrap();
         assert!(r["replaced_content"].as_str().unwrap().contains("bb"));
     }
 
@@ -100,7 +129,10 @@ mod anchor_tests {
         let content = "fn foo() {\n    println!(\"hello\");\n}\nfn bar() {}";
         std::fs::write(tmp.path().join("f.rs"), content).unwrap();
         let tool = InsertAfterTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","anchor_text":"fn foo()","content":"fn inserted() {}"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"f.rs","anchor_text":"fn foo()","content":"fn inserted() {}"}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
         let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
         // Should insert AFTER foo's closing }, not inside foo's body
@@ -112,7 +144,10 @@ mod anchor_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "use std::io;\nuse std::fs;\n").unwrap();
         let tool = InsertAfterTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","anchor_text":"use std::io","content":"use std::path;"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"f.rs","anchor_text":"use std::io","content":"use std::path;"}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
         let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
         // No block — should insert right after the anchor line
@@ -129,11 +164,16 @@ mod native_tests {
 
     #[tokio::test]
     async fn test_sd_replace() {
-        if which::which("sd").is_err() { return; }
+        if which::which("sd").is_err() {
+            return;
+        }
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.txt"), "hello world hello").unwrap();
         let tool = SdTool::new(tmp.path().into());
-        let r = tool.execute(json!({"find":"hello","replace":"hi","path":"f.txt","fixed_strings":true})).await.unwrap();
+        let r = tool
+            .execute(json!({"find":"hello","replace":"hi","path":"f.txt","fixed_strings":true}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
         let c = std::fs::read_to_string(tmp.path().join("f.txt")).unwrap();
         assert_eq!(c, "hi world hi");
@@ -166,7 +206,11 @@ mod rg_tests {
     #[tokio::test]
     async fn test_rg_basic() {
         let tmp = TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("a.rs"), "fn main() {\n    println!(\"hello\");\n}").unwrap();
+        std::fs::write(
+            tmp.path().join("a.rs"),
+            "fn main() {\n    println!(\"hello\");\n}",
+        )
+        .unwrap();
         let tool = RipgrepTool::new(tmp.path().into());
         let r = tool.execute(json!({"pattern":"println"})).await.unwrap();
         assert!(r["match_count"].as_u64().unwrap() >= 1);
@@ -187,7 +231,10 @@ mod rg_tests {
         std::fs::write(tmp.path().join("a.rs"), "fn test()").unwrap();
         std::fs::write(tmp.path().join("b.py"), "def test()").unwrap();
         let tool = RipgrepTool::new(tmp.path().into());
-        let r = tool.execute(json!({"pattern":"test","type_filter":"rust"})).await.unwrap();
+        let r = tool
+            .execute(json!({"pattern":"test","type_filter":"rust"}))
+            .await
+            .unwrap();
         let matches = r["matches"].as_str().unwrap();
         assert!(matches.contains("a.rs"));
         assert!(!matches.contains("b.py"));
@@ -221,7 +268,10 @@ mod fd_tests {
         std::fs::write(tmp.path().join("b.rs"), "").unwrap();
         std::fs::write(tmp.path().join("c.txt"), "").unwrap();
         let tool = FdTool::new(tmp.path().into());
-        let r = tool.execute(json!({"pattern":".", "extension":"rs"})).await.unwrap();
+        let r = tool
+            .execute(json!({"pattern":".", "extension":"rs"}))
+            .await
+            .unwrap();
         assert_eq!(r["count"].as_u64().unwrap(), 2);
     }
 
@@ -242,7 +292,10 @@ mod fd_tests {
         std::fs::write(tmp.path().join("a/mid.rs"), "").unwrap();
         std::fs::write(tmp.path().join("a/b/c/deep.rs"), "").unwrap();
         let tool = FdTool::new(tmp.path().into());
-        let r = tool.execute(json!({"pattern":".rs","max_depth":1})).await.unwrap();
+        let r = tool
+            .execute(json!({"pattern":".rs","max_depth":1}))
+            .await
+            .unwrap();
         let files = r["files"].as_array().unwrap();
         assert!(files.len() <= 1);
     }
@@ -257,16 +310,23 @@ mod zoxide_tests {
 
     #[tokio::test]
     async fn test_z_add_and_query() {
-        if which::which("zoxide").is_err() { return; }
+        if which::which("zoxide").is_err() {
+            return;
+        }
         let tmp = TempDir::new().unwrap();
         let tool = ZoxideTool::new(tmp.path().into());
-        let r = tool.execute(json!({"action":"add","path":"/tmp"})).await.unwrap();
+        let r = tool
+            .execute(json!({"action":"add","path":"/tmp"}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
     }
 
     #[tokio::test]
     async fn test_z_list() {
-        if which::which("zoxide").is_err() { return; }
+        if which::which("zoxide").is_err() {
+            return;
+        }
         let tmp = TempDir::new().unwrap();
         let tool = ZoxideTool::new(tmp.path().into());
         let r = tool.execute(json!({"action":"list"})).await.unwrap();
@@ -378,7 +438,10 @@ mod grep_native_tests {
         std::fs::write(tmp.path().join("a.rs"), "fn main() {}").unwrap();
         std::fs::write(tmp.path().join("b.py"), "def main(): pass").unwrap();
         let tool = GrepSearchTool::new(tmp.path().into());
-        let r = tool.execute(json!({"pattern":"main","include":"*.rs"})).await.unwrap();
+        let r = tool
+            .execute(json!({"pattern":"main","include":"*.rs"}))
+            .await
+            .unwrap();
         let results = r["results"].as_str().unwrap();
         assert!(results.contains("a.rs"));
         assert!(!results.contains("b.py"));
@@ -405,7 +468,10 @@ mod write_verify_tests {
     async fn test_write_reports_size() {
         let tmp = TempDir::new().unwrap();
         let tool = WriteFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"test.txt","content":"hello world"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"test.txt","content":"hello world"}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
         assert_eq!(r["bytes_written"].as_u64().unwrap(), 11);
         assert!(r["size_verified"].as_bool().unwrap());
@@ -415,7 +481,10 @@ mod write_verify_tests {
     async fn test_write_creates_parent_dirs() {
         let tmp = TempDir::new().unwrap();
         let tool = WriteFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"a/b/c/deep.txt","content":"nested"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"a/b/c/deep.txt","content":"nested"}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
         assert!(tmp.path().join("a/b/c/deep.txt").exists());
     }
@@ -433,7 +502,10 @@ mod rg_advanced_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.txt"), "Hello WORLD hello").unwrap();
         let tool = RipgrepTool::new(tmp.path().into());
-        let r = tool.execute(json!({"pattern":"hello","case_insensitive":true})).await.unwrap();
+        let r = tool
+            .execute(json!({"pattern":"hello","case_insensitive":true}))
+            .await
+            .unwrap();
         let matches = r["matches"].as_str().unwrap();
         assert!(matches.contains("Hello WORLD hello"));
     }
@@ -443,7 +515,10 @@ mod rg_advanced_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.txt"), "foo.bar (test)").unwrap();
         let tool = RipgrepTool::new(tmp.path().into());
-        let r = tool.execute(json!({"pattern":"foo.bar","fixed_strings":true})).await.unwrap();
+        let r = tool
+            .execute(json!({"pattern":"foo.bar","fixed_strings":true}))
+            .await
+            .unwrap();
         assert!(r["match_count"].as_u64().unwrap() >= 1);
     }
 
@@ -452,7 +527,10 @@ mod rg_advanced_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.txt"), "aaa\nbbb\nccc\nddd\neee").unwrap();
         let tool = RipgrepTool::new(tmp.path().into());
-        let r = tool.execute(json!({"pattern":"ccc","context":1})).await.unwrap();
+        let r = tool
+            .execute(json!({"pattern":"ccc","context":1}))
+            .await
+            .unwrap();
         let matches = r["matches"].as_str().unwrap();
         assert!(matches.contains("bbb"));
         assert!(matches.contains("ddd"));
@@ -471,7 +549,10 @@ mod append_edge_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.txt"), "existing\n").unwrap();
         let tool = AppendFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.txt","content":""})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"f.txt","content":""}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
     }
 
@@ -480,7 +561,10 @@ mod append_edge_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.txt"), "line1\n").unwrap();
         let tool = AppendFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.txt","content":"line2\nline3\nline4"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"f.txt","content":"line2\nline3\nline4"}))
+            .await
+            .unwrap();
         assert_eq!(r["lines_appended"].as_u64().unwrap(), 3);
         let c = std::fs::read_to_string(tmp.path().join("f.txt")).unwrap();
         assert!(c.contains("line1") && c.contains("line4"));
@@ -499,7 +583,12 @@ mod insert_edge_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "fn a() {}\nfn c() {}\n").unwrap();
         let tool = InsertAfterTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","anchor_text":"fn a()","content":"fn b1() {}\nfn b2() {}"})).await.unwrap();
+        let r = tool
+            .execute(
+                json!({"path":"f.rs","anchor_text":"fn a()","content":"fn b1() {}\nfn b2() {}"}),
+            )
+            .await
+            .unwrap();
         assert_eq!(r["lines_inserted"].as_u64().unwrap(), 2);
     }
 
@@ -508,7 +597,10 @@ mod insert_edge_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "fn first() {}\nfn last() {}\n").unwrap();
         let tool = InsertAfterTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","anchor_text":"fn last()","content":"fn appended() {}"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"f.rs","anchor_text":"fn last()","content":"fn appended() {}"}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
         let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
         assert!(c.ends_with("fn appended() {}\n") || c.contains("fn appended() {}"));
@@ -527,7 +619,10 @@ mod rg_invert_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.txt"), "aaa\nbbb\nccc\n").unwrap();
         let tool = RipgrepTool::new(tmp.path().into());
-        let r = tool.execute(json!({"pattern":"bbb","invert":true})).await.unwrap();
+        let r = tool
+            .execute(json!({"pattern":"bbb","invert":true}))
+            .await
+            .unwrap();
         let matches = r["matches"].as_str().unwrap();
         assert!(matches.contains("aaa"));
         assert!(matches.contains("ccc"));
@@ -564,9 +659,16 @@ mod read_file_tests {
     #[tokio::test]
     async fn test_read_with_offset() {
         let tmp = TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("f.txt"), "line1\nline2\nline3\nline4\nline5\n").unwrap();
+        std::fs::write(
+            tmp.path().join("f.txt"),
+            "line1\nline2\nline3\nline4\nline5\n",
+        )
+        .unwrap();
         let tool = ReadFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.txt","offset":2,"limit":2})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"f.txt","offset":2,"limit":2}))
+            .await
+            .unwrap();
         let content = r["content"].as_str().unwrap();
         assert!(content.contains("line3"));
         assert!(content.contains("line4"));
@@ -624,7 +726,10 @@ mod bash_tool_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("marker.txt"), "found").unwrap();
         let tool = BashTool::new(tmp.path().into());
-        let r = tool.execute(json!({"command":"cat marker.txt"})).await.unwrap();
+        let r = tool
+            .execute(json!({"command":"cat marker.txt"}))
+            .await
+            .unwrap();
         assert!(r["stdout"].as_str().unwrap().contains("found"));
     }
 }
@@ -667,9 +772,18 @@ mod edit_replace_all_tests {
     #[tokio::test]
     async fn test_replace_all() {
         let tmp = TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("f.rs"), "let x = 1;\nlet x = 2;\nlet x = 3;\n").unwrap();
+        std::fs::write(
+            tmp.path().join("f.rs"),
+            "let x = 1;\nlet x = 2;\nlet x = 3;\n",
+        )
+        .unwrap();
         let tool = EditFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","old_string":"let x","new_string":"let y","replace_all":true})).await.unwrap();
+        let r = tool
+            .execute(
+                json!({"path":"f.rs","old_string":"let x","new_string":"let y","replace_all":true}),
+            )
+            .await
+            .unwrap();
         assert_eq!(r["replacements"].as_u64().unwrap(), 3);
         let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
         assert!(!c.contains("let x"));
@@ -681,14 +795,16 @@ mod edit_replace_all_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "aaa\naaa\n").unwrap();
         let tool = EditFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","old_string":"aaa","new_string":"bbb"})).await;
+        let r = tool
+            .execute(json!({"path":"f.rs","old_string":"aaa","new_string":"bbb"}))
+            .await;
         assert!(r.is_err()); // multiple matches without replace_all
     }
 }
 
 #[cfg(test)]
 mod git_tool_tests {
-    use crate::tools::git::{GitStatusTool, GitLogTool, GitDiffTool};
+    use crate::tools::git::{GitDiffTool, GitLogTool, GitStatusTool};
     use crate::tools::Tool;
     use serde_json::json;
     use tempfile::TempDir;
@@ -706,7 +822,11 @@ mod git_tool_tests {
     #[tokio::test]
     async fn test_git_status_in_repo() {
         let tmp = TempDir::new().unwrap();
-        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
         std::fs::write(tmp.path().join("test.txt"), "hello").unwrap();
         let tool = GitStatusTool::new(tmp.path().into());
         let r = tool.execute(json!({})).await.unwrap();
@@ -718,7 +838,11 @@ mod git_tool_tests {
     #[tokio::test]
     async fn test_git_log_empty_repo() {
         let tmp = TempDir::new().unwrap();
-        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
         let tool = GitLogTool::new(tmp.path().into());
         let r = tool.execute(json!({})).await;
         let _ = r; // empty repo log — shouldn't panic
@@ -727,7 +851,11 @@ mod git_tool_tests {
     #[tokio::test]
     async fn test_git_diff_clean() {
         let tmp = TempDir::new().unwrap();
-        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
         let tool = GitDiffTool::new(tmp.path().into());
         let r = tool.execute(json!({})).await.unwrap();
         let diff = r["diff"].as_str().unwrap_or("");
@@ -747,7 +875,12 @@ mod edit_string_match_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "  let x = 1;\n  let y = 2;\n").unwrap();
         let tool = EditFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","old_string":"  let x = 1;","new_string":"  let x = 42;"})).await.unwrap();
+        let r = tool
+            .execute(
+                json!({"path":"f.rs","old_string":"  let x = 1;","new_string":"  let x = 42;"}),
+            )
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
         let c = std::fs::read_to_string(tmp.path().join("f.rs")).unwrap();
         assert!(c.contains("42"));
@@ -760,7 +893,9 @@ mod edit_string_match_tests {
         std::fs::write(tmp.path().join("f.rs"), "hello").unwrap();
         let tool = EditFileTool::new(tmp.path().into());
         // Empty old_string should fail (matches everything)
-        let r = tool.execute(json!({"path":"f.rs","old_string":"","new_string":"x"})).await;
+        let r = tool
+            .execute(json!({"path":"f.rs","old_string":"","new_string":"x"}))
+            .await;
         // Either error or replaces nothing — both acceptable
         let _ = r;
     }
@@ -787,9 +922,21 @@ mod git_write_tests {
     #[tokio::test]
     async fn test_git_add_in_repo() {
         let tmp = TempDir::new().unwrap();
-        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
-        std::process::Command::new("git").args(["config","user.email","test@test.com"]).current_dir(tmp.path()).output().unwrap();
-        std::process::Command::new("git").args(["config","user.name","test"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "test"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
         std::fs::write(tmp.path().join("f.txt"), "hello").unwrap();
         let tool = GitAddTool::new(tmp.path().into());
         let r = tool.execute(json!({"files":["f.txt"]})).await.unwrap();
@@ -799,13 +946,32 @@ mod git_write_tests {
     #[tokio::test]
     async fn test_git_commit_after_add() {
         let tmp = TempDir::new().unwrap();
-        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
-        std::process::Command::new("git").args(["config","user.email","test@test.com"]).current_dir(tmp.path()).output().unwrap();
-        std::process::Command::new("git").args(["config","user.name","test"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "test"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
         std::fs::write(tmp.path().join("f.txt"), "hello").unwrap();
-        std::process::Command::new("git").args(["add","f.txt"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["add", "f.txt"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
         let tool = GitCommitTool::new(tmp.path().into());
-        let r = tool.execute(json!({"message":"test commit"})).await.unwrap();
+        let r = tool
+            .execute(json!({"message":"test commit"}))
+            .await
+            .unwrap();
         assert!(r.is_object());
     }
 }
@@ -818,12 +984,32 @@ mod git_extended_tests {
     use tempfile::TempDir;
 
     fn init_repo(tmp: &TempDir) {
-        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
-        std::process::Command::new("git").args(["config","user.email","t@t.com"]).current_dir(tmp.path()).output().unwrap();
-        std::process::Command::new("git").args(["config","user.name","t"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "t@t.com"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "t"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
         std::fs::write(tmp.path().join("f.txt"), "hello").unwrap();
-        std::process::Command::new("git").args(["add","."]).current_dir(tmp.path()).output().unwrap();
-        std::process::Command::new("git").args(["commit","-m","init"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
     }
 
     #[tokio::test]
@@ -853,12 +1039,32 @@ mod git_checkout_stash_tests {
     use tempfile::TempDir;
 
     fn init_repo(tmp: &TempDir) {
-        std::process::Command::new("git").args(["init"]).current_dir(tmp.path()).output().unwrap();
-        std::process::Command::new("git").args(["config","user.email","t@t.com"]).current_dir(tmp.path()).output().unwrap();
-        std::process::Command::new("git").args(["config","user.name","t"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.email", "t@t.com"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["config", "user.name", "t"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
         std::fs::write(tmp.path().join("f.txt"), "v1").unwrap();
-        std::process::Command::new("git").args(["add","."]).current_dir(tmp.path()).output().unwrap();
-        std::process::Command::new("git").args(["commit","-m","init"]).current_dir(tmp.path()).output().unwrap();
+        std::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
+        std::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(tmp.path())
+            .output()
+            .unwrap();
     }
 
     #[tokio::test]
@@ -866,7 +1072,9 @@ mod git_checkout_stash_tests {
         let tmp = TempDir::new().unwrap();
         init_repo(&tmp);
         let tool = GitCheckoutTool::new(tmp.path().into());
-        let r = tool.execute(json!({"branch":"test-branch","create":true})).await;
+        let r = tool
+            .execute(json!({"branch":"test-branch","create":true}))
+            .await;
         let _ = r; // shouldn't panic
     }
 
@@ -924,8 +1132,16 @@ mod tool_registry_tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let registry = ToolRegistry::with_defaults(tmp.path().into());
         for def in registry.get_definitions() {
-            assert!(!def.description.is_empty(), "Tool {} has no description", def.name);
-            assert!(def.description.len() > 10, "Tool {} description too short", def.name);
+            assert!(
+                !def.description.is_empty(),
+                "Tool {} has no description",
+                def.name
+            );
+            assert!(
+                def.description.len() > 10,
+                "Tool {} description too short",
+                def.name
+            );
         }
     }
 }
@@ -937,14 +1153,22 @@ mod milestone_tests {
         let tmp = tempfile::TempDir::new().unwrap();
         let registry = crate::tools::ToolRegistry::with_defaults(tmp.path().into());
         let defs = registry.get_all_definitions();
-        assert!(defs.len() >= 28, "Expected at least 28 tools, got {}", defs.len());
+        assert!(
+            defs.len() >= 28,
+            "Expected at least 28 tools, got {}",
+            defs.len()
+        );
     }
 
     #[test]
     fn test_all_tool_categories_present() {
         let tmp = tempfile::TempDir::new().unwrap();
         let registry = crate::tools::ToolRegistry::with_defaults(tmp.path().into());
-        let names: Vec<String> = registry.get_all_definitions().iter().map(|d| d.name.clone()).collect();
+        let names: Vec<String> = registry
+            .get_all_definitions()
+            .iter()
+            .map(|d| d.name.clone())
+            .collect();
         // File tools
         assert!(names.contains(&"read_file".into()));
         assert!(names.contains(&"write_file".into()));
@@ -981,7 +1205,10 @@ mod diff_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "let old = 1;\n").unwrap();
         let tool = EditFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","old_string":"let old = 1;","new_string":"let new = 2;"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"f.rs","old_string":"let old = 1;","new_string":"let new = 2;"}))
+            .await
+            .unwrap();
         let diff = r["diff"].as_str().unwrap();
         assert!(diff.contains("-let old = 1;"));
         assert!(diff.contains("+let new = 2;"));
@@ -992,7 +1219,10 @@ mod diff_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "aaa\nbbb\nccc\n").unwrap();
         let tool = crate::tools::edit::EditFileLinesTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"f.rs","start_line":2,"end_line":2,"new_content":"XXX"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"f.rs","start_line":2,"end_line":2,"new_content":"XXX"}))
+            .await
+            .unwrap();
         let diff = r["diff"].as_str().unwrap();
         assert!(diff.contains("-bbb"));
         assert!(diff.contains("+XXX"));
@@ -1011,7 +1241,9 @@ mod write_file_edge_tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.txt"), "old content").unwrap();
         let tool = WriteFileTool::new(tmp.path().into());
-        tool.execute(json!({"path":"f.txt","content":"new content"})).await.unwrap();
+        tool.execute(json!({"path":"f.txt","content":"new content"}))
+            .await
+            .unwrap();
         let c = std::fs::read_to_string(tmp.path().join("f.txt")).unwrap();
         assert_eq!(c, "new content");
         assert!(!c.contains("old"));
@@ -1021,7 +1253,10 @@ mod write_file_edge_tests {
     async fn test_write_empty_file() {
         let tmp = TempDir::new().unwrap();
         let tool = WriteFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"empty.txt","content":""})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"empty.txt","content":""}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
         assert_eq!(r["bytes_written"].as_u64().unwrap(), 0);
     }
@@ -1030,7 +1265,10 @@ mod write_file_edge_tests {
     async fn test_write_unicode() {
         let tmp = TempDir::new().unwrap();
         let tool = WriteFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path":"uni.txt","content":"hello 世界 🦀"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path":"uni.txt","content":"hello 世界 🦀"}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
         assert!(r["size_verified"].as_bool().unwrap());
         let c = std::fs::read_to_string(tmp.path().join("uni.txt")).unwrap();
@@ -1146,7 +1384,7 @@ mod healing_config_tests {
 
 #[cfg(test)]
 mod cloud_config_tests {
-    use crate::config::{PawanConfig, CloudConfig, LlmProvider};
+    use crate::config::{CloudConfig, LlmProvider, PawanConfig};
 
     #[test]
     fn test_cloud_config_none_by_default() {
@@ -1179,15 +1417,22 @@ mod permission_tests {
     #[test]
     fn test_permission_deny() {
         let mut config = PawanConfig::default();
-        config.permissions.insert("bash".into(), ToolPermission::Deny);
+        config
+            .permissions
+            .insert("bash".into(), ToolPermission::Deny);
         assert_eq!(config.permissions.get("bash"), Some(&ToolPermission::Deny));
     }
 
     #[test]
     fn test_permission_prompt() {
         let mut config = PawanConfig::default();
-        config.permissions.insert("bash".into(), ToolPermission::Prompt);
-        assert_eq!(config.permissions.get("bash"), Some(&ToolPermission::Prompt));
+        config
+            .permissions
+            .insert("bash".into(), ToolPermission::Prompt);
+        assert_eq!(
+            config.permissions.get("bash"),
+            Some(&ToolPermission::Prompt)
+        );
     }
 
     #[test]
@@ -1195,10 +1440,16 @@ mod permission_tests {
         use std::collections::HashMap;
         let mut perms = HashMap::new();
         perms.insert("bash".into(), ToolPermission::Deny);
-        assert_eq!(ToolPermission::resolve("bash", &perms), ToolPermission::Deny);
+        assert_eq!(
+            ToolPermission::resolve("bash", &perms),
+            ToolPermission::Deny
+        );
 
         perms.insert("bash".into(), ToolPermission::Prompt);
-        assert_eq!(ToolPermission::resolve("bash", &perms), ToolPermission::Prompt);
+        assert_eq!(
+            ToolPermission::resolve("bash", &perms),
+            ToolPermission::Prompt
+        );
     }
 
     #[test]
@@ -1206,9 +1457,18 @@ mod permission_tests {
         use std::collections::HashMap;
         let perms = HashMap::new();
         // All tools default to Allow when not configured
-        assert_eq!(ToolPermission::resolve("bash", &perms), ToolPermission::Allow);
-        assert_eq!(ToolPermission::resolve("read_file", &perms), ToolPermission::Allow);
-        assert_eq!(ToolPermission::resolve("glob_search", &perms), ToolPermission::Allow);
+        assert_eq!(
+            ToolPermission::resolve("bash", &perms),
+            ToolPermission::Allow
+        );
+        assert_eq!(
+            ToolPermission::resolve("read_file", &perms),
+            ToolPermission::Allow
+        );
+        assert_eq!(
+            ToolPermission::resolve("glob_search", &perms),
+            ToolPermission::Allow
+        );
     }
 
     #[test]
@@ -1222,14 +1482,20 @@ read_file = "allow"
 "#;
         let config: PawanConfig = toml::from_str(toml).expect("should parse");
         assert_eq!(config.permissions.get("bash"), Some(&ToolPermission::Deny));
-        assert_eq!(config.permissions.get("write_file"), Some(&ToolPermission::Prompt));
-        assert_eq!(config.permissions.get("read_file"), Some(&ToolPermission::Allow));
+        assert_eq!(
+            config.permissions.get("write_file"),
+            Some(&ToolPermission::Prompt)
+        );
+        assert_eq!(
+            config.permissions.get("read_file"),
+            Some(&ToolPermission::Allow)
+        );
     }
 }
 
 #[cfg(test)]
 mod file_tool_tests {
-    use crate::tools::file::{ReadFileTool, WriteFileTool, ListDirectoryTool};
+    use crate::tools::file::{ListDirectoryTool, ReadFileTool, WriteFileTool};
     use crate::tools::Tool;
     use serde_json::json;
     use tempfile::TempDir;
@@ -1238,9 +1504,15 @@ mod file_tool_tests {
     async fn test_write_empty_content() {
         let tmp = TempDir::new().unwrap();
         let tool = WriteFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path": "empty.txt", "content": ""})).await.unwrap();
+        let r = tool
+            .execute(json!({"path": "empty.txt", "content": ""}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
-        assert_eq!(std::fs::read_to_string(tmp.path().join("empty.txt")).unwrap(), "");
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("empty.txt")).unwrap(),
+            ""
+        );
     }
 
     #[tokio::test]
@@ -1249,7 +1521,10 @@ mod file_tool_tests {
         std::fs::write(tmp.path().join("short.txt"), "line1\nline2\n").unwrap();
         let tool = ReadFileTool::new(tmp.path().into());
         // Offset beyond file length should return empty or gracefully handle
-        let r = tool.execute(json!({"path": "short.txt", "offset": 999, "limit": 10})).await.unwrap();
+        let r = tool
+            .execute(json!({"path": "short.txt", "offset": 999, "limit": 10}))
+            .await
+            .unwrap();
         // Should not panic — either empty content or an error, but not a crash
         assert!(r.get("content").is_some() || r.get("error").is_some());
     }
@@ -1258,9 +1533,15 @@ mod file_tool_tests {
     async fn test_write_creates_parent_dirs() {
         let tmp = TempDir::new().unwrap();
         let tool = WriteFileTool::new(tmp.path().into());
-        let r = tool.execute(json!({"path": "nested/deep/file.txt", "content": "hello"})).await.unwrap();
+        let r = tool
+            .execute(json!({"path": "nested/deep/file.txt", "content": "hello"}))
+            .await
+            .unwrap();
         assert!(r["success"].as_bool().unwrap());
-        assert_eq!(std::fs::read_to_string(tmp.path().join("nested/deep/file.txt")).unwrap(), "hello");
+        assert_eq!(
+            std::fs::read_to_string(tmp.path().join("nested/deep/file.txt")).unwrap(),
+            "hello"
+        );
     }
 
     #[tokio::test]
@@ -1351,9 +1632,15 @@ mod file_write_safety_tests {
 
         let tmp = TempDir::new().unwrap();
         let tool = WriteFileTool::new(tmp.path().into());
-        let result = tool.execute(json!({"path": ".env", "content": "SECRET=bad"})).await;
+        let result = tool
+            .execute(json!({"path": ".env", "content": "SECRET=bad"}))
+            .await;
         assert!(result.is_err(), "Writing .env should be blocked");
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("blocked") || err.contains("credential"), "Error: {}", err);
+        assert!(
+            err.contains("blocked") || err.contains("credential"),
+            "Error: {}",
+            err
+        );
     }
 }

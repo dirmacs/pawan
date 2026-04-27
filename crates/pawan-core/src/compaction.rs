@@ -151,7 +151,12 @@ Your response MUST follow this exact structure:
             Role::Assistant => "ASSISTANT",
             Role::Tool => "TOOL",
         };
-        prompt.push_str(&format!("\n### Message {} [{}]\n\n{}\n", i + 1, role, msg.content));
+        prompt.push_str(&format!(
+            "\n### Message {} [{}]\n\n{}\n",
+            i + 1,
+            role,
+            msg.content
+        ));
 
         // Add tool call information if present
         if !msg.tool_calls.is_empty() {
@@ -186,12 +191,7 @@ pub fn compact_messages(messages: Vec<Message>, strategy: &CompactionStrategy) -
 
     // Always keep system messages if enabled
     if strategy.keep_system {
-        compacted.extend(
-            messages
-                .iter()
-                .filter(|m| m.role == Role::System)
-                .cloned(),
-        );
+        compacted.extend(messages.iter().filter(|m| m.role == Role::System).cloned());
     }
 
     // Keep messages with keywords
@@ -658,9 +658,6 @@ mod tests {
         };
 
         let result = compact_messages(messages, &strategy);
-        assert!(result
-            .messages
-            .iter()
-            .any(|m| m.content == "Fix the error"));
+        assert!(result.messages.iter().any(|m| m.content == "Fix the error"));
     }
 }
