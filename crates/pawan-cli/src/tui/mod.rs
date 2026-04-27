@@ -6,6 +6,17 @@
 //! events stream back to the UI via mpsc channel.
 
 mod fuzzy_search;
+mod theme;
+mod splash;
+
+mod layout;
+mod highlight;
+
+pub mod status_bar;
+pub mod scrollbar;
+pub mod activity_panel;
+pub mod queue_panel;
+pub mod tool_display;
 
 mod app;
 mod events;

@@ -972,6 +972,35 @@ impl<'a> App<'a> {
                     }
                 }
             }
+            "/theme" => {
+                let args = arg.trim();
+                if args.is_empty() {
+                    let themes: Vec<&str> =
+                        super::theme::BUNDLED_THEMES.iter().map(|t| t.name).collect();
+                    self.status = format!("Available: {}", themes.join(", "));
+                } else {
+                    match super::theme::set_theme(args) {
+                        Ok(_) => {
+                            let t = super::theme::current();
+                            self.current_theme = t.name.to_string();
+                            self.accent_transition =
+                                super::theme::ColorTransition::new(t.accent);
+                            self.status = format!("Theme: {}", t.name);
+                        }
+                        Err(_) => {
+                            let themes: Vec<&str> = super::theme::BUNDLED_THEMES
+                                .iter()
+                                .map(|t| t.name)
+                                .collect();
+                            self.status = format!(
+                                "Unknown theme '{}'; available: {}",
+                                args,
+                                themes.join(", ")
+                            );
+                        }
+                    }
+                }
+            }
 
             _ => {
                 debug_assert!(

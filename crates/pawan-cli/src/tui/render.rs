@@ -28,7 +28,11 @@ use std::time::Instant;
 use tokio::sync::mpsc;
 
 use super::app::App;
+use super::highlight::SyntaxHighlighter;
+use super::theme::{self, current as theme_current};
 use super::types::*;
+use chrono::Local;
+use std::sync::Mutex;
 
 impl<'a> App<'a> {
     pub(crate) fn filtered_models(&self) -> Vec<&ModelInfo> {
@@ -154,48 +158,124 @@ impl<'a> App<'a> {
 
 impl<'a> App<'a> {
     pub(crate) fn ui(&self, f: &mut Frame) {
-        // Dynamic input height: 3 lines default, grows with content up to 10
+        if self.show_welcome {
+            self.render_welcome(f);
+            return;
+        }
+
+        let area = f.area();
         let input_lines = self.input.lines().len();
-        let input_height = (input_lines + 2).clamp(3, 10) as u16; // +2 for border
+        let input_height = (input_lines + 2).clamp(3, 10) as u16;
+        let small = area.width < 40 || area.height < 8;
 
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .margin(1)
-            .constraints([
-                Constraint::Min(3),               // messages: takes all remaining space
-                Constraint::Length(input_height), // input: auto-resizes
-                Constraint::Length(1),            // status bar
-            ])
-            .split(f.area());
+        if small {
+            let chunks = Layout::default()
+                .direction(Direction::Vertical)
+                .margin(1)
+                .constraints([
+                    Constraint::Min(3),
+                    Constraint::Length(input_height),
+                    Constraint::Length(1),
+                ])
+                .split(area);
 
-        // Split layout: messages + activity panel when processing
-        if self.processing {
-            let horiz = Layout::default()
-                .direction(Direction::Horizontal)
-                .constraints([Constraint::Percentage(72), Constraint::Percentage(28)])
-                .split(chunks[0]);
-            self.render_messages(f, horiz[0]);
-            self.render_activity(f, horiz[1]);
+            if self.processing {
+                let horiz = Layout::default()
+                    .direction(Direction::Horizontal)
+                    .constraints([Constraint::Percentage(72), Constraint::Percentage(28)])
+                    .split(chunks[0]);
+                self.render_messages(f, horiz[0]);
+                self.render_activity(f, horiz[1]);
+            } else {
+                self.render_messages(f, chunks[0]);
+            }
+            self.render_input(f, chunks[1]);
+            self.render_status(f, chunks[2]);
+
+            if self.is_slash_popup_active()
+                && !self.help_overlay
+                && self.fuzzy_search.is_none()
+            {
+                self.render_slash_popup(f, chunks[1]);
+            }
         } else {
-            self.render_messages(f, chunks[0]);
-        }
-        self.render_input(f, chunks[1]);
-        self.render_status(f, chunks[2]);
+            let theme = super::theme::current();
+            let queue_h = self.queue_panel.height_hint();
+            let show_activity = self.show_activity_panel || self.processing;
+            let layout = super::layout::compute_layout(area, queue_h, input_height, show_activity);
 
-        // Inline slash popup (above input, below other overlays)
-        if self.is_slash_popup_active()
-            && !self.show_welcome
-            && !self.help_overlay
-            && self.fuzzy_search.is_none()
-        {
-            self.render_slash_popup(f, chunks[1]);
+            f.render_widget(ratatui::widgets::Clear, area);
+            f.render_widget(
+                Paragraph::new("").style(Style::default().bg(theme.background)),
+                area,
+            );
+
+            let mode_str: &'static str = if self.processing { "streaming" } else { "idle" };
+            let mode_style = if self.processing {
+                Style::default().fg(Color::Cyan)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            let context_pct = if self.context_estimate > 0 {
+                (self.total_tokens as f32 / (self.context_estimate as f32 * 1000.0)).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let status_ctx = super::status_bar::StatusBarContext {
+                model_name: self.model_name.clone(),
+                mode: mode_str,
+                mode_style,
+                total_tokens: self.total_tokens,
+                context_pct,
+                iteration: self.iteration_count,
+                branch: None,
+                timestamp: Local::now().format("%H:%M").to_string(),
+                thinking_label: None,
+            };
+            super::status_bar::StatusBar::new().view(f, layout.status_area, &status_ctx);
+
+            let mut msg_rect = layout.msg_area;
+            let legacy_bar = if msg_rect.height > 1 {
+                let bar = Rect::new(
+                    msg_rect.x,
+                    msg_rect.y + msg_rect.height - 1,
+                    msg_rect.width,
+                    1,
+                );
+                msg_rect.height = msg_rect.height.saturating_sub(1);
+                Some(bar)
+            } else {
+                None
+            };
+
+            if layout.activity_area.width > 0 {
+                self.render_messages_with_activity(f, msg_rect, layout.activity_area);
+            } else {
+                self.render_messages(f, msg_rect);
+            }
+
+            if let Some(bar) = legacy_bar {
+                self.render_status(f, bar);
+            }
+
+            self.queue_panel.view(f, layout.queue_area);
+            self.render_input(f, layout.input_area);
+
+            if self.is_slash_popup_active()
+                && !self.help_overlay
+                && self.fuzzy_search.is_none()
+            {
+                self.render_slash_popup(f, layout.input_area);
+            }
+
+            let _ = (
+                self.current_theme.as_str(),
+                self.accent_transition.is_animating(),
+            );
         }
 
-        // Overlays (on top of everything)
         if self.permission_dialog.is_some() {
             self.render_permission_dialog(f);
-        } else if self.show_welcome {
-            self.render_welcome(f);
         } else if self.model_picker.visible {
             self.render_model_selector(f);
         } else if self.session_browser_open {
@@ -382,82 +462,11 @@ impl<'a> App<'a> {
     /// Render welcome screen overlay
     pub(crate) fn render_welcome(&self, f: &mut Frame) {
         let area = f.area();
-        let w = 52u16.min(area.width.saturating_sub(4));
-        let h = 12u16.min(area.height.saturating_sub(4));
-        let x = (area.width.saturating_sub(w)) / 2;
-        let y = (area.height.saturating_sub(h)) / 2;
-        let welcome_area = Rect::new(x, y, w, h);
-
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan))
-            .title(" पवन — pawan ");
-
-        f.render_widget(ratatui::widgets::Clear, welcome_area);
-        f.render_widget(block.clone(), welcome_area);
-
-        let inner = block.inner(welcome_area);
-        let cwd = std::env::current_dir()
-            .map(|p| p.display().to_string())
-            .unwrap_or_default();
-        let text = vec![
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(
-                    "  Self-healing CLI coding agent",
-                    Style::default()
-                        .fg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    format!("  v{}", env!("CARGO_PKG_VERSION")),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("  Model: ", Style::default().fg(Color::DarkGray)),
-                Span::styled(&self.model_name, Style::default().fg(Color::Cyan)),
-            ]),
-            Line::from(vec![
-                Span::styled("  Path:  ", Style::default().fg(Color::DarkGray)),
-                Span::styled(cwd, Style::default().fg(Color::White)),
-            ]),
-            Line::from(""),
-            Line::from(Span::styled(
-                "  Type a task, or explore:",
-                Style::default().fg(Color::DarkGray),
-            )),
-            Line::from(vec![
-                Span::styled(
-                    "  Ctrl+P",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled(
-                    "  fuzzy search (commands)",
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled(
-                    "  F1    ",
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("  keyboard shortcuts", Style::default().fg(Color::DarkGray)),
-            ]),
-            Line::from(""),
-            Line::from(Span::styled(
-                "  Press any key to start...",
-                Style::default()
-                    .fg(Color::DarkGray)
-                    .add_modifier(Modifier::ITALIC),
-            )),
-        ];
-        f.render_widget(Paragraph::new(text), inner);
+        let theme = super::theme::current();
+        let bg_style = Style::default().bg(theme.background);
+        f.render_widget(ratatui::widgets::Block::default().style(bg_style), area);
+        self.welcome_splash
+            .render(area, f.buffer_mut(), theme.accent);
     }
 
     pub(crate) fn render_help_overlay(&self, f: &mut Frame) {
@@ -660,6 +669,11 @@ impl<'a> App<'a> {
             )));
         }
         f.render_widget(List::new(items).block(block), area);
+    }
+
+    fn render_messages_with_activity(&self, f: &mut Frame, msg_area: Rect, activity_area: Rect) {
+        self.render_messages(f, msg_area);
+        self.activity_panel.view(f, activity_area);
     }
 
     pub(crate) fn render_messages(&self, f: &mut Frame, area: Rect) {
@@ -1089,6 +1103,37 @@ impl<'a> App<'a> {
     }
 }
 
+/// Highlight a single line of fenced code using the active UI palette name.
+fn highlight_markdown_code_line(line: &str, lang: &str) -> Vec<Line<'static>> {
+    static HL: OnceLock<Mutex<(String, SyntaxHighlighter)>> = OnceLock::new();
+    let lock = HL.get_or_init(|| {
+        let name = theme::current().name.to_string();
+        let hi = SyntaxHighlighter::new(&name)
+            .unwrap_or_else(|_| SyntaxHighlighter::new("dracula").expect("dracula theme resolves"));
+        Mutex::new((name, hi))
+    });
+
+    let mut guard = lock.lock().unwrap();
+    let cur = theme::current().name.to_string();
+    if guard.0 != cur {
+        match SyntaxHighlighter::new(&cur) {
+            Ok(h) => {
+                guard.0 = cur;
+                guard.1 = h;
+            }
+            Err(_) => {
+                let t = theme_current();
+                return vec![Line::from(Span::styled(
+                    line.to_string(),
+                    Style::default().fg(t.foreground).bg(t.code_bg),
+                ))];
+            }
+        }
+    }
+
+    guard.1.highlight(line, lang)
+}
+
 /// Parse markdown text into styled ratatui Lines
 fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
     let mut lines_out = Vec::new();
@@ -1107,25 +1152,28 @@ fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
                 };
                 lines_out.push(Line::from(Span::styled(
                     label,
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(theme_current().muted),
                 )));
             } else {
                 in_code_block = false;
                 code_lang.clear();
                 lines_out.push(Line::from(Span::styled(
                     "────────────".to_string(),
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(theme_current().muted),
                 )));
             }
             continue;
         }
 
         if in_code_block {
-            // Code lines: monospace with distinct background color
-            lines_out.push(Line::from(Span::styled(
-                format!("  {}", line),
-                Style::default().fg(Color::White).bg(Color::Rgb(30, 30, 46)),
-            )));
+            let hl_lines = highlight_markdown_code_line(line, &code_lang);
+            if hl_lines.is_empty() {
+                lines_out.push(Line::default());
+            } else {
+                for hl_line in hl_lines {
+                    lines_out.push(hl_line);
+                }
+            }
             continue;
         }
 
@@ -1133,25 +1181,28 @@ fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
             lines_out.push(Line::from(Span::styled(
                 rest.to_string(),
                 Style::default()
-                    .fg(Color::Green)
+                    .fg(theme_current().foreground)
                     .add_modifier(Modifier::BOLD),
             )));
         } else if let Some(rest) = line.strip_prefix("## ") {
             lines_out.push(Line::from(Span::styled(
                 rest.to_string(),
                 Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+                    .fg(theme_current().accent_dim)
+                    .add_modifier(Modifier::BOLD),
             )));
         } else if let Some(rest) = line.strip_prefix("# ") {
             lines_out.push(Line::from(Span::styled(
                 rest.to_string(),
                 Style::default()
-                    .fg(Color::Cyan)
+                    .fg(theme_current().accent)
                     .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
             )));
         } else if let Some(rest) = line.strip_prefix("- ").or_else(|| line.strip_prefix("* ")) {
-            let mut spans = vec![Span::raw("• ".to_string())];
+            let mut spans = vec![Span::styled(
+                "• ".to_string(),
+                Style::default().fg(theme_current().muted),
+            )];
             spans.extend(parse_inline_markdown(rest));
             lines_out.push(Line::from(spans));
         } else if line.len() > 2
@@ -1164,7 +1215,7 @@ fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
                 let rest = &line[pos + 2..];
                 let mut spans = vec![Span::styled(
                     num.to_string(),
-                    Style::default().add_modifier(Modifier::BOLD),
+                    Style::default().fg(theme_current().muted),
                 )];
                 spans.push(Span::raw(" ".to_string()));
                 spans.extend(parse_inline_markdown(rest));
@@ -1176,14 +1227,14 @@ fn markdown_to_lines(text: &str) -> Vec<Line<'static>> {
             lines_out.push(Line::from(Span::styled(
                 format!("│ {}", rest),
                 Style::default()
-                    .fg(Color::DarkGray)
+                    .fg(theme_current().muted)
                     .add_modifier(Modifier::ITALIC),
             )));
         } else if line.chars().all(|c| c == '-' || c == '=') && line.len() >= 3 {
             // Horizontal rule
             lines_out.push(Line::from(Span::styled(
                 "─".repeat(40),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme_current().muted),
             )));
         } else {
             lines_out.push(Line::from(parse_inline_markdown(line)));
@@ -1238,9 +1289,10 @@ fn parse_inline_markdown(text: &str) -> Vec<Span<'static>> {
                 } else if Some(pos) == next_code {
                     let after = &remaining[pos + 1..];
                     if let Some(end) = after.find('`') {
+                        let t = theme_current();
                         spans.push(Span::styled(
                             after[..end].to_string(),
-                            Style::default().fg(Color::Yellow),
+                            Style::default().fg(t.accent).bg(t.code_bg),
                         ));
                         remaining = &after[end + 1..];
                     } else {
@@ -1444,7 +1496,7 @@ mod tests {
         terminal.draw(|f| app.ui(f)).unwrap();
 
         let content = buffer_to_string(terminal.backend().buffer());
-        assert!(content.contains("1500tok"), "Should show total token count");
+        assert!(content.contains("1.5k tok"), "Should show total token count");
     }
 
     #[test]
@@ -1714,7 +1766,7 @@ mod tests {
         terminal.draw(|f| app.ui(f)).unwrap();
 
         let content = buffer_to_string(terminal.backend().buffer());
-        assert!(content.contains("85k ctx"), "Should show context estimate");
+        assert!(content.contains("~85k ctx"), "Should show context estimate");
     }
 
     #[test]
@@ -2569,7 +2621,7 @@ mod tests {
             .style
             .add_modifier
             .contains(Modifier::UNDERLINED));
-        assert_eq!(lines[0].spans[0].style.fg, Some(Color::Cyan));
+        assert_eq!(lines[0].spans[0].style.fg, Some(super::theme::current().accent));
     }
 
     #[test]
@@ -2581,7 +2633,7 @@ mod tests {
             .style
             .add_modifier
             .contains(Modifier::BOLD));
-        assert_eq!(lines[0].spans[0].style.fg, Some(Color::Green));
+        assert_eq!(lines[0].spans[0].style.fg, Some(super::theme::current().accent_dim));
     }
 
     #[test]
@@ -2615,8 +2667,9 @@ mod tests {
         assert_eq!(lines.len(), 3);
         // First line is separator with language
         assert!(lines[0].spans[0].content.contains("rust"));
-        // Middle line is code with dark background
-        assert_eq!(lines[1].spans[0].style.bg, Some(Color::Rgb(30, 30, 46)));
+        // Middle line is syntax-highlighted code
+        let joined: String = lines[1].spans.iter().map(|sp| sp.content.to_string()).collect();
+        assert!(joined.contains("let x"));
         // Last line is closing separator
         assert!(lines[2].spans[0].content.contains('─'));
     }
@@ -2644,7 +2697,7 @@ mod tests {
         let lines = markdown_to_lines("---");
         assert_eq!(lines.len(), 1);
         assert!(lines[0].spans[0].content.contains('─'));
-        assert_eq!(lines[0].spans[0].style.fg, Some(Color::DarkGray));
+        assert_eq!(lines[0].spans[0].style.fg, Some(super::theme::current().muted));
     }
 
     #[test]
@@ -2652,11 +2705,8 @@ mod tests {
         let lines = markdown_to_lines("1. first item");
         assert_eq!(lines.len(), 1);
         assert!(lines[0].spans.len() >= 2);
-        // First span is the bold number
-        assert!(lines[0].spans[0]
-            .style
-            .add_modifier
-            .contains(Modifier::BOLD));
+        // First span is the muted list marker
+        assert_eq!(lines[0].spans[0].style.fg, Some(super::theme::current().muted));
     }
 
     #[test]
@@ -2674,7 +2724,9 @@ mod tests {
         assert_eq!(spans.len(), 3);
         assert_eq!(spans[0].content, "use ");
         assert_eq!(spans[1].content, "cargo test");
-        assert_eq!(spans[1].style.fg, Some(Color::Yellow));
+        let theme = super::theme::current();
+        assert_eq!(spans[1].style.fg, Some(theme.accent));
+        assert_eq!(spans[1].style.bg, Some(theme.code_bg));
         assert_eq!(spans[2].content, " here");
     }
 
@@ -2695,7 +2747,7 @@ mod tests {
         assert!(spans[0].style.add_modifier.contains(Modifier::BOLD));
         assert_eq!(spans[1].content, " and ");
         assert_eq!(spans[2].content, "code");
-        assert_eq!(spans[2].style.fg, Some(Color::Yellow));
+        assert_eq!(spans[2].style.fg, Some(super::theme::current().accent));
     }
 
     #[test]
@@ -2806,8 +2858,14 @@ mod tests {
             }
         }
         assert!(
-            text.contains("pawan"),
-            "Welcome overlay should show 'pawan'"
+            buf.content.iter().any(|cell| {
+                let sym = cell.symbol();
+                sym != " "
+                    && sym != "⠀"
+                    && sym.chars().any(|c| !c.is_whitespace())
+            }),
+            "Welcome screen should paint non-whitespace cells, got sample:\n{}",
+            &text[..300.min(text.len())]
         );
     }
 
