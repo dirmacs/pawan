@@ -339,8 +339,6 @@ impl Tool for SpawnAgentsTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(unix)]
-    use std::os::unix::fs::PermissionsExt;
     use tempfile::TempDir;
     #[test]
     fn test_spawn_agent_tool_name() {

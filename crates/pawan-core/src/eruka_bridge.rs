@@ -661,7 +661,7 @@ core_max_tokens = 1000
     #[tokio::test]
     async fn inject_dedup_prevents_double_injection() {
         // Simulate a history that already has eruka memory injected
-        let history = vec![
+        let history = [
             Message {
                 role: Role::System,
                 content: "[Eruka Core Memory]\nproject: pawan\n[End Core Memory]".into(),

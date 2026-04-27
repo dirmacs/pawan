@@ -2710,6 +2710,7 @@ mod tests {
         assert!(snapshot.contains("S: sys"));
     }
 
+    #[tokio::test]
     async fn test_archive_to_eruka_ok_when_disabled() {
         // When eruka is disabled (the default), archive_to_eruka must
         // return Ok without touching the network — this is the
@@ -2850,12 +2851,15 @@ This is malicious.
         );
     }
 
+    #[tokio::test]
     async fn test_tool_idle_timeout_triggered() {
         use std::time::Duration;
         use tokio::time::sleep;
 
-        let mut config = PawanConfig::default();
-        config.tool_call_idle_timeout_secs = 0; // Trigger on any non-zero elapsed seconds
+        let config = PawanConfig {
+            tool_call_idle_timeout_secs: 0,
+            ..Default::default()
+        }; // Trigger on any non-zero elapsed seconds
 
         // Custom backend that is slow on the second call.
         // With our fix (moving update before LLM call), this will trigger
@@ -2932,9 +2936,12 @@ This is malicious.
         }
     }
 
+    #[tokio::test]
     async fn test_tool_idle_timeout_not_triggered() {
-        let mut config = PawanConfig::default();
-        config.tool_call_idle_timeout_secs = 10;
+        let config = PawanConfig {
+            tool_call_idle_timeout_secs: 10,
+            ..Default::default()
+        };
 
         let backend = MockBackend::new(vec![MockResponse::text("Done")]);
 
@@ -3077,6 +3084,7 @@ This is malicious.
 
     // ─── Execution logic tests ───────────────────────────────────────────────
 
+    #[tokio::test]
     async fn test_execute_with_callbacks_returns_response() {
         let backend = MockBackend::new(vec![MockResponse::text("Hello world")]);
 
@@ -3089,6 +3097,7 @@ This is malicious.
         assert_eq!(response.content, "Hello world");
     }
 
+    #[tokio::test]
     async fn test_execute_with_token_callback() {
         let backend = MockBackend::new(vec![MockResponse::text("Response")]);
 
@@ -3096,7 +3105,6 @@ This is malicious.
         agent.backend = Box::new(backend);
 
         let tokens_received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let tokens_clone = tokens_received.clone();
 
         let on_token = Box::new(move |token: &str| {
             tokens_received.lock().unwrap().push(token.to_string());
@@ -3109,6 +3117,7 @@ This is malicious.
         // Note: MockBackend doesn't actually call token callbacks, but we verify the path works
     }
 
+    #[tokio::test]
     async fn test_execute_with_tool_callback() {
         let backend = MockBackend::new(vec![MockResponse::text("Done")]);
 
@@ -3116,7 +3125,6 @@ This is malicious.
         agent.backend = Box::new(backend);
 
         let tools_called = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        let tools_clone = tools_called.clone();
 
         let on_tool = Box::new(move |record: &ToolCallRecord| {
             tools_called.lock().unwrap().push(record.name.clone());
@@ -3128,9 +3136,12 @@ This is malicious.
         assert!(result.is_ok());
     }
 
+    #[tokio::test]
     async fn test_execute_max_iterations_exceeded() {
-        let mut config = PawanConfig::default();
-        config.max_tool_iterations = 2;
+        let config = PawanConfig {
+            max_tool_iterations: 2,
+            ..Default::default()
+        };
 
         let backend = MockBackend::with_repeated_tool_call("bash");
 
@@ -3147,6 +3158,7 @@ This is malicious.
         }
     }
 
+    #[tokio::test]
     async fn test_execute_with_arch_context_injection() {
         let tmp = tempfile::TempDir::new().unwrap();
         let pawan_dir = tmp.path().join(".pawan");
@@ -3166,9 +3178,12 @@ This is malicious.
         assert!(user_msg.unwrap().content.contains("Workspace Architecture"));
     }
 
+    #[tokio::test]
     async fn test_execute_context_pruning_triggered() {
-        let mut config = PawanConfig::default();
-        config.max_context_tokens = 100; // Very low to trigger pruning
+        let config = PawanConfig {
+            max_context_tokens: 100,
+            ..Default::default()
+        }; // Very low to trigger pruning
 
         let backend = MockBackend::new(vec![MockResponse::text("Response")]);
 
@@ -3176,7 +3191,7 @@ This is malicious.
         agent.backend = Box::new(backend);
 
         // Add many messages to exceed context limit
-        for i in 0..50 {
+        for _ in 0..50 {
             agent.add_message(Message {
                 role: Role::User,
                 content: "x".repeat(1000),
@@ -3191,9 +3206,12 @@ This is malicious.
         assert!(agent.history().len() < 50, "history should be pruned");
     }
 
+    #[tokio::test]
     async fn test_execute_iteration_budget_warning() {
-        let mut config = PawanConfig::default();
-        config.max_tool_iterations = 5;
+        let config = PawanConfig {
+            max_tool_iterations: 5,
+            ..Default::default()
+        };
 
         let backend = MockBackend::with_repeated_tool_call("bash");
 
@@ -3213,9 +3231,12 @@ This is malicious.
 
     // ─── Tool execution tests ───────────────────────────────────────────────
 
+    #[tokio::test]
     async fn test_execute_tool_timeout() {
-        let mut config = PawanConfig::default();
-        config.bash_timeout_secs = 1; // Very short timeout
+        let config = PawanConfig {
+            bash_timeout_secs: 1,
+            ..Default::default()
+        }; // Very short timeout
 
         let backend = MockBackend::with_tool_call(
             "call_1",
@@ -3237,6 +3258,7 @@ This is malicious.
         assert!(first_tool.result.get("error").is_some());
     }
 
+    #[tokio::test]
     async fn test_execute_tool_error_handling() {
         let backend = MockBackend::with_tool_call(
             "call_1",
@@ -3257,6 +3279,7 @@ This is malicious.
         assert!(!first_tool.success);
     }
 
+    #[tokio::test]
     async fn test_execute_multiple_tool_calls() {
         let backend = MockBackend::with_multiple_tool_calls(vec![
             ("call_1", "bash", json!({"command": "echo 1"})),
@@ -3272,6 +3295,7 @@ This is malicious.
         assert!(response.tool_calls.len() >= 2);
     }
 
+    #[tokio::test]
     async fn test_execute_token_usage_accumulation() {
         let backend = MockBackend::with_text_and_usage("Response", 100, 50);
 
@@ -3288,6 +3312,7 @@ This is malicious.
 
     // ─── Error handling tests ───────────────────────────────────────────────
 
+    #[tokio::test]
     async fn test_execute_with_permission_callback_denied() {
         let backend = MockBackend::with_tool_call(
             "call_1",
@@ -3314,19 +3339,25 @@ This is malicious.
         let result = agent.execute("test").await;
         assert!(result.is_ok());
     }
+    #[tokio::test]
     async fn test_execute_with_coordinator_basic() {
-        let mut config = PawanConfig::default();
-        config.use_coordinator = true;
-        config.max_tool_iterations = 1;
+        let config = PawanConfig {
+            use_coordinator: true,
+            max_tool_iterations: 1,
+            ..Default::default()
+        };
 
         let agent = PawanAgent::new(config, PathBuf::from("."));
         // Verify coordinator flag is set
         assert!(agent.config().use_coordinator);
     }
 
+    #[tokio::test]
     async fn test_execute_with_coordinator_ignores_callbacks() {
-        let mut config = PawanConfig::default();
-        config.use_coordinator = true;
+        let config = PawanConfig {
+            use_coordinator: true,
+            ..Default::default()
+        };
 
         let mut agent = PawanAgent::new(config, PathBuf::from("."));
 
@@ -3349,7 +3380,7 @@ This is malicious.
     #[test]
     fn test_agent_tools_mut_returns_mutable_registry() {
         let mut agent = PawanAgent::new(PawanConfig::default(), PathBuf::from("."));
-        let original_count = agent.get_tool_definitions().len();
+        let _original_count = agent.get_tool_definitions().len();
 
         // tools_mut should allow modification
         let _ = agent.tools_mut();
@@ -3395,6 +3426,7 @@ This is malicious.
 
     // ─── Edge case tests ─────────────────────────────────────────────────────
 
+    #[tokio::test]
     async fn test_execute_empty_prompt() {
         let backend = MockBackend::new(vec![MockResponse::text("Response")]);
 
@@ -3405,6 +3437,7 @@ This is malicious.
         assert!(result.is_ok());
     }
 
+    #[tokio::test]
     async fn test_execute_very_long_prompt() {
         let backend = MockBackend::new(vec![MockResponse::text("Response")]);
 
@@ -3416,6 +3449,7 @@ This is malicious.
         assert!(result.is_ok());
     }
 
+    #[tokio::test]
     async fn test_execute_with_special_characters() {
         let backend = MockBackend::new(vec![MockResponse::text("Response")]);
 
@@ -3484,7 +3518,7 @@ fn summarize_args(args: &serde_json::Value) -> String {
 #[cfg(test)]
 mod coordinator_tests {
     use super::*;
-    use crate::agent::backend::mock::{MockBackend, MockResponse};
+    use crate::agent::backend::mock::MockBackend;
     use crate::coordinator::{FinishReason, ToolCallingConfig};
     use std::sync::Arc;
 
@@ -3529,7 +3563,7 @@ mod coordinator_tests {
         };
         let agent = PawanAgent::new(config, PathBuf::from("."));
         let backend = MockBackend::with_text("Hello from coordinator!");
-        let mut agent = agent.with_backend(Box::new(backend));
+        let agent = agent.with_backend(Box::new(backend));
 
         // This will fail because the coordinator creates its own backend
         // but we can at least verify the flag works
@@ -3729,7 +3763,7 @@ mod coordinator_tests {
             self.barrier.wait().await;
             tokio::time::sleep(std::time::Duration::from_millis(self.delay_ms)).await;
             if self.fail {
-                return Err(crate::PawanError::Tool(format!("{} failed", self.name)).into());
+                return Err(crate::PawanError::Tool(format!("{} failed", self.name)));
             }
             Ok(serde_json::json!({"ok": true, "tool": self.name}))
         }

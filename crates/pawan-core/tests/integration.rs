@@ -3,6 +3,7 @@
 //! These tests use wiremock to simulate Ollama API responses,
 //! allowing us to test the full agent workflow without a real LLM.
 #![allow(dead_code)]
+#![allow(clippy::field_reassign_with_default)]
 
 use pawan::agent::session::Session;
 use pawan::agent::{PawanAgent, Role};
@@ -19,9 +20,10 @@ use tempfile::TempDir;
 
 /// Create a config for testing
 fn config_with_mock_url(_mock_url: &str) -> PawanConfig {
-    let mut config = PawanConfig::default();
-    config.model = "nemotron-mini".to_string();
-    config
+    PawanConfig {
+        model: "nemotron-mini".to_string(),
+        ..Default::default()
+    }
 }
 
 /// Upskill-inspired evaluation helper: check that a tool call result
@@ -810,8 +812,6 @@ fn test_model_fallback_chain() {
 }
 
 /// Test that tool results exceeding max_result_chars are truncated
-
-/// Test that tool results exceeding max_result_chars are truncated
 #[tokio::test]
 async fn test_tool_result_truncation() {
     use pawan::agent::backend::mock::{MockBackend, MockResponse};
@@ -1096,7 +1096,7 @@ async fn test_eval_bash_output_quality() {
 
     // Upskill-style: verify all expected fields present
     assert_tool_result_contains(&result, &["eval test", "success"]);
-    assert_eq!(result["success"], true);
+    assert!(result["success"].as_bool().unwrap());
     assert_eq!(result["exit_code"], 0);
     assert!(result["stdout"].as_str().unwrap().contains("eval test"));
     assert_eq!(result["description"], "test echo");
@@ -1119,7 +1119,7 @@ async fn test_eval_write_file_output_quality() {
 
     assert_eq!(result["success"], true);
     assert!(result["bytes_written"].as_u64().unwrap() > 0);
-    assert_eq!(result["size_verified"], true);
+    assert!(result["size_verified"].as_bool().unwrap());
     assert_eq!(result["lines"], 1);
 }
 
@@ -1129,8 +1129,8 @@ async fn test_eval_write_file_output_quality() {
 #[test]
 fn test_use_ares_backend_default_false() {
     let config = PawanConfig::default();
-    assert_eq!(
-        config.use_ares_backend, false,
+    assert!(
+        !config.use_ares_backend,
         "use_ares_backend must default to false to preserve existing behavior"
     );
 }
@@ -1148,7 +1148,7 @@ fn test_use_ares_backend_toml_roundtrip() {
     );
 
     let parsed: PawanConfig = toml::from_str(&serialized).unwrap();
-    assert_eq!(parsed.use_ares_backend, true);
+    assert!(parsed.use_ares_backend);
 }
 
 /// Config field `use_ares_backend` defaults to false when omitted from TOML
@@ -1159,7 +1159,7 @@ provider = "nvidia"
 model = "test-model"
 "#;
     let parsed: PawanConfig = toml::from_str(toml_str).unwrap();
-    assert_eq!(parsed.use_ares_backend, false);
+    assert!(!parsed.use_ares_backend);
 }
 
 /// Agent constructs successfully even when use_ares_backend is requested

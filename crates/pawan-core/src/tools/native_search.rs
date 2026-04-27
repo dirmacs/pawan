@@ -1320,7 +1320,7 @@ mod tests {
 
         assert_eq!(result["count"].as_u64().unwrap(), 0);
         assert_eq!(result["total_found"].as_u64().unwrap(), 0);
-        assert_eq!(result["truncated"].as_bool().unwrap(), false);
+        assert!(!result["truncated"].as_bool().unwrap());
         assert!(result["files"].as_array().unwrap().is_empty());
     }
 

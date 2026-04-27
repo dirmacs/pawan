@@ -1301,6 +1301,7 @@ mod config_tests {
     }
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn test_thinking_mode_supported_models() {
         let mut config = PawanConfig::default();
         config.reasoning_mode = true;
