@@ -38,3 +38,7 @@ codegen-units = 256
 [profile.test.package."*"]
 opt-level = 2
 debug = false
+
+# Serial test execution avoids flaky races in integration-style tests.
+[env]
+RUST_TEST_THREADS = "1"

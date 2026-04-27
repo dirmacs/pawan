@@ -330,6 +330,11 @@ mod tests {
     fn session(id: &str, msg: &str) -> Session {
         Session {
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: vec![],
             id: id.into(),
             model: "test-model".into(),
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -437,6 +442,11 @@ mod tests {
     fn test_commit_message_no_user_messages_uses_fallback() {
         let s = Session {
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: vec![],
             id: "no-msg".into(),
             model: "m".into(),
             created_at: chrono::Utc::now().to_rfc3339(),
