@@ -23,4 +23,8 @@ lcov.info
 *.gcno
 
 # Export artifacts from /export slash command
+# Local config — contains API keys and workspace secrets
+pawan.toml
+
+# Export artifacts from /export slash command
 pawan-session*.md
