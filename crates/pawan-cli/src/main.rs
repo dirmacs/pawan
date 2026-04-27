@@ -9,6 +9,245 @@
 
 #[cfg(feature = "tui")]
 mod tui;
+mod print {
+    use super::*;
+    use serde_json::json;
+    use std::io::Write;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    enum OutputFormat {
+        StreamJson,
+        Text,
+        Json,
+    }
+
+    fn parse_output_format(s: &str) -> std::result::Result<OutputFormat, String> {
+        match s.trim().to_lowercase().as_str() {
+            "stream-json" | "stream_json" | "streamjson" => Ok(OutputFormat::StreamJson),
+            "text" => Ok(OutputFormat::Text),
+            "json" => Ok(OutputFormat::Json),
+            other => Err(format!(
+                "Invalid --output-format {other}. Expected: stream-json, text, json"
+            )),
+        }
+    }
+
+    fn format_for_error(output_format_raw: &str) -> OutputFormat {
+        match output_format_raw.trim().to_lowercase().as_str() {
+            "json" => OutputFormat::Json,
+            "stream-json" | "stream_json" | "streamjson" => OutputFormat::StreamJson,
+            _ => OutputFormat::Text,
+        }
+    }
+
+    pub async fn run_print(
+        mut config: PawanConfig,
+        workspace: PathBuf,
+        prompt: String,
+        output_format_raw: String,
+        max_turns: usize,
+        verbose: bool,
+    ) -> i32 {
+        let format = match parse_output_format(&output_format_raw) {
+            Ok(f) => f,
+            Err(msg) => {
+                match format_for_error(&output_format_raw) {
+                    OutputFormat::Json => println!("{}", json!({ "error": msg, "success": false })),
+                    OutputFormat::StreamJson => println!(
+                        "{}",
+                        json!({ "type": "result", "error": msg, "success": false })
+                    ),
+                    OutputFormat::Text => eprintln!("{} {}", "Error:".red().bold(), msg),
+                }
+                return 1;
+            }
+        };
+
+        let trimmed = prompt.trim();
+        if trimmed.is_empty() {
+            let msg = "Empty prompt for --print";
+            match format {
+                OutputFormat::Json => println!("{}", json!({ "error": msg, "success": false })),
+                OutputFormat::StreamJson => println!(
+                    "{}",
+                    json!({ "type": "result", "error": msg, "success": false })
+                ),
+                OutputFormat::Text => eprintln!("{} {}", "Error:".red().bold(), msg),
+            }
+            return 1;
+        }
+
+        config.max_tool_iterations = max_turns.max(1);
+        let config_ref = config.clone();
+        let mut agent = PawanAgent::new(config, workspace);
+        let model = agent.model_name().to_string();
+        let session_id = agent.session_id().to_string();
+
+        #[cfg(feature = "mcp")]
+        super::setup_mcp_tools(&mut agent, &config_ref).await;
+
+        if let Err(e) = agent.preflight_check().await {
+            let msg = format!("Model health check failed: {e}");
+            match format {
+                OutputFormat::Json => println!(
+                    "{}",
+                    json!({ "error": msg, "success": false, "model": model, "session_id": session_id })
+                ),
+                OutputFormat::StreamJson => println!(
+                    "{}",
+                    json!({ "type": "result", "success": false, "error": msg, "model": model, "session_id": session_id })
+                ),
+                OutputFormat::Text => {
+                    eprintln!("{} {}", "Error:".red().bold(), msg);
+                    eprintln!("Check: is the model server running? Is the API URL correct?");
+                }
+            }
+            return 1;
+        }
+
+        let buffer = Arc::new(std::sync::Mutex::new(String::new()));
+        let buffer_for_token = Arc::clone(&buffer);
+        let stream_json_emitted = Arc::new(AtomicBool::new(false));
+        let stream_json_flag = Arc::clone(&stream_json_emitted);
+        let fmt_for_token = format;
+
+        let on_token: Option<pawan::agent::TokenCallback> = Some(Box::new(move |token: &str| {
+            if let Ok(mut b) = buffer_for_token.lock() {
+                b.push_str(token);
+            }
+            match fmt_for_token {
+                OutputFormat::Text => {
+                    print!("{token}");
+                    std::io::stdout().flush().ok();
+                }
+                OutputFormat::StreamJson => {
+                    stream_json_flag.store(true, Ordering::SeqCst);
+                    if let Ok(line) = serde_json::to_string(&json!({
+                        "type": "chunk",
+                        "text": token,
+                    })) {
+                        println!("{line}");
+                    }
+                }
+                OutputFormat::Json => {}
+            }
+        }));
+
+        let on_tool: Option<pawan::agent::ToolCallback> = match format {
+            OutputFormat::StreamJson => Some(Box::new(|rec: &pawan::agent::ToolCallRecord| {
+                println!(
+                    "{}",
+                    json!({
+                        "type": "tool_use",
+                        "message": {
+                            "content": [{
+                                "type": "tool_use",
+                                "name": rec.name,
+                                "input": rec.arguments
+                            }]
+                        }
+                    })
+                );
+
+                let content = if rec.result.is_string() {
+                    rec.result.clone()
+                } else {
+                    json!(rec.result.to_string())
+                };
+
+                println!(
+                    "{}",
+                    json!({
+                        "type": "tool_result",
+                        "message": {
+                            "content": [{
+                                "type": "tool_result",
+                                "tool_use_id": rec.id,
+                                "content": content
+                            }]
+                        }
+                    })
+                );
+            })),
+            _ => None,
+        };
+
+        let response = agent
+            .execute_with_callbacks(trimmed, on_token, on_tool, None)
+            .await;
+
+        let response = match response {
+            Ok(r) => r,
+            Err(e) => {
+                let msg = e.to_string();
+                match format {
+                    OutputFormat::Json => println!(
+                        "{}",
+                        json!({ "error": msg, "success": false, "model": model, "session_id": session_id })
+                    ),
+                    OutputFormat::StreamJson => println!(
+                        "{}",
+                        json!({ "type": "result", "success": false, "error": msg, "model": model, "session_id": session_id })
+                    ),
+                    OutputFormat::Text => eprintln!("{} {}", "Error:".red().bold(), msg),
+                }
+                return 1;
+            }
+        };
+
+        match format {
+            OutputFormat::Text => {
+                println!();
+                if verbose {
+                    eprintln!(
+                        "{} {} (turns: {}, tokens: {})",
+                        "pawan".cyan().bold(),
+                        "print complete".cyan(),
+                        response.iterations,
+                        response.usage.total_tokens
+                    );
+                }
+            }
+            OutputFormat::Json => {
+                println!(
+                    "{}",
+                    json!({
+                        "success": true,
+                        "result": response.content,
+                        "model": model,
+                        "session_id": session_id,
+                        "iterations": response.iterations,
+                        "usage": response.usage
+                    })
+                );
+            }
+            OutputFormat::StreamJson => {
+                if !stream_json_emitted.load(Ordering::SeqCst) && !response.content.is_empty() {
+                    if let Ok(line) = serde_json::to_string(&json!({
+                        "type": "chunk",
+                        "text": response.content,
+                    })) {
+                        println!("{line}");
+                    }
+                }
+                if let Ok(line) = serde_json::to_string(&json!({
+                    "type": "result",
+                    "success": true,
+                    "model": model,
+                    "session_id": session_id,
+                    "iterations": response.iterations,
+                    "usage": response.usage
+                })) {
+                    println!("{line}");
+                }
+            }
+        }
+
+        0
+    }
+}
 
 use clap::{CommandFactory, Parser, Subcommand};
 use owo_colors::OwoColorize;
@@ -60,6 +299,50 @@ struct Cli {
     /// Enable verbose output
     #[arg(short, long, global = true)]
     verbose: bool,
+
+    /// Print the final assistant response to stdout and exit (headless; skips the TUI)
+    #[arg(long, global = true)]
+    print: bool,
+
+    /// Prompt for `--print` (alias: `--message`). Required when stdin is a TTY; otherwise read stdin until EOF
+    #[arg(
+        long = "print-prompt",
+        visible_alias = "message",
+        global = true,
+        value_name = "PROMPT"
+    )]
+    print_prompt: Option<String>,
+
+    /// Output format for `--print`: text, json, stream-json
+    #[arg(
+        long,
+        global = true,
+        default_value = "text",
+        value_parser = clap::builder::PossibleValuesParser::new(["text", "json", "stream-json"])
+    )]
+    output_format: String,
+
+    /// Maximum number of LLM/tool iterations for --print mode
+    #[arg(long, global = true, default_value_t = 8)]
+    max_turns: usize,
+
+    /// Resume the most recent saved session (newest by updated_at)
+    ///
+    /// Note: sessions are currently global (not scoped to a directory).
+    #[arg(long = "continue", global = true, conflicts_with_all = ["session", "list_sessions"])]
+    continue_session: bool,
+
+    /// Resume a saved session by ID
+    #[arg(long, global = true, value_name = "ID", conflicts_with_all = ["continue_session", "list_sessions"])]
+    session: Option<String>,
+
+    /// List saved sessions and exit
+    #[arg(short = 'l', long, global = true, conflicts_with_all = ["continue_session", "session"])]
+    list_sessions: bool,
+
+    /// Emit machine-readable JSON (e.g. with --list-sessions)
+    #[arg(long, global = true)]
+    json: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -407,15 +690,9 @@ enum TasksAction {
 #[derive(Subcommand)]
 enum DepAction {
     /// Add dependency: <id> depends on <blocks_id>
-    Add {
-        id: String,
-        blocks_id: String,
-    },
+    Add { id: String, blocks_id: String },
     /// Remove dependency
-    Rm {
-        id: String,
-        blocks_id: String,
-    },
+    Rm { id: String, blocks_id: String },
 }
 
 #[derive(Subcommand)]
@@ -458,6 +735,28 @@ async fn main() {
         eprintln!("{} {}", "Error:".red().bold(), e);
         std::process::exit(1);
     }
+}
+
+fn read_print_prompt(explicit: Option<String>) -> Result<String> {
+    use std::io::Read;
+
+    if let Some(p) = explicit {
+        if p.trim().is_empty() {
+            return Err(PawanError::Config(
+                "empty --message / --print-prompt is not valid for --print".to_string(),
+            ));
+        }
+        return Ok(p);
+    }
+    if atty::is(atty::Stream::Stdin) {
+        return Err(PawanError::Config(
+            "--print requires --message/--print-prompt when stdin is a TTY; otherwise pipe a prompt on stdin"
+                .to_string(),
+        ));
+    }
+    let mut buf = String::new();
+    std::io::stdin().read_to_string(&mut buf)?;
+    Ok(buf)
 }
 
 async fn run() -> Result<()> {
@@ -508,9 +807,95 @@ async fn run() -> Result<()> {
         }
     }
 
+    if cli.print {
+        let prompt = read_print_prompt(cli.print_prompt.clone())?;
+        let exit_code = print::run_print(
+            config,
+            workspace,
+            prompt,
+            cli.output_format.clone(),
+            cli.max_turns,
+            cli.verbose,
+        )
+        .await;
+        std::process::exit(exit_code);
+    }
+
+    if cli.list_sessions {
+        run_sessions(cli.json).await?;
+        return Ok(());
+    }
+
+    let resume_id_from_flags: Option<String> = {
+        use pawan::agent::session::Session;
+
+        if let Some(id) = cli.session.as_deref() {
+            let loaded = match Session::load(id) {
+                Ok(s) => s,
+                Err(PawanError::NotFound(_)) => {
+                    return Err(PawanError::NotFound(format!(
+                        "No session with id {id}. Run `pawan --list-sessions` to see available sessions."
+                    )));
+                }
+                Err(e) => {
+                    return Err(PawanError::Config(format!(
+                        "Failed to load session {id}: {e}. The session data may be corrupted; remove ~/.pawan/sessions/{id}.json or start a new session."
+                    )));
+                }
+            };
+            if loaded.model != config.model {
+                eprintln!(
+                    "{} {}{}{}",
+                    "Warning:".yellow().bold(),
+                    "session model (".dimmed(),
+                    loaded.model.dimmed(),
+                    ") differs from current model; resuming anyway".dimmed()
+                );
+            }
+            Some(id.to_string())
+        } else if cli.continue_session {
+            let sessions = Session::list()?;
+            if sessions.is_empty() {
+                eprintln!(
+                    "{} {}",
+                    "Warning:".yellow().bold(),
+                    "no saved sessions found; starting fresh".dimmed()
+                );
+                None
+            } else {
+                let id = sessions[0].id.clone();
+                let loaded = match Session::load(&id) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        return Err(PawanError::Config(format!(
+                            "Failed to load most recent session {id}: {e}. The session data may be corrupted; remove ~/.pawan/sessions/{id}.json or start a new session."
+                        )));
+                    }
+                };
+                if loaded.model != config.model {
+                    eprintln!(
+                        "{} {}{}{}",
+                        "Warning:".yellow().bold(),
+                        "session model (".dimmed(),
+                        loaded.model.dimmed(),
+                        ") differs from current model; resuming anyway".dimmed()
+                    );
+                }
+                Some(id)
+            }
+        } else {
+            None
+        }
+    };
+
+    // Resume via --session / --continue uses non-TUI (headless) REPL, matching /session behavior.
+    let no_tui = cli.no_tui
+        || cli.session.is_some()
+        || (cli.continue_session && resume_id_from_flags.is_some());
+
     match cli.command {
         None | Some(Commands::Chat { resume: None }) => {
-            run_interactive(config, workspace, cli.no_tui, None).await
+            run_interactive(config, workspace, no_tui, resume_id_from_flags).await
         }
         Some(Commands::Chat { resume: Some(id) }) => {
             run_interactive(config, workspace, cli.no_tui, Some(id)).await
@@ -529,7 +914,7 @@ async fn run() -> Result<()> {
         Some(Commands::Notify { message, channel }) => run_notify(&message, &channel).await,
         Some(Commands::Fmt { check }) => run_fmt(workspace, check).await,
         Some(Commands::Tasks { action }) => run_tasks(action).await,
-        Some(Commands::Sessions) => run_sessions().await,
+        Some(Commands::Sessions) => run_sessions(cli.json).await,
         Some(Commands::Completions { shell }) => {
             clap_complete::generate(shell, &mut Cli::command(), "pawan", &mut std::io::stdout());
             Ok(())
@@ -576,13 +961,19 @@ async fn run() -> Result<()> {
             run_review(config, workspace, staged, file).await
         }
         Some(Commands::Explain { query }) => run_explain(config, workspace, &query).await,
-        Some(Commands::Distill { session, output, eval, refine, student_model }) => {
-            run_distill(config, session, output, eval, refine, student_model).await
-        }
+        Some(Commands::Distill {
+            session,
+            output,
+            eval,
+            refine,
+            student_model,
+        }) => run_distill(config, session, output, eval, refine, student_model).await,
         Some(Commands::Status) => run_status(config, workspace).await,
-        Some(Commands::Watch { interval, commit, notify }) => {
-            run_watch(config, workspace, interval, commit, notify).await
-        }
+        Some(Commands::Watch {
+            interval,
+            commit,
+            notify,
+        }) => run_watch(config, workspace, interval, commit, notify).await,
         Some(Commands::Run {
             prompt,
             file,
@@ -609,9 +1000,11 @@ async fn run() -> Result<()> {
             .await
         }
         Some(Commands::Loop { action }) => run_loop(config, workspace, action, cli.verbose).await,
-        Some(Commands::Pom { pom_url, complete, force }) => {
-            run_pom(config, workspace, pom_url, complete, force, cli.verbose).await
-        }
+        Some(Commands::Pom {
+            pom_url,
+            complete,
+            force,
+        }) => run_pom(config, workspace, pom_url, complete, force, cli.verbose).await,
     }
 }
 
@@ -960,7 +1353,11 @@ async fn run_commit(
 
     // Truncate diff if too long to avoid token waste
     let diff_for_prompt = if diff_full.len() > 8000 {
-        format!("{}...\n\n[diff truncated, {} total bytes]", &diff_full[..8000], diff_full.len())
+        format!(
+            "{}...\n\n[diff truncated, {} total bytes]",
+            &diff_full[..8000],
+            diff_full.len()
+        )
     } else {
         diff_full.to_string()
     };
@@ -1004,7 +1401,10 @@ Full diff:
         println!("{}", line);
     }
     if diff_full.lines().count() > 40 {
-        println!("{}", format!("... [{} more lines]", diff_full.lines().count() - 40).dimmed());
+        println!(
+            "{}",
+            format!("... [{} more lines]", diff_full.lines().count() - 40).dimmed()
+        );
     }
     println!("{}", "─".repeat(50).dimmed());
     println!("\n{}", "Commit message:".green().bold());
@@ -1112,20 +1512,13 @@ async fn run_test(
         })
         .collect();
 
-    println!(
-        "\n{} {}",
-        "✗".red(),
-        "Test failures detected:".red().bold()
-    );
+    println!("\n{} {}", "✗".red(), "Test failures detected:".red().bold());
     for line in &failure_lines {
         println!("  {}", line);
     }
 
     if !auto_fix {
-        println!(
-            "\n{}",
-            "Run with --fix to auto-fix failures.".dimmed()
-        );
+        println!("\n{}", "Run with --fix to auto-fix failures.".dimmed());
         return Ok(());
     }
 
@@ -1133,7 +1526,11 @@ async fn run_test(
     println!("\n{}", "Analyzing and fixing failures...".cyan());
 
     let test_output = if combined.len() > 8000 {
-        format!("{}...\n[truncated, {} bytes total]", &combined[..8000], combined.len())
+        format!(
+            "{}...\n[truncated, {} bytes total]",
+            &combined[..8000],
+            combined.len()
+        )
     } else {
         combined.to_string()
     };
@@ -1173,7 +1570,12 @@ Please:
     println!(
         "\n{} {}",
         "Done.".green(),
-        format!("({} iterations, {} tool calls)", response.iterations, response.tool_calls.len()).dimmed()
+        format!(
+            "({} iterations, {} tool calls)",
+            response.iterations,
+            response.tool_calls.len()
+        )
+        .dimmed()
     );
 
     Ok(())
@@ -1183,25 +1585,26 @@ Please:
 async fn run_explain(config: PawanConfig, workspace: PathBuf, query: &str) -> Result<()> {
     println!("{} {}", "Explaining:".cyan(), query);
 
-    let prompt = if std::path::Path::new(query).exists() || query.contains('/') || query.contains('.') {
-        format!(
-            r#"Read the file at `{query}` and explain it concisely:
+    let prompt =
+        if std::path::Path::new(query).exists() || query.contains('/') || query.contains('.') {
+            format!(
+                r#"Read the file at `{query}` and explain it concisely:
 1. What it does (purpose)
 2. Key types/functions and their roles
 3. How it fits into the broader codebase
 4. Any notable patterns, dependencies, or gotchas
 
 Be concise — aim for 10-20 lines. Skip obvious things."#
-        )
-    } else {
-        format!(
-            "In the context of this codebase at {}, explain: {}\n\n\
+            )
+        } else {
+            format!(
+                "In the context of this codebase at {}, explain: {}\n\n\
              If this is a function/type name, find it in the code first.\n\
              Be concise — aim for 10-20 lines.",
-            workspace.display(),
-            query
-        )
-    };
+                workspace.display(),
+                query
+            )
+        };
 
     let mut agent = PawanAgent::new(config, workspace);
 
@@ -1270,11 +1673,7 @@ async fn run_review(
     run_review_with_diff(config, workspace, &diff).await
 }
 
-async fn run_review_with_diff(
-    config: PawanConfig,
-    workspace: PathBuf,
-    diff: &str,
-) -> Result<()> {
+async fn run_review_with_diff(config: PawanConfig, workspace: PathBuf, diff: &str) -> Result<()> {
     println!(
         "{} {}",
         "Reviewing".cyan(),
@@ -1435,13 +1834,28 @@ async fn run_watch(
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default();
         let secs = elapsed.as_secs() % 86400;
-        let now = format!("{:02}:{:02}:{:02}", secs / 3600, (secs % 3600) / 60, secs % 60);
+        let now = format!(
+            "{:02}:{:02}:{:02}",
+            secs / 3600,
+            (secs % 3600) / 60,
+            secs % 60
+        );
 
         if check.status.success() {
             if !last_status {
-                println!("{} {} {}", format!("[{}]", now).dimmed(), "✓".green(), "All clear — project compiles.".green());
+                println!(
+                    "{} {} {}",
+                    format!("[{}]", now).dimmed(),
+                    "✓".green(),
+                    "All clear — project compiles.".green()
+                );
             } else {
-                print!("{} {} {}\r", format!("[{}]", now).dimmed(), "✓".green(), "OK".dimmed());
+                print!(
+                    "{} {} {}\r",
+                    format!("[{}]", now).dimmed(),
+                    "✓".green(),
+                    "OK".dimmed()
+                );
                 std::io::stdout().flush().ok();
             }
             last_status = true;
@@ -1454,7 +1868,11 @@ async fn run_watch(
                 "\n{} {} {}",
                 format!("[{}]", now).dimmed(),
                 "✗".red(),
-                format!("{} error(s), {} warning(s) — healing...", error_count, warning_count).red()
+                format!(
+                    "{} error(s), {} warning(s) — healing...",
+                    error_count, warning_count
+                )
+                .red()
             );
 
             last_status = false;
@@ -1463,10 +1881,15 @@ async fn run_watch(
             // Send notification on build failure if --notify
             if notify {
                 let _ = run_notify(
-                    &format!("[pawan-watch] Build failed: {} error(s), {} warning(s) in {}",
-                        error_count, warning_count, workspace.display()),
+                    &format!(
+                        "[pawan-watch] Build failed: {} error(s), {} warning(s) in {}",
+                        error_count,
+                        warning_count,
+                        workspace.display()
+                    ),
                     "whatsapp",
-                ).await;
+                )
+                .await;
             }
 
             // Auto-heal
@@ -1493,7 +1916,16 @@ async fn run_watch(
                 .await
             {
                 Ok(resp) => {
-                    println!("\n{}", format!("Heal #{} complete ({} iterations, {} tool calls)", heal_count, resp.iterations, resp.tool_calls.len()).green());
+                    println!(
+                        "\n{}",
+                        format!(
+                            "Heal #{} complete ({} iterations, {} tool calls)",
+                            heal_count,
+                            resp.iterations,
+                            resp.tool_calls.len()
+                        )
+                        .green()
+                    );
 
                     if auto_commit && !resp.tool_calls.is_empty() {
                         let commit_output = std::process::Command::new("git")
@@ -1676,7 +2108,8 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
         }
         LlmProvider::Ollama => {
             print!("    Ollama URL: ");
-            let url = std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
+            let url =
+                std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
             println!("{}", url.cyan());
         }
         LlmProvider::Mlx => {
@@ -1694,21 +2127,15 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
     print!("    Connectivity: ");
     // Quick ping test
     let api_url = match config.provider {
-        LlmProvider::Nvidia => {
-            std::env::var("NVIDIA_API_URL")
-                .unwrap_or_else(|_| pawan::DEFAULT_NVIDIA_API_URL.to_string())
-        }
-        LlmProvider::OpenAI => {
-            std::env::var("OPENAI_API_URL")
-                .unwrap_or_else(|_| "https://api.openai.com/v1".to_string())
-        }
+        LlmProvider::Nvidia => std::env::var("NVIDIA_API_URL")
+            .unwrap_or_else(|_| pawan::DEFAULT_NVIDIA_API_URL.to_string()),
+        LlmProvider::OpenAI => std::env::var("OPENAI_API_URL")
+            .unwrap_or_else(|_| "https://api.openai.com/v1".to_string()),
         LlmProvider::Ollama => {
-            std::env::var("OLLAMA_URL")
-                .unwrap_or_else(|_| "http://localhost:11434".to_string())
+            std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".to_string())
         }
         LlmProvider::Mlx => {
-            std::env::var("MLX_URL")
-                .unwrap_or_else(|_| "http://localhost:8080".to_string())
+            std::env::var("MLX_URL").unwrap_or_else(|_| "http://localhost:8080".to_string())
         }
     };
 
@@ -1719,7 +2146,16 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
     };
 
     match std::process::Command::new("curl")
-        .args(["-sS", "--max-time", "5", "-o", "/dev/null", "-w", "%{http_code}", &ping_url])
+        .args([
+            "-sS",
+            "--max-time",
+            "5",
+            "-o",
+            "/dev/null",
+            "-w",
+            "%{http_code}",
+            &ping_url,
+        ])
         .output()
     {
         Ok(output) if output.status.success() => {
@@ -1789,9 +2225,19 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
     let mut missing_count = 0;
     for (bin, desc) in &binaries {
         if which::which(bin).is_ok() {
-            println!("    {} {} {}", "✓".green(), bin, format!("({})", desc).dimmed());
+            println!(
+                "    {} {} {}",
+                "✓".green(),
+                bin,
+                format!("({})", desc).dimmed()
+            );
         } else {
-            println!("    {} {} {}", "-".dimmed(), bin, format!("({})", desc).dimmed());
+            println!(
+                "    {} {} {}",
+                "-".dimmed(),
+                bin,
+                format!("({})", desc).dimmed()
+            );
             missing_count += 1;
         }
     }
@@ -1826,8 +2272,14 @@ async fn run_bootstrap(
     if dry_run {
         let missing = bootstrap::missing_deps();
         if missing.is_empty() {
-            println!("{}", "All required dependencies present — nothing to install.".green());
-            println!("  {}", "deagle is embedded as a library — no separate binary needed.".dimmed());
+            println!(
+                "{}",
+                "All required dependencies present — nothing to install.".green()
+            );
+            println!(
+                "  {}",
+                "deagle is embedded as a library — no separate binary needed.".dimmed()
+            );
         } else {
             println!("{}", "Missing dependencies:".yellow().bold());
             for dep in &missing {
@@ -1838,7 +2290,10 @@ async fn run_bootstrap(
         return Ok(());
     }
 
-    println!("{}", "Bootstrapping pawan external dependencies...".cyan().bold());
+    println!(
+        "{}",
+        "Bootstrapping pawan external dependencies...".cyan().bold()
+    );
     let opts = BootstrapOptions {
         skip_mise,
         skip_native,
@@ -1928,8 +2383,7 @@ max_tool_iterations = 15
     let md_path = workspace.join("PAWAN.md");
     if !md_path.exists() {
         // Try to detect project info from Cargo.toml or package.json
-        let project_name = if let Ok(cargo) =
-            std::fs::read_to_string(workspace.join("Cargo.toml"))
+        let project_name = if let Ok(cargo) = std::fs::read_to_string(workspace.join("Cargo.toml"))
         {
             cargo
                 .lines()
@@ -2001,7 +2455,11 @@ async fn run_tasks(action: TasksAction) -> Result<()> {
     let store = BeadStore::open()?;
 
     match action {
-        TasksAction::List { status, priority, json } => {
+        TasksAction::List {
+            status,
+            priority,
+            json,
+        } => {
             let status_filter = match status.as_str() {
                 "all" => None,
                 s => Some(s),
@@ -2009,7 +2467,10 @@ async fn run_tasks(action: TasksAction) -> Result<()> {
             let beads = store.list(status_filter, priority)?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&beads).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&beads).unwrap_or_default()
+                );
                 return Ok(());
             }
 
@@ -2022,7 +2483,10 @@ async fn run_tasks(action: TasksAction) -> Result<()> {
             println!("{}", "═".repeat(70).dimmed());
             println!(
                 "  {:<12} {:<5} {:<12} {}",
-                "ID".cyan(), "Pri".cyan(), "Status".cyan(), "Title".cyan()
+                "ID".cyan(),
+                "Pri".cyan(),
+                "Status".cyan(),
+                "Title".cyan()
             );
             println!("{}", "─".repeat(70).dimmed());
 
@@ -2032,7 +2496,13 @@ async fn run_tasks(action: TasksAction) -> Result<()> {
                     BeadStatus::InProgress => format!("{:<12}", "in_progress").blue().to_string(),
                     BeadStatus::Closed => format!("{:<12}", "closed").dimmed().to_string(),
                 };
-                println!("  {:<12} {:<5} {} {}", b.id.display(), b.priority, status_color, b.title);
+                println!(
+                    "  {:<12} {:<5} {} {}",
+                    b.id.display(),
+                    b.priority,
+                    status_color,
+                    b.title
+                );
             }
             println!("\n  {} beads total", beads.len());
         }
@@ -2041,7 +2511,10 @@ async fn run_tasks(action: TasksAction) -> Result<()> {
             let beads = store.ready()?;
 
             if json {
-                println!("{}", serde_json::to_string_pretty(&beads).unwrap_or_default());
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&beads).unwrap_or_default()
+                );
                 return Ok(());
             }
 
@@ -2050,18 +2523,36 @@ async fn run_tasks(action: TasksAction) -> Result<()> {
                 return Ok(());
             }
 
-            println!("{} {} actionable beads:", "Ready:".green().bold(), beads.len());
+            println!(
+                "{} {} actionable beads:",
+                "Ready:".green().bold(),
+                beads.len()
+            );
             for b in &beads {
                 println!("  {} [P{}] {}", b.id.display().cyan(), b.priority, b.title);
             }
         }
 
-        TasksAction::Create { title, priority, desc } => {
+        TasksAction::Create {
+            title,
+            priority,
+            desc,
+        } => {
             let bead = store.create(&title, desc.as_deref(), priority)?;
-            println!("{} {} — {}", "Created:".green().bold(), bead.id.display().cyan(), bead.title);
+            println!(
+                "{} {} — {}",
+                "Created:".green().bold(),
+                bead.id.display().cyan(),
+                bead.title
+            );
         }
 
-        TasksAction::Update { id, status, priority, title } => {
+        TasksAction::Update {
+            id,
+            status,
+            priority,
+            title,
+        } => {
             let bid = BeadId::parse(&id);
             let status = status.map(|s| s.parse::<BeadStatus>().unwrap_or(BeadStatus::Open));
             store.update(&bid, title.as_deref(), status, priority)?;
@@ -2079,13 +2570,23 @@ async fn run_tasks(action: TasksAction) -> Result<()> {
                 let bid = BeadId::parse(&id);
                 let dep = BeadId::parse(&blocks_id);
                 store.dep_add(&bid, &dep)?;
-                println!("{} {} depends on {}", "Dep added:".green().bold(), bid.display().cyan(), dep.display().cyan());
+                println!(
+                    "{} {} depends on {}",
+                    "Dep added:".green().bold(),
+                    bid.display().cyan(),
+                    dep.display().cyan()
+                );
             }
             DepAction::Rm { id, blocks_id } => {
                 let bid = BeadId::parse(&id);
                 let dep = BeadId::parse(&blocks_id);
                 store.dep_remove(&bid, &dep)?;
-                println!("{} {} no longer depends on {}", "Dep removed:".green().bold(), bid.display().cyan(), dep.display().cyan());
+                println!(
+                    "{} {} no longer depends on {}",
+                    "Dep removed:".green().bold(),
+                    bid.display().cyan(),
+                    dep.display().cyan()
+                );
             }
         },
 
@@ -2094,7 +2595,12 @@ async fn run_tasks(action: TasksAction) -> Result<()> {
             if count == 0 {
                 println!("{}", "No beads to archive.".dimmed());
             } else {
-                println!("{} {} beads archived (older than {} days)", "Decayed:".green().bold(), count, max_age_days);
+                println!(
+                    "{} {} beads archived (older than {} days)",
+                    "Decayed:".green().bold(),
+                    count,
+                    max_age_days
+                );
             }
         }
     }
@@ -2120,7 +2626,9 @@ async fn run_distill(
         None => {
             let sessions = Session::list()?;
             let latest = sessions.first().ok_or_else(|| {
-                PawanError::NotFound("No saved sessions found. Run a task first, then distill.".into())
+                PawanError::NotFound(
+                    "No saved sessions found. Run a task first, then distill.".into(),
+                )
             })?;
             eprintln!("Using latest session: {}", latest.id);
             Session::load(&latest.id)?
@@ -2151,7 +2659,11 @@ async fn run_distill(
         "Distilling session {} ({} messages, {} tool calls)...",
         session.id,
         session.messages.len(),
-        session.messages.iter().flat_map(|m| m.tool_calls.iter()).count()
+        session
+            .messages
+            .iter()
+            .flat_map(|m| m.tool_calls.iter())
+            .count()
     );
 
     // Refine implies eval
@@ -2204,10 +2716,12 @@ async fn run_distill(
 
         match skill_distillation::evaluate_skill(&skill, student, &config).await {
             Ok(result) => {
-                println!("Overall score: {:.2} ({}/{} tests passed)",
+                println!(
+                    "Overall score: {:.2} ({}/{} tests passed)",
                     result.overall_score,
                     result.test_results.iter().filter(|r| r.passed).count(),
-                    result.test_results.len());
+                    result.test_results.len()
+                );
             }
             Err(e) => eprintln!("Evaluation failed: {}", e),
         }
@@ -2237,41 +2751,71 @@ async fn run_distill(
     }
 }
 
-async fn run_sessions() -> Result<()> {
+async fn run_sessions(json_output: bool) -> Result<()> {
     use pawan::agent::session::Session;
 
     let sessions = Session::list()?;
 
     if sessions.is_empty() {
-        println!("{}", "No saved sessions.".dimmed());
+        if json_output {
+            println!("[]");
+        } else {
+            println!("{}", "No saved sessions.".dimmed());
+        }
         return Ok(());
     }
 
-    println!("{}", "Saved Sessions".green().bold());
-    println!("{}", "═".repeat(60).dimmed());
+    if json_output {
+        let rows: Vec<serde_json::Value> = sessions
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "id": s.id,
+                    "id_prefix": s.id.chars().take(8).collect::<String>(),
+                    "updated_at": s.updated_at,
+                    "message_count": s.message_count,
+                    "first_message_preview": s.first_message_preview,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::to_string_pretty(&rows).unwrap());
+        return Ok(());
+    }
+
+    println!("{}", "Saved sessions".green().bold());
+    println!("{}", "-".repeat(100).dimmed());
     println!(
-        "  {:<10} {:<30} {:<6} {}",
+        "  {:<10}  {:<28}  {:>4}  {}",
         "ID".cyan(),
-        "Model".cyan(),
+        "Updated".cyan(),
         "Msgs".cyan(),
-        "Updated".cyan()
+        "Preview".cyan()
     );
-    println!("{}", "─".repeat(60).dimmed());
+    println!("{}", "-".repeat(100).dimmed());
 
     for s in &sessions {
-        let model_short = if s.model.len() > 28 {
-            format!("...{}", &s.model[s.model.len() - 25..])
-        } else {
-            s.model.clone()
-        };
-        let updated = &s.updated_at[..19]; // trim timezone
+        let id: String = s.id.chars().take(8).collect();
+        let updated: String = s.updated_at.chars().take(28).collect();
+        let mut preview: String = s
+            .first_message_preview
+            .chars()
+            .map(|c| if c == '\n' { ' ' } else { c })
+            .collect();
+        if preview.is_empty() {
+            preview = "-".to_string();
+        } else if preview.chars().count() > 60 {
+            preview = preview.chars().take(59).collect::<String>() + "\u{2026}";
+        }
         println!(
-            "  {:<10} {:<30} {:<6} {}",
-            s.id, model_short, s.message_count, updated
+            "  {:<10}  {:<28}  {:>4}  {}",
+            id, updated, s.message_count, preview
         );
     }
 
-    println!("\n{}", "Resume with: pawan chat --resume <ID>".dimmed());
+    println!(
+        "\n{}",
+        "Resume: pawan --continue  |  pawan --session <ID>  |  pawan chat --resume <ID>".dimmed()
+    );
 
     Ok(())
 }
@@ -2318,12 +2862,28 @@ fn run_config_show(config: PawanConfig) -> Result<()> {
     println!("{}", "Pawan Configuration (resolved)".cyan().bold());
     println!("{}\n", "─".repeat(40).dimmed());
 
-    println!("  {} {}", "Provider:".bold(), format!("{:?}", config.provider).cyan());
+    println!(
+        "  {} {}",
+        "Provider:".bold(),
+        format!("{:?}", config.provider).cyan()
+    );
     println!("  {} {}", "Model:".bold(), config.model.cyan());
     println!("  {} {}", "Temperature:".bold(), config.temperature);
     println!("  {} {}", "Max tokens:".bold(), config.max_tokens);
-    println!("  {} {}", "Max iterations:".bold(), config.max_tool_iterations);
-    println!("  {} {}", "Thinking mode:".bold(), if config.use_thinking_mode() { "enabled".green().to_string() } else { "disabled".dimmed().to_string() });
+    println!(
+        "  {} {}",
+        "Max iterations:".bold(),
+        config.max_tool_iterations
+    );
+    println!(
+        "  {} {}",
+        "Thinking mode:".bold(),
+        if config.use_thinking_mode() {
+            "enabled".green().to_string()
+        } else {
+            "disabled".dimmed().to_string()
+        }
+    );
 
     if let Some(ref cloud) = config.cloud {
         println!("\n{}", "  Cloud fallback:".bold());
@@ -2331,13 +2891,38 @@ fn run_config_show(config: PawanConfig) -> Result<()> {
     }
 
     if !config.fallback_models.is_empty() {
-        println!("  {} {}", "Fallbacks:".bold(), config.fallback_models.join(", "));
+        println!(
+            "  {} {}",
+            "Fallbacks:".bold(),
+            config.fallback_models.join(", ")
+        );
     }
 
     println!("\n{}", "  Healing:".bold());
-    println!("    Errors: {}", if config.healing.fix_errors { "fix" } else { "skip" });
-    println!("    Warnings: {}", if config.healing.fix_warnings { "fix" } else { "skip" });
-    println!("    Tests: {}", if config.healing.fix_tests { "fix" } else { "skip" });
+    println!(
+        "    Errors: {}",
+        if config.healing.fix_errors {
+            "fix"
+        } else {
+            "skip"
+        }
+    );
+    println!(
+        "    Warnings: {}",
+        if config.healing.fix_warnings {
+            "fix"
+        } else {
+            "skip"
+        }
+    );
+    println!(
+        "    Tests: {}",
+        if config.healing.fix_tests {
+            "fix"
+        } else {
+            "skip"
+        }
+    );
 
     if !config.permissions.is_empty() {
         println!("\n{}", "  Permissions:".bold());
@@ -2349,20 +2934,33 @@ fn run_config_show(config: PawanConfig) -> Result<()> {
     if !config.mcp.is_empty() {
         println!("\n{}", "  MCP servers:".bold());
         for (name, entry) in &config.mcp {
-            let status = if entry.enabled { "enabled".green().to_string() } else { "disabled".dimmed().to_string() };
+            let status = if entry.enabled {
+                "enabled".green().to_string()
+            } else {
+                "disabled".dimmed().to_string()
+            };
             println!("    {}: {} ({})", name, entry.command.cyan(), status);
         }
     }
 
     println!("\n{}", "  Context files:".bold());
-    for path in &["PAWAN.md", "AGENTS.md", "CLAUDE.md", "SKILL.md", ".pawan/context.md"] {
+    for path in &[
+        "PAWAN.md",
+        "AGENTS.md",
+        "CLAUDE.md",
+        "SKILL.md",
+        ".pawan/context.md",
+    ] {
         if std::path::Path::new(path).exists() {
             println!("    {} {}", "✓".green(), path);
         }
     }
 
     println!("\n{}", "─".repeat(40).dimmed());
-    println!("{}", "  Use `pawan config init` to generate pawan.toml".dimmed());
+    println!(
+        "{}",
+        "  Use `pawan config init` to generate pawan.toml".dimmed()
+    );
     Ok(())
 }
 
@@ -2508,7 +3106,10 @@ async fn run_headless(
     // Pre-flight: verify model is reachable before starting work
     if let Err(e) = agent.preflight_check().await {
         if output_format == "json" {
-            println!("{}", serde_json::json!({"error": e.to_string(), "success": false}));
+            println!(
+                "{}",
+                serde_json::json!({"error": e.to_string(), "success": false})
+            );
         } else {
             eprintln!("\x1b[31mModel health check failed:\x1b[0m {}", e);
             eprintln!("Check: is the model server running? Is the API URL correct?");
@@ -2523,9 +3124,15 @@ async fn run_headless(
     if !is_json {
         if use_color {
             eprintln!("\x1b[1;36m┌─ pawan run\x1b[0m");
-            eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mModel:\x1b[0m  {}", agent.config().model);
+            eprintln!(
+                "\x1b[1;36m│\x1b[0m \x1b[33mModel:\x1b[0m  {}",
+                agent.config().model
+            );
             let display_prompt: String = prompt_text.chars().take(80).collect();
-            eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mPrompt:\x1b[0m {}", display_prompt);
+            eprintln!(
+                "\x1b[1;36m│\x1b[0m \x1b[33mPrompt:\x1b[0m {}",
+                display_prompt
+            );
             eprintln!("\x1b[1;36m└─\x1b[0m");
         } else {
             eprintln!("── pawan run ──");
@@ -2575,14 +3182,19 @@ async fn run_headless(
 
             // Strip thinking tags
             let clean = buf
-                .replace("<think>", "").replace("</think>", "")
-                .replace("<|im_start|>", "").replace("<|im_end|>", "");
+                .replace("<think>", "")
+                .replace("</think>", "")
+                .replace("<|im_start|>", "")
+                .replace("<|im_end|>", "");
 
             // Suppress empty planning narration ("I'll", "Let me", "I will")
             // Only on the very first output tokens
             if clean.len() < 50 {
                 let lower = clean.trim().to_lowercase();
-                if lower.starts_with("i'll ") || lower.starts_with("let me ") || lower.starts_with("i will ") {
+                if lower.starts_with("i'll ")
+                    || lower.starts_with("let me ")
+                    || lower.starts_with("i will ")
+                {
                     // Don't print yet — buffer it in case it's just narration before a tool call
                     return;
                 }
@@ -2741,30 +3353,56 @@ async fn run_headless(
                 );
                 if response.usage.total_tokens > 0 {
                     let budget = if response.usage.reasoning_tokens > 0 {
-                        format!(" \x1b[2m(think:{} act:{})\x1b[0m", response.usage.reasoning_tokens, response.usage.action_tokens)
-                    } else { String::new() };
-                    eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mTokens:\x1b[0m {}{}",
-                        response.usage.total_tokens, budget);
+                        format!(
+                            " \x1b[2m(think:{} act:{})\x1b[0m",
+                            response.usage.reasoning_tokens, response.usage.action_tokens
+                        )
+                    } else {
+                        String::new()
+                    };
+                    eprintln!(
+                        "\x1b[1;36m│\x1b[0m \x1b[33mTokens:\x1b[0m {}{}",
+                        response.usage.total_tokens, budget
+                    );
                 }
                 if !response.tool_calls.is_empty() && verbose {
                     eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mTool log:\x1b[0m");
                     for tc in &response.tool_calls {
-                        let icon = if tc.success { "\x1b[32m✓\x1b[0m" } else { "\x1b[31m✗\x1b[0m" };
-                        eprintln!("\x1b[1;36m│\x1b[0m   {} \x1b[1m{}\x1b[0m \x1b[2m{}ms\x1b[0m", icon, tc.name, tc.duration_ms);
+                        let icon = if tc.success {
+                            "\x1b[32m✓\x1b[0m"
+                        } else {
+                            "\x1b[31m✗\x1b[0m"
+                        };
+                        eprintln!(
+                            "\x1b[1;36m│\x1b[0m   {} \x1b[1m{}\x1b[0m \x1b[2m{}ms\x1b[0m",
+                            icon, tc.name, tc.duration_ms
+                        );
                     }
                 }
                 eprintln!("\x1b[1;36m└─\x1b[0m");
             } else {
                 eprintln!();
                 eprintln!("── summary ──");
-                eprintln!("Iterations: {} | Tools: {} ok{} | Time: {}ms",
-                    response.iterations, success_count,
-                    if fail_count > 0 { format!(", {} fail", fail_count) } else { String::new() },
-                    total_ms);
+                eprintln!(
+                    "Iterations: {} | Tools: {} ok{} | Time: {}ms",
+                    response.iterations,
+                    success_count,
+                    if fail_count > 0 {
+                        format!(", {} fail", fail_count)
+                    } else {
+                        String::new()
+                    },
+                    total_ms
+                );
                 if response.usage.total_tokens > 0 {
                     let budget = if response.usage.reasoning_tokens > 0 {
-                        format!(" (think:{} act:{})", response.usage.reasoning_tokens, response.usage.action_tokens)
-                    } else { String::new() };
+                        format!(
+                            " (think:{} act:{})",
+                            response.usage.reasoning_tokens, response.usage.action_tokens
+                        )
+                    } else {
+                        String::new()
+                    };
                     eprintln!("Tokens: {}{}", response.usage.total_tokens, budget);
                 }
                 if !response.tool_calls.is_empty() && verbose {
@@ -2786,8 +3424,7 @@ async fn run_headless(
                 }
             }
 
-            if verbose {
-            }
+            if verbose {}
         }
     }
 
@@ -2956,10 +3593,16 @@ async fn run_bench() -> Result<()> {
         println!("nimakai not found in PATH. Install: nimble install nimakai");
         return Ok(());
     }
-    let out = std::process::Command::new(nimakai).args(["bench", "--json"]).output();
+    let out = std::process::Command::new(nimakai)
+        .args(["bench", "--json"])
+        .output();
     match out {
-        Ok(o) => { println!("{}", String::from_utf8_lossy(&o.stdout)); }
-        Err(e) => { println!("Error: {}", e); }
+        Ok(o) => {
+            println!("{}", String::from_utf8_lossy(&o.stdout));
+        }
+        Err(e) => {
+            println!("Error: {}", e);
+        }
     }
     Ok(())
 }
@@ -2968,7 +3611,10 @@ async fn run_bench() -> Result<()> {
 async fn run_notify(message: &str, channel: &str) -> Result<()> {
     let api_key = std::env::var("DOLTA_API_KEY").unwrap_or_default();
     if api_key.is_empty() {
-        println!("{}", "DOLTA_API_KEY not set. Set it in .env or export it.".yellow());
+        println!(
+            "{}",
+            "DOLTA_API_KEY not set. Set it in .env or export it.".yellow()
+        );
         return Ok(());
     }
 
@@ -2983,11 +3629,16 @@ async fn run_notify(message: &str, channel: &str) -> Result<()> {
 
     let output = std::process::Command::new("curl")
         .args([
-            "-s", "-X", "POST",
+            "-s",
+            "-X",
+            "POST",
             &relay_url,
-            "-H", "Content-Type: application/json",
-            "-H", &format!("Authorization: Bearer {}", api_key),
-            "-d", &serde_json::to_string(&body).unwrap_or_default(),
+            "-H",
+            "Content-Type: application/json",
+            "-H",
+            &format!("Authorization: Bearer {}", api_key),
+            "-d",
+            &serde_json::to_string(&body).unwrap_or_default(),
         ])
         .output();
 
@@ -3016,9 +3667,11 @@ async fn run_loop(
     verbose: bool,
 ) -> Result<()> {
     match action {
-        LoopAction::Start { prompt, interval, max_ticks } => {
-            run_loop_start(config, workspace, prompt, interval, max_ticks, verbose).await
-        }
+        LoopAction::Start {
+            prompt,
+            interval,
+            max_ticks,
+        } => run_loop_start(config, workspace, prompt, interval, max_ticks, verbose).await,
     }
 }
 
@@ -3050,9 +3703,17 @@ async fn run_loop_start(
         "Interval:".cyan(),
         interval_secs,
         "Max ticks:".cyan(),
-        if max_ticks == 0 { "∞".to_string() } else { max_ticks.to_string() }
+        if max_ticks == 0 {
+            "∞".to_string()
+        } else {
+            max_ticks.to_string()
+        }
     );
-    println!("{} {}", "Prompt:".cyan(), &effective_prompt[..effective_prompt.len().min(80)]);
+    println!(
+        "{} {}",
+        "Prompt:".cyan(),
+        &effective_prompt[..effective_prompt.len().min(80)]
+    );
     println!("{}", "Press Ctrl+C to stop".dimmed());
     println!();
 
@@ -3085,7 +3746,12 @@ async fn run_loop_start(
                 if verbose && !response.tool_calls.is_empty() {
                     for tc in &response.tool_calls {
                         if tc.success {
-                            println!("  {} {} ({}ms)", "✓".green(), tc.name.cyan(), tc.duration_ms);
+                            println!(
+                                "  {} {} ({}ms)",
+                                "✓".green(),
+                                tc.name.cyan(),
+                                tc.duration_ms
+                            );
                         } else {
                             println!("  {} {} ({}ms)", "✗".red(), tc.name.cyan(), tc.duration_ms);
                         }
@@ -3163,9 +3829,9 @@ async fn run_pom(
             Some(s) => s,
             None => {
                 let url2 = format!("{}/api/sprints?status=pending&per_page=1", base);
-                fetch_pom_sprint(&client, &url2)
-                    .await?
-                    .ok_or_else(|| PawanError::Config("No active or pending sprint in POM".to_string()))?
+                fetch_pom_sprint(&client, &url2).await?.ok_or_else(|| {
+                    PawanError::Config("No active or pending sprint in POM".to_string())
+                })?
             }
         }
     };
@@ -3203,7 +3869,10 @@ async fn run_pom(
     // 3. Warn when sprint has no dissues, bail unless --force.
     if sprint_markdown.contains("No dissues assigned") {
         if force {
-            println!("{}", "Warning: sprint has no dissues — proceeding anyway (--force)".yellow());
+            println!(
+                "{}",
+                "Warning: sprint has no dissues — proceeding anyway (--force)".yellow()
+            );
         } else {
             return Err(PawanError::Config(
                 "Sprint has no dissues assigned. Use --force to execute anyway.".to_string(),
@@ -3243,7 +3912,12 @@ commit your work with meaningful messages, and leave the project in a clean stat
         println!("\n{}", "Tool calls made:".dimmed());
         for tc in &response.tool_calls {
             if tc.success {
-                println!("  {} {} ({}ms)", "✓".green(), tc.name.cyan(), tc.duration_ms);
+                println!(
+                    "  {} {} ({}ms)",
+                    "✓".green(),
+                    tc.name.cyan(),
+                    tc.duration_ms
+                );
             } else {
                 println!("  {} {} ({}ms)", "✗".red(), tc.name.cyan(), tc.duration_ms);
             }
@@ -3263,9 +3937,7 @@ commit your work with meaningful messages, and leave the project in a clean stat
             let body: serde_json::Value = resp.json().await.unwrap_or_default();
             println!("{}", "Sprint marked complete.".green().bold());
             if let Some(next) = body.get("next").and_then(|n| n.as_object()) {
-                if let (Some(num), Some(title)) =
-                    (next.get("number"), next.get("title"))
-                {
+                if let (Some(num), Some(title)) = (next.get("number"), next.get("title")) {
                     println!(
                         "{} #{} — {}",
                         "Next sprint:".cyan(),
@@ -3292,4 +3964,3 @@ commit your work with meaningful messages, and leave the project in a clean stat
 
     Ok(())
 }
-
