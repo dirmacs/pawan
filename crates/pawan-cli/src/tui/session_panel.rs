@@ -2,6 +2,8 @@
 
 #![allow(unused_imports)]
 
+use std::cmp::Reverse;
+
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
@@ -50,13 +52,13 @@ impl<'a> App<'a> {
         // Apply sorting based on session_sort_mode
         match self.session_sort_mode {
             SessionSortMode::NewestFirst => {
-                sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+                sessions.sort_by_key(|s| std::cmp::Reverse(s.updated_at.clone()));
             }
             SessionSortMode::Alphabetical => {
-                sessions.sort_by(|a, b| a.id.cmp(&b.id));
+                sessions.sort_by_key(|s| s.id.clone());
             }
             SessionSortMode::MostUsed => {
-                sessions.sort_by(|a, b| b.message_count.cmp(&a.message_count));
+                sessions.sort_by_key(|s| std::cmp::Reverse(s.message_count));
             }
         }
         sessions
