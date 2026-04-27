@@ -1,5 +1,7 @@
 //! Slash command entrypoints and fuzzy catalog helpers.
 
+#![allow(unused_imports)]
+
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,

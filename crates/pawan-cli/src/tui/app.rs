@@ -1,5 +1,7 @@
 //! `App` state, slash registry, and async entrypoints.
 
+#![allow(unused_imports)]
+
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
