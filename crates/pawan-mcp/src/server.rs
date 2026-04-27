@@ -291,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_workspace_path_with_none() {
-        let path = workspace_path(None);
+        let _path = workspace_path(None);
         // Should default to current directory or "."
         // workspace_path with None calls std::env::current_dir() which may fail in test environment
     }
@@ -305,7 +305,7 @@ mod tests {
     #[test]
     fn test_create_agent_with_workspace() {
         let config = PawanConfig::default();
-        let agent = create_agent(&config, Some("/tmp/test"));
+        let _agent = create_agent(&config, Some("/tmp/test"));
         // Agent is created successfully
     }
 
@@ -381,8 +381,7 @@ mod tests {
     fn test_pawan_server_type_alias_exists() {
         // This test just verifies the type alias compiles
         let config = PawanConfig::default();
-        let server: PawanServer = build_server(config);
-        assert!(true);
+        let _: PawanServer = build_server(config);
     }
 }
 #[test]

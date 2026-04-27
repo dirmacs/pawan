@@ -1722,8 +1722,10 @@ fn test_migration_result_fields() {
 
 #[test]
 fn test_migrate_to_latest_no_migration_needed() {
-    let mut config = PawanConfig::default();
-    config.config_version = 1; // Already at latest version
+    let mut config = PawanConfig {
+        config_version: 1, // Already at latest version
+        ..Default::default()
+    };
 
     let result = migrate_to_latest(&mut config, None);
 
@@ -1737,8 +1739,10 @@ fn test_migrate_to_latest_no_migration_needed() {
 
 #[test]
 fn test_migrate_to_latest_performs_migration() {
-    let mut config = PawanConfig::default();
-    config.config_version = 0; // Old version
+    let mut config = PawanConfig {
+        config_version: 0, // Old version
+        ..Default::default()
+    };
 
     let result = migrate_to_latest(&mut config, None);
 
@@ -1750,8 +1754,10 @@ fn test_migrate_to_latest_performs_migration() {
 
 #[test]
 fn test_migrate_to_v1_adds_default_fields() {
-    let mut config = PawanConfig::default();
-    config.config_version = 0;
+    let mut config = PawanConfig {
+        config_version: 0,
+        ..Default::default()
+    };
 
     let result = migration::migrate_to_v1(&mut config);
 

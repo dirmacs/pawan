@@ -676,8 +676,10 @@ mod tests {
     async fn test_models_with_fallback_models() {
         use pawan::config::PawanConfig;
 
-        let mut config = PawanConfig::default();
-        config.fallback_models = vec!["fallback-1".to_string(), "fallback-2".to_string()];
+        let config = PawanConfig {
+            fallback_models: vec!["fallback-1".to_string(), "fallback-2".to_string()],
+            ..Default::default()
+        };
 
         let state = AppState {
             agents: Arc::new(RwLock::new(HashMap::new())),

@@ -4,7 +4,6 @@ use pawan::agent::session::{prune_sessions, search_sessions, RetentionPolicy, Se
 use pawan::agent::{Message, Role, ToolCallRequest, ToolResultMessage};
 use pawan::{PawanError, Result};
 use serial_test::serial;
-use std::time::Duration;
 use tempfile::tempdir;
 
 #[test]
@@ -165,7 +164,6 @@ fn timeout_enforcement_triggers_error() {
     // Implementation would involve configuring the agent with a 0‑second timeout
     // and provoking a second iteration after a delay.
     // See issue tracker for future fleshing out.
-    assert!(true);
 }
 
 #[test]
