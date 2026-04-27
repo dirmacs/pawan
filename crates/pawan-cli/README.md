@@ -1,6 +1,14 @@
-# pawan v0.4.8
+# pawan v0.4.13
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 34 tools, and cross-session memory.
+
+## What's New in v0.4.13
+
+- **Pure-Rust git engine** — replaced `libgit2` (C) with `gix` 0.82 (gitoxide). Faster cold builds, no C toolchain required.
+- **Build optimizations** — mold linker, `split-debuginfo = unpacked`, feature-gated heavy deps.
+- **Modularization** — coordinator, tools/git, tools/native split into focused submodules.
+- **Type deduplication** — removed duplicate `MessageRole`, forwarding aliases, and redundant type definitions.
+- **789 library tests** — all passing; 59 integration tests passing.
 
 ## What's New in v0.4.8
 

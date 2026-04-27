@@ -21,3 +21,6 @@ lcov.info
 *.rlib
 *.gcda
 *.gcno
+
+# Export artifacts from /export slash command
+pawan-session*.md
