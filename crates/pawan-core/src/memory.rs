@@ -51,7 +51,7 @@ impl MemoryStore {
         let mut out = String::with_capacity(key.len());
         for ch in key.chars() {
             let safe = match ch {
-                ('a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.') => ch,
+                'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' => ch,
                 _ => '_',
             };
             out.push(safe);
