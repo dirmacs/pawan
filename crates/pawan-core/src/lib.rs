@@ -30,6 +30,10 @@ pub mod credentials;
 pub mod eruka_bridge;
 pub mod handoff;
 pub mod init;
+#[cfg(feature = "tasks")]
+pub mod memory;
+#[cfg(feature = "tasks")]
+pub mod memory_fence;
 pub mod healing;
 pub mod skill_distillation;
 pub mod skills;
@@ -40,6 +44,8 @@ pub mod tools;
 pub use agent::PawanAgent;
 pub use agent::{AgentEvent, FinishReason, TokenUsageInfo};
 pub use config::PawanConfig;
+#[cfg(feature = "tasks")]
+pub use crate::memory_fence::{SessionScopedMemory, sanitize_key, sanitize_content, validate_key};
 
 /// Error types for Pawan
 ///

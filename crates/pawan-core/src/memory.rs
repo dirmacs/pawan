@@ -19,6 +19,26 @@ pub struct Memory {
     pub relevance_score: f64,
 }
 
+impl Memory {
+    /// True when this memory is intended for reuse across sessions (architecture, tools, durable patterns).
+    /// Session-tuned notes and one-off debug tips remain session-scoped.
+    pub fn is_shared(&self) -> bool {
+        if self
+            .key
+            .strip_prefix("shared.")
+            .is_some_and(|rest| !rest.is_empty())
+        {
+            return true;
+        }
+        let c = self.content.to_lowercase();
+        c.contains("architecture decision")
+            || c.contains("architecture decisions")
+            || c.contains("tool definition")
+            || c.contains("tool definitions")
+            || c.contains("reusable knowledge")
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MemoryStore {
     /// Base path (default: ~/.pawan/memories/)
