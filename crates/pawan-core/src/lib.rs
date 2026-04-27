@@ -30,6 +30,7 @@ pub mod credentials;
 pub mod eruka_bridge;
 pub mod handoff;
 pub mod init;
+pub mod injection_detector;
 #[cfg(feature = "tasks")]
 pub mod memory;
 #[cfg(feature = "tasks")]
@@ -44,6 +45,9 @@ pub mod tools;
 pub use agent::PawanAgent;
 pub use agent::{AgentEvent, FinishReason, TokenUsageInfo};
 pub use config::PawanConfig;
+pub use crate::injection_detector::{
+    InjectionDetector, InjectionFinding, InjectionKind, ScanResult,
+};
 #[cfg(feature = "tasks")]
 pub use crate::memory_fence::{SessionScopedMemory, sanitize_key, sanitize_content, validate_key};
 
