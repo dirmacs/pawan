@@ -1,5 +1,5 @@
-use super::run_git;
 use super::super::Tool;
+use super::run_git;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -56,12 +56,27 @@ impl Tool for GitLogTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("git_log")
             .description(self.description())
-            .parameter(Parameter::builder("count").param_type(ParameterType::Integer).required(false)
-                .description("Number of commits to show (default: 10)").build())
-            .parameter(Parameter::builder("file").param_type(ParameterType::String).required(false)
-                .description("Show commits for a specific file").build())
-            .parameter(Parameter::builder("oneline").param_type(ParameterType::Boolean).required(false)
-                .description("Use compact one-line format (default: false)").build())
+            .parameter(
+                Parameter::builder("count")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Number of commits to show (default: 10)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("file")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Show commits for a specific file")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("oneline")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Use compact one-line format (default: false)")
+                    .build(),
+            )
             .build()
     }
 
@@ -151,10 +166,20 @@ impl Tool for GitBlameTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("git_blame")
             .description(self.description())
-            .parameter(Parameter::builder("file").param_type(ParameterType::String).required(true)
-                .description("File to blame (required)").build())
-            .parameter(Parameter::builder("lines").param_type(ParameterType::String).required(false)
-                .description("Line range, e.g., '10,20' for lines 10-20").build())
+            .parameter(
+                Parameter::builder("file")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("File to blame (required)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("lines")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Line range, e.g., '10,20' for lines 10-20")
+                    .build(),
+            )
             .build()
     }
 
@@ -248,11 +273,31 @@ mod tests {
     async fn test_git_log_with_commits() {
         let temp_dir = setup_git_repo().await;
         std::fs::write(temp_dir.path().join("a.txt"), "a").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(temp_dir.path()).output().await.unwrap();
-        Command::new("git").args(["commit", "-m", "first commit"]).current_dir(temp_dir.path()).output().await.unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "first commit"])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
         std::fs::write(temp_dir.path().join("b.txt"), "b").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(temp_dir.path()).output().await.unwrap();
-        Command::new("git").args(["commit", "-m", "second commit"]).current_dir(temp_dir.path()).output().await.unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "second commit"])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
 
         let tool = GitLogTool::new(temp_dir.path().into());
         let result = tool.execute(json!({"count": 5})).await.unwrap();
@@ -303,9 +348,21 @@ mod tests {
         );
         // Sanity check: the log string should mention the 2 most recent commits
         let log = result["log"].as_str().unwrap();
-        assert!(log.contains("commit 3"), "expected 'commit 3' in log, got: {}", log);
-        assert!(log.contains("commit 2"), "expected 'commit 2' in log, got: {}", log);
-        assert!(!log.contains("commit 1"), "'commit 1' should be excluded by count=2, got: {}", log);
+        assert!(
+            log.contains("commit 3"),
+            "expected 'commit 3' in log, got: {}",
+            log
+        );
+        assert!(
+            log.contains("commit 2"),
+            "expected 'commit 2' in log, got: {}",
+            log
+        );
+        assert!(
+            !log.contains("commit 1"),
+            "'commit 1' should be excluded by count=2, got: {}",
+            log
+        );
     }
 
     #[tokio::test]
@@ -332,9 +389,6 @@ mod tests {
         let result = tool.execute(json!({ "count": 0 })).await;
         // Either succeeds with default count OR errors — both are acceptable,
         // as long as it doesn't hang or return unbounded output
-        assert!(
-            result.is_ok() || result.is_err(),
-            "count=0 should not hang"
-        );
+        assert!(result.is_ok() || result.is_err(), "count=0 should not hang");
     }
 }

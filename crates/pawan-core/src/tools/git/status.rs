@@ -1,5 +1,5 @@
-use super::run_git;
 use super::super::Tool;
+use super::run_git;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -52,8 +52,13 @@ impl Tool for GitStatusTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("git_status")
             .description(self.description())
-            .parameter(Parameter::builder("short").param_type(ParameterType::Boolean).required(false)
-                .description("Use short format output (default: false)").build())
+            .parameter(
+                Parameter::builder("short")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Use short format output (default: false)")
+                    .build(),
+            )
             .build()
     }
 

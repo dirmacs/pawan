@@ -92,7 +92,6 @@ impl BeadStatus {
             Self::Closed => "closed",
         }
     }
-
 }
 
 impl std::str::FromStr for BeadStatus {
@@ -159,8 +158,8 @@ impl BeadStore {
             std::fs::create_dir_all(parent)
                 .map_err(|e| PawanError::Config(format!("Create dir: {}", e)))?;
         }
-        let conn = Connection::open(&path)
-            .map_err(|e| PawanError::Config(format!("Open DB: {}", e)))?;
+        let conn =
+            Connection::open(&path).map_err(|e| PawanError::Config(format!("Open DB: {}", e)))?;
         let store = Self { conn };
         store.init_schema()?;
         Ok(store)
@@ -312,7 +311,10 @@ impl BeadStore {
     /// Delete a bead
     pub fn delete(&self, id: &BeadId) -> Result<()> {
         self.conn
-            .execute("DELETE FROM deps WHERE bead_id = ?1 OR depends_on = ?1", params![id.0])
+            .execute(
+                "DELETE FROM deps WHERE bead_id = ?1 OR depends_on = ?1",
+                params![id.0],
+            )
             .map_err(|e| PawanError::Config(format!("Delete deps: {}", e)))?;
         self.conn
             .execute("DELETE FROM beads WHERE id = ?1", params![id.0])
@@ -321,11 +323,7 @@ impl BeadStore {
     }
 
     /// List beads with optional filters
-    pub fn list(
-        &self,
-        status: Option<&str>,
-        max_priority: Option<u8>,
-    ) -> Result<Vec<Bead>> {
+    pub fn list(&self, status: Option<&str>, max_priority: Option<u8>) -> Result<Vec<Bead>> {
         let mut sql = "SELECT id, title, description, status, priority, created_at, updated_at, closed_at, closed_reason FROM beads WHERE 1=1".to_string();
         let mut bind_vals: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
@@ -339,9 +337,12 @@ impl BeadStore {
         }
         sql.push_str(" ORDER BY priority ASC, updated_at DESC");
 
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> = bind_vals.iter().map(|b| b.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            bind_vals.iter().map(|b| b.as_ref()).collect();
 
-        let mut stmt = self.conn.prepare(&sql)
+        let mut stmt = self
+            .conn
+            .prepare(&sql)
             .map_err(|e| PawanError::Config(format!("Prepare: {}", e)))?;
 
         let beads = stmt
@@ -389,7 +390,8 @@ impl BeadStore {
 
     /// Get dependencies of a bead
     pub fn deps(&self, bead_id: &BeadId) -> Result<Vec<BeadId>> {
-        let mut stmt = self.conn
+        let mut stmt = self
+            .conn
             .prepare("SELECT depends_on FROM deps WHERE bead_id = ?1")
             .map_err(|e| PawanError::Config(format!("Prepare: {}", e)))?;
 
@@ -430,7 +432,8 @@ impl BeadStore {
         let cutoff_str = cutoff.to_rfc3339();
 
         // Find old closed beads
-        let mut stmt = self.conn
+        let mut stmt = self
+            .conn
             .prepare(
                 "SELECT id, title, closed_reason FROM beads
                  WHERE status = 'closed' AND closed_at < ?1
@@ -482,7 +485,10 @@ impl BeadStore {
         // Delete archived beads
         for (id, _, _) in &old_beads {
             self.conn
-                .execute("DELETE FROM deps WHERE bead_id = ?1 OR depends_on = ?1", params![id])
+                .execute(
+                    "DELETE FROM deps WHERE bead_id = ?1 OR depends_on = ?1",
+                    params![id],
+                )
                 .ok();
             self.conn
                 .execute("DELETE FROM beads WHERE id = ?1", params![id])
@@ -584,7 +590,8 @@ mod tests {
         // Create and close a bead with old timestamp
         let bead = store.create("Old task", None, 2).unwrap();
         let old_time = (chrono::Utc::now() - chrono::Duration::days(60)).to_rfc3339();
-        store.conn
+        store
+            .conn
             .execute(
                 "UPDATE beads SET status = 'closed', closed_at = ?1 WHERE id = ?2",
                 params![old_time, bead.id.0],
@@ -605,8 +612,13 @@ mod tests {
         assert!(store.get(&recent.id).is_ok());
 
         // Archive should exist
-        let summary: String = store.conn
-            .query_row("SELECT summary FROM archives ORDER BY id DESC LIMIT 1", [], |r| r.get(0))
+        let summary: String = store
+            .conn
+            .query_row(
+                "SELECT summary FROM archives ORDER BY id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
             .unwrap();
         assert!(summary.contains("Old task"));
     }
@@ -641,7 +653,10 @@ mod tests {
     fn bead_status_parse_unknown_falls_back_to_open() {
         use std::str::FromStr;
         // Known variants round-trip
-        assert_eq!(BeadStatus::from_str("in_progress").unwrap(), BeadStatus::InProgress);
+        assert_eq!(
+            BeadStatus::from_str("in_progress").unwrap(),
+            BeadStatus::InProgress
+        );
         assert_eq!(BeadStatus::from_str("closed").unwrap(), BeadStatus::Closed);
         assert_eq!(BeadStatus::from_str("open").unwrap(), BeadStatus::Open);
         // Unknown string defaults to Open (permissive parse per impl)
@@ -667,7 +682,9 @@ mod tests {
         assert_eq!(loaded.priority, 3, "priority must be unchanged");
 
         // Update status only
-        store.update(&bead.id, None, Some(BeadStatus::InProgress), None).unwrap();
+        store
+            .update(&bead.id, None, Some(BeadStatus::InProgress), None)
+            .unwrap();
         let loaded = store.get(&bead.id).unwrap();
         assert_eq!(loaded.title, "renamed", "title must be unchanged");
         assert_eq!(loaded.status, BeadStatus::InProgress);
@@ -677,7 +694,11 @@ mod tests {
         store.update(&bead.id, None, None, Some(0)).unwrap();
         let loaded = store.get(&bead.id).unwrap();
         assert_eq!(loaded.priority, 0);
-        assert_eq!(loaded.status, BeadStatus::InProgress, "status must be unchanged");
+        assert_eq!(
+            loaded.status,
+            BeadStatus::InProgress,
+            "status must be unchanged"
+        );
     }
 
     #[test]
@@ -695,7 +716,11 @@ mod tests {
         // Remove only the dep on A — dep on B must remain
         store.dep_remove(&c.id, &a.id).unwrap();
         let remaining = store.deps(&c.id).unwrap();
-        assert_eq!(remaining.len(), 1, "after removing one dep, one must remain");
+        assert_eq!(
+            remaining.len(),
+            1,
+            "after removing one dep, one must remain"
+        );
         assert_eq!(remaining[0], b.id, "the surviving dep must be B");
 
         // C is still blocked by B
@@ -721,10 +746,14 @@ mod tests {
         assert!(store.get(&a.id).is_ok(), "recent closed bead must survive");
 
         // No archive row should have been inserted
-        let archive_count: i64 = store.conn
+        let archive_count: i64 = store
+            .conn
             .query_row("SELECT COUNT(*) FROM archives", [], |r| r.get(0))
             .unwrap();
-        assert_eq!(archive_count, 0, "no archive row should be created when nothing decayed");
+        assert_eq!(
+            archive_count, 0,
+            "no archive row should be created when nothing decayed"
+        );
     }
 
     #[test]
@@ -787,7 +816,8 @@ mod tests {
         // dep row — this simulates the real-world scenario where a bead
         // was removed out of band (e.g. via a raw SQL migration).
         store.conn.execute("PRAGMA foreign_keys = OFF", []).unwrap();
-        store.conn
+        store
+            .conn
             .execute(
                 "INSERT INTO deps (bead_id, depends_on) VALUES (?1, ?2)",
                 params![child.id.0, "00000000"],
@@ -797,7 +827,10 @@ mod tests {
 
         // child should now be ready despite the stale dep row
         let ready = store.ready().unwrap();
-        assert!(ready.iter().any(|b| b.id == child.id), "dangling dep must not block");
+        assert!(
+            ready.iter().any(|b| b.id == child.id),
+            "dangling dep must not block"
+        );
     }
 
     #[test]
@@ -813,7 +846,11 @@ mod tests {
         store.dep_add(&a.id, &b.id).unwrap();
 
         let deps = store.deps(&a.id).unwrap();
-        assert_eq!(deps.len(), 1, "triple insert must collapse to single dep row");
+        assert_eq!(
+            deps.len(),
+            1,
+            "triple insert must collapse to single dep row"
+        );
         assert_eq!(deps[0], b.id);
     }
 
@@ -881,11 +918,17 @@ mod tests {
     fn test_create_without_description_persists_none() {
         let store = test_store();
         let bead = store.create("no-desc", None, 1).unwrap();
-        assert!(bead.description.is_none(), "description must be None when not provided");
+        assert!(
+            bead.description.is_none(),
+            "description must be None when not provided"
+        );
 
         // Verify the DB also stores NULL (not an empty string)
         let loaded = store.get(&bead.id).unwrap();
-        assert!(loaded.description.is_none(), "DB must store NULL for missing description");
+        assert!(
+            loaded.description.is_none(),
+            "DB must store NULL for missing description"
+        );
     }
 
     #[test]
@@ -898,7 +941,11 @@ mod tests {
         let loaded = store.get(&bead.id).unwrap();
 
         assert_eq!(loaded.title, "stable", "title must not change");
-        assert_eq!(loaded.description.as_deref(), Some("desc"), "description must not change");
+        assert_eq!(
+            loaded.description.as_deref(),
+            Some("desc"),
+            "description must not change"
+        );
         assert_eq!(loaded.status, BeadStatus::Open, "status must not change");
         assert_eq!(loaded.priority, 3, "priority must not change");
     }

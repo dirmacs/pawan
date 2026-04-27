@@ -140,7 +140,12 @@ impl AgentEvent {
     }
 
     /// Create a ToolApproval event
-    pub fn tool_approval(call_id: &str, tool_name: &str, arguments: serde_json::Value, auto_approved: bool) -> Self {
+    pub fn tool_approval(
+        call_id: &str,
+        tool_name: &str,
+        arguments: serde_json::Value,
+        auto_approved: bool,
+    ) -> Self {
         AgentEvent::ToolApproval(ToolApprovalEvent {
             call_id: call_id.to_string(),
             tool_name: tool_name.to_string(),
@@ -159,7 +164,13 @@ impl AgentEvent {
     }
 
     /// Create a ToolComplete event
-    pub fn tool_complete(call_id: &str, tool_name: &str, result: &str, success: bool, duration_ms: u64) -> Self {
+    pub fn tool_complete(
+        call_id: &str,
+        tool_name: &str,
+        result: &str,
+        success: bool,
+        duration_ms: u64,
+    ) -> Self {
         AgentEvent::ToolComplete(ToolCompleteEvent {
             call_id: call_id.to_string(),
             tool_name: tool_name.to_string(),
@@ -170,7 +181,12 @@ impl AgentEvent {
     }
 
     /// Create a TurnEnd event
-    pub fn turn_end(content: &str, tool_call_count: usize, iterations: usize, usage: TokenUsageInfo) -> Self {
+    pub fn turn_end(
+        content: &str,
+        tool_call_count: usize,
+        iterations: usize,
+        usage: TokenUsageInfo,
+    ) -> Self {
         AgentEvent::TurnEnd(TurnEndEvent {
             content: content.to_string(),
             tool_call_count,
@@ -180,7 +196,12 @@ impl AgentEvent {
     }
 
     /// Create a SessionEnd event
-    pub fn session_end(content: &str, total_iterations: usize, usage: TokenUsageInfo, reason: FinishReason) -> Self {
+    pub fn session_end(
+        content: &str,
+        total_iterations: usize,
+        usage: TokenUsageInfo,
+        reason: FinishReason,
+    ) -> Self {
         AgentEvent::SessionEnd(SessionEndEvent {
             content: content.to_string(),
             total_iterations,

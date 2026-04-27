@@ -1,5 +1,5 @@
-use super::run_git;
 use super::super::Tool;
+use super::run_git;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -42,8 +42,13 @@ impl Tool for GitBranchTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("git_branch")
             .description(self.description())
-            .parameter(Parameter::builder("all").param_type(ParameterType::Boolean).required(false)
-                .description("Show both local and remote branches (default: false)").build())
+            .parameter(
+                Parameter::builder("all")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Show both local and remote branches (default: false)")
+                    .build(),
+            )
             .build()
     }
 
@@ -131,12 +136,27 @@ impl Tool for GitCheckoutTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("git_checkout")
             .description(self.description())
-            .parameter(Parameter::builder("target").param_type(ParameterType::String).required(true)
-                .description("Branch name, commit, or file path to checkout").build())
-            .parameter(Parameter::builder("create").param_type(ParameterType::Boolean).required(false)
-                .description("Create a new branch (git checkout -b)").build())
-            .parameter(Parameter::builder("files").param_type(ParameterType::Array).required(false)
-                .description("Specific files to restore (git checkout -- <files>)").build())
+            .parameter(
+                Parameter::builder("target")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Branch name, commit, or file path to checkout")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("create")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Create a new branch (git checkout -b)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("files")
+                    .param_type(ParameterType::Array)
+                    .required(false)
+                    .description("Specific files to restore (git checkout -- <files>)")
+                    .build(),
+            )
             .build()
     }
 
@@ -228,12 +248,27 @@ impl Tool for GitStashTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("git_stash")
             .description(self.description())
-            .parameter(Parameter::builder("action").param_type(ParameterType::String).required(false)
-                .description("Stash action (default: push)").build())
-            .parameter(Parameter::builder("message").param_type(ParameterType::String).required(false)
-                .description("Message for stash push").build())
-            .parameter(Parameter::builder("index").param_type(ParameterType::Integer).required(false)
-                .description("Stash index for pop/drop/show (default: 0)").build())
+            .parameter(
+                Parameter::builder("action")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Stash action (default: push)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("message")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Message for stash push")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("index")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Stash index for pop/drop/show (default: 0)")
+                    .build(),
+            )
             .build()
     }
 
@@ -251,11 +286,29 @@ impl Tool for GitStashTool {
                 }
                 a
             }
-            "pop" => vec!["stash".to_string(), "pop".to_string(), format!("stash@{{{}}}", index)],
+            "pop" => vec![
+                "stash".to_string(),
+                "pop".to_string(),
+                format!("stash@{{{}}}", index),
+            ],
             "list" => vec!["stash".to_string(), "list".to_string()],
-            "drop" => vec!["stash".to_string(), "drop".to_string(), format!("stash@{{{}}}", index)],
-            "show" => vec!["stash".to_string(), "show".to_string(), "-p".to_string(), format!("stash@{{{}}}", index)],
-            _ => return Err(crate::PawanError::Tool(format!("Unknown stash action: {}", action))),
+            "drop" => vec![
+                "stash".to_string(),
+                "drop".to_string(),
+                format!("stash@{{{}}}", index),
+            ],
+            "show" => vec![
+                "stash".to_string(),
+                "show".to_string(),
+                "-p".to_string(),
+                format!("stash@{{{}}}", index),
+            ],
+            _ => {
+                return Err(crate::PawanError::Tool(format!(
+                    "Unknown stash action: {}",
+                    action
+                )))
+            }
         };
 
         let git_args_ref: Vec<&str> = git_args.iter().map(|s| s.as_str()).collect();
@@ -315,8 +368,18 @@ mod tests {
     async fn test_git_branch_list() {
         let temp_dir = setup_git_repo().await;
         std::fs::write(temp_dir.path().join("f.txt"), "init").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(temp_dir.path()).output().await.unwrap();
-        Command::new("git").args(["commit", "-m", "init"]).current_dir(temp_dir.path()).output().await.unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
 
         let tool = GitBranchTool::new(temp_dir.path().into());
         let result = tool.execute(json!({})).await.unwrap();
@@ -330,11 +393,24 @@ mod tests {
     async fn test_git_checkout_create_branch() {
         let temp_dir = setup_git_repo().await;
         std::fs::write(temp_dir.path().join("f.txt"), "init").unwrap();
-        Command::new("git").args(["add", "."]).current_dir(temp_dir.path()).output().await.unwrap();
-        Command::new("git").args(["commit", "-m", "init"]).current_dir(temp_dir.path()).output().await.unwrap();
+        Command::new("git")
+            .args(["add", "."])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
+        Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(temp_dir.path())
+            .output()
+            .await
+            .unwrap();
 
         let tool = GitCheckoutTool::new(temp_dir.path().into());
-        let result = tool.execute(json!({"target": "feature-test", "create": true})).await.unwrap();
+        let result = tool
+            .execute(json!({"target": "feature-test", "create": true}))
+            .await
+            .unwrap();
         assert!(result["success"].as_bool().unwrap());
 
         // Verify we're on the new branch

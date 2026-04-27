@@ -273,10 +273,7 @@ key = "value"
         // loaded model/provider/mcp all survive. Uses std::env::temp_dir
         // + unique filename to avoid a dev-dep on tempfile.
         let mut path = std::env::temp_dir();
-        path.push(format!(
-            "pawan-aegis-roundtrip-{}.toml",
-            std::process::id()
-        ));
+        path.push(format!("pawan-aegis-roundtrip-{}.toml", std::process::id()));
         let manifest = r#"
 [pawan]
 provider = "nvidia"

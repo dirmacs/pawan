@@ -2,10 +2,10 @@
 //!
 //! Abstracts over different LLM providers (NVIDIA NIM, Ollama, OpenAI).
 
+pub mod ares_backend;
 pub mod mock;
 pub mod ollama;
 pub mod openai_compat;
-pub mod ares_backend;
 
 #[cfg(feature = "lancor")]
 pub mod lancor;

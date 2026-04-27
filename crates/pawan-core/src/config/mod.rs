@@ -21,7 +21,6 @@ pub(super) const fn default_tool_idle_timeout() -> u64 {
     300
 }
 
-
 pub mod migration;
 pub use migration::{migrate_to_latest, save_config, MigrationResult};
 
@@ -213,8 +212,20 @@ impl ModelRouting {
 
         // Code generation patterns
         if self.code.is_some() {
-            let code_signals = ["implement", "write", "create", "refactor", "fix", "add test",
-                "add function", "struct", "enum", "trait", "algorithm", "data structure"];
+            let code_signals = [
+                "implement",
+                "write",
+                "create",
+                "refactor",
+                "fix",
+                "add test",
+                "add function",
+                "struct",
+                "enum",
+                "trait",
+                "algorithm",
+                "data structure",
+            ];
             if code_signals.iter().any(|s| q.contains(s)) {
                 return self.code.as_deref();
             }
@@ -222,8 +233,10 @@ impl ModelRouting {
 
         // Orchestration patterns
         if self.orchestrate.is_some() {
-            let orch_signals = ["search", "find", "analyze", "review", "explain", "compare",
-                "list", "check", "verify", "diagnose", "audit"];
+            let orch_signals = [
+                "search", "find", "analyze", "review", "explain", "compare", "list", "check",
+                "verify", "diagnose", "audit",
+            ];
             if orch_signals.iter().any(|s| q.contains(s)) {
                 return self.orchestrate.as_deref();
             }
@@ -231,8 +244,9 @@ impl ModelRouting {
 
         // Execution patterns
         if self.execute.is_some() {
-            let exec_signals = ["run", "execute", "bash", "cargo", "test", "build",
-                "deploy", "install", "commit"];
+            let exec_signals = [
+                "run", "execute", "bash", "cargo", "test", "build", "deploy", "install", "commit",
+            ];
             if exec_signals.iter().any(|s| q.contains(s)) {
                 return self.execute.as_deref();
             }
@@ -291,8 +305,8 @@ impl ToolPermission {
         }
         // Default: sensitive tools prompt, others allow
         match name {
-            "bash" | "git_commit" | "write_file" | "edit_file_lines"
-            | "insert_after" | "append_file" => ToolPermission::Allow, // default allow for now; users can override to Prompt
+            "bash" | "git_commit" | "write_file" | "edit_file_lines" | "insert_after"
+            | "append_file" => ToolPermission::Allow, // default allow for now; users can override to Prompt
             _ => ToolPermission::Allow,
         }
     }
@@ -421,22 +435,22 @@ pub struct TargetConfig {
 pub struct TuiConfig {
     /// Enable syntax highlighting
     pub syntax_highlighting: bool,
-    
+
     /// Theme for syntax highlighting
     pub theme: String,
-    
+
     /// Show line numbers in code blocks
     pub line_numbers: bool,
-    
+
     /// Enable mouse support
     pub mouse_support: bool,
-    
+
     /// Scroll speed (lines per scroll event)
     pub scroll_speed: usize,
-    
+
     /// Maximum history entries to keep
     pub max_history: usize,
-    
+
     /// Auto-save enabled (default: true)
     pub auto_save_enabled: bool,
     /// Auto-save interval in minutes
@@ -587,7 +601,10 @@ impl PawanConfig {
                 "ollama" => self.provider = LlmProvider::Ollama,
                 "openai" => self.provider = LlmProvider::OpenAI,
                 "mlx" | "mlx-lm" => self.provider = LlmProvider::Mlx,
-                _ => tracing::warn!(provider = provider.as_str(), "Unknown PAWAN_PROVIDER, ignoring"),
+                _ => tracing::warn!(
+                    provider = provider.as_str(),
+                    "Unknown PAWAN_PROVIDER, ignoring"
+                ),
             }
         }
         if let Ok(temp) = std::env::var("PAWAN_TEMPERATURE") {
@@ -611,7 +628,11 @@ impl PawanConfig {
             }
         }
         if let Ok(models) = std::env::var("PAWAN_FALLBACK_MODELS") {
-            self.fallback_models = models.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+            self.fallback_models = models
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
         }
         if let Ok(chars) = std::env::var("PAWAN_MAX_RESULT_CHARS") {
             if let Ok(c) = chars.parse::<usize>() {
@@ -628,6 +649,20 @@ impl PawanConfig {
     /// Get the system prompt, with optional project context injection.
     /// Loads from PAWAN.md, AGENTS.md, CLAUDE.md, or .pawan/context.md.
     pub fn get_system_prompt(&self) -> String {
+        match self.get_system_prompt_checked() {
+            Ok(p) => p,
+            Err(e) => {
+                tracing::error!("Failed to load project context for system prompt: {}", e);
+                self.system_prompt
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_SYSTEM_PROMPT.to_string())
+            }
+        }
+    }
+
+    /// Checked variant of `get_system_prompt` that rejects suspicious context
+    /// files with a clear error.
+    pub fn get_system_prompt_checked(&self) -> crate::Result<String> {
         let base = self
             .system_prompt
             .clone()
@@ -635,32 +670,108 @@ impl PawanConfig {
 
         let mut prompt = base;
 
-        if let Some((filename, ctx)) = Self::load_context_file() {
-            prompt = format!("{}\n\n## Project Context (from {})\n\n{}", prompt, filename, ctx);
+        if let Some((filename, ctx)) = Self::load_context_file()? {
+            prompt = format!(
+                "{}
+
+## Project Context (from {})
+
+{}",
+                prompt, filename, ctx
+            );
         }
 
         if let Some(skill_ctx) = Self::load_skill_context() {
-            prompt = format!("{}\n\n## Active Skill (from SKILL.md)\n\n{}", prompt, skill_ctx);
+            prompt = format!(
+                "{}
+
+## Active Skill (from SKILL.md)
+
+{}",
+                prompt, skill_ctx
+            );
         }
 
-        prompt
+        #[cfg(feature = "memory")]
+        {
+            if let Ok(store) = crate::memory::MemoryStore::new_default() {
+                prompt = crate::memory::inject_memory_guidance_into_prompt(prompt, &store);
+            }
+        }
+
+        Ok(prompt)
+    }
+
+    fn scan_context_file(content: &str, source: &str) -> crate::Result<String> {
+        // Check for suspicious patterns
+        let suspicious = [
+            "IGNORE ALL PREVIOUS",
+            "DISREGARD ALL",
+            "OVERRIDE",
+            "You are now",
+            "Your new role",
+            "IMPORTANT: do not",
+            "<system-directive>",
+            "<role>",
+            "<contract>",
+            // Invisible unicode
+            "\u{200B}",
+            "\u{200C}",
+            "\u{200D}",
+            "\u{FEFF}",
+            "\u{202E}",
+            "\u{2060}",
+            "\u{2061}",
+            "\u{2062}",
+        ];
+
+        let upper = content.to_uppercase();
+        let allow = source == "AGENTS.md" || source == "CLAUDE.md";
+
+        for pattern in &suspicious {
+            let hit = if pattern.is_ascii() {
+                upper.contains(&pattern.to_uppercase())
+            } else {
+                content.contains(pattern)
+            };
+
+            if hit {
+                tracing::warn!(source = %source, pattern = %pattern, "prompt injection pattern detected");
+                if allow {
+                    continue;
+                }
+                return Err(crate::PawanError::Config(format!(
+                    "Suspicious content in {}: contains '{}'",
+                    source, pattern
+                )));
+            }
+        }
+
+        Ok(content.to_string())
     }
 
     /// Load project context file from current directory (if it exists).
     /// Checks PAWAN.md, AGENTS.md (cross-tool standard), CLAUDE.md, then .pawan/context.md.
     /// Returns (filename, content) of the first found file.
-    fn load_context_file() -> Option<(String, String)> {
+    fn load_context_file() -> crate::Result<Option<(String, String)>> {
         for path in &["PAWAN.md", "AGENTS.md", "CLAUDE.md", ".pawan/context.md"] {
             let p = PathBuf::from(path);
             if p.exists() {
-                if let Ok(content) = std::fs::read_to_string(&p) {
-                    if !content.trim().is_empty() {
-                        return Some((path.to_string(), content));
-                    }
+                let bytes = std::fs::read(&p).map_err(crate::PawanError::Io)?;
+                let content = String::from_utf8(bytes).map_err(|_| {
+                    crate::PawanError::Config(format!(
+                        "Suspicious content in {}: file is not valid UTF-8 (binary?)",
+                        path
+                    ))
+                })?;
+
+                let content = Self::scan_context_file(&content, path)?;
+                if !content.trim().is_empty() {
+                    return Ok(Some((path.to_string(), content)));
                 }
             }
         }
-        None
+        Ok(None)
     }
 
     /// Load SKILL.md files from the project using thulp-skill-files.
@@ -677,7 +788,11 @@ impl PawanConfig {
         match SkillFile::parse(skill_path) {
             Ok(skill) => {
                 let name = skill.effective_name();
-                let desc = skill.frontmatter.description.as_deref().unwrap_or("no description");
+                let desc = skill
+                    .frontmatter
+                    .description
+                    .as_deref()
+                    .unwrap_or("no description");
                 let tools_str = match &skill.frontmatter.allowed_tools {
                     Some(tools) => tools.join(", "),
                     None => "all".to_string(),
@@ -992,7 +1107,10 @@ base_url = "http://192.168.1.100:8080/v1"
         };
         assert_eq!(routing.route("analyze the error logs"), Some("orch-model"));
         assert_eq!(routing.route("review this PR"), Some("orch-model"));
-        assert_eq!(routing.route("explain how the agent works"), Some("orch-model"));
+        assert_eq!(
+            routing.route("explain how the agent works"),
+            Some("orch-model")
+        );
         assert_eq!(routing.route("search for uses of foo"), Some("orch-model"));
     }
 
@@ -1004,7 +1122,10 @@ base_url = "http://192.168.1.100:8080/v1"
             execute: Some("exec-model".into()),
         };
         assert_eq!(routing.route("run cargo test"), Some("exec-model"));
-        assert_eq!(routing.route("execute the deploy script"), Some("exec-model"));
+        assert_eq!(
+            routing.route("execute the deploy script"),
+            Some("exec-model")
+        );
         assert_eq!(routing.route("build the project"), Some("exec-model"));
         assert_eq!(routing.route("commit these changes"), Some("exec-model"));
     }
@@ -1095,7 +1216,10 @@ base_url = "http://192.168.1.100:8080/v1"
         std::env::set_var("PAWAN_FALLBACK_MODELS", "model-a, model-b, model-c");
         config.apply_env_overrides();
         std::env::remove_var("PAWAN_FALLBACK_MODELS");
-        assert_eq!(config.fallback_models, vec!["model-a", "model-b", "model-c"]);
+        assert_eq!(
+            config.fallback_models,
+            vec!["model-a", "model-b", "model-c"]
+        );
     }
 
     #[test]
@@ -1121,7 +1245,11 @@ base_url = "http://192.168.1.100:8080/v1"
             std::env::set_var("PAWAN_PROVIDER", env_val);
             config.apply_env_overrides();
             std::env::remove_var("PAWAN_PROVIDER");
-            assert_eq!(config.provider, expected, "PAWAN_PROVIDER={} should map to {:?}", env_val, expected);
+            assert_eq!(
+                config.provider, expected,
+                "PAWAN_PROVIDER={} should map to {:?}",
+                env_val, expected
+            );
         }
     }
 
@@ -1129,24 +1257,53 @@ base_url = "http://192.168.1.100:8080/v1"
 
     #[test]
     fn test_thinking_mode_supported_models() {
-        for model in ["deepseek-ai/deepseek-r1", "google/gemma-4-31b-it", "z-ai/glm5",
-                       "qwen/qwen3.5-122b", "mistralai/mistral-small-4-119b"] {
-            let config = PawanConfig { model: model.into(), reasoning_mode: true, ..Default::default() };
-            assert!(config.use_thinking_mode(), "thinking mode should be on for {}", model);
+        for model in [
+            "deepseek-ai/deepseek-r1",
+            "google/gemma-4-31b-it",
+            "z-ai/glm5",
+            "qwen/qwen3.5-122b",
+            "mistralai/mistral-small-4-119b",
+        ] {
+            let config = PawanConfig {
+                model: model.into(),
+                reasoning_mode: true,
+                ..Default::default()
+            };
+            assert!(
+                config.use_thinking_mode(),
+                "thinking mode should be on for {}",
+                model
+            );
         }
     }
 
     #[test]
     fn test_thinking_mode_disabled_when_reasoning_off() {
-        let config = PawanConfig { model: "deepseek-ai/deepseek-r1".into(), reasoning_mode: false, ..Default::default() };
+        let config = PawanConfig {
+            model: "deepseek-ai/deepseek-r1".into(),
+            reasoning_mode: false,
+            ..Default::default()
+        };
         assert!(!config.use_thinking_mode());
     }
 
     #[test]
     fn test_thinking_mode_unsupported_models() {
-        for model in ["meta/llama-3.1-70b", "minimaxai/minimax-m2.5", "stepfun-ai/step-3.5-flash"] {
-            let config = PawanConfig { model: model.into(), reasoning_mode: true, ..Default::default() };
-            assert!(!config.use_thinking_mode(), "thinking mode should be off for {}", model);
+        for model in [
+            "meta/llama-3.1-70b",
+            "minimaxai/minimax-m2.5",
+            "stepfun-ai/step-3.5-flash",
+        ] {
+            let config = PawanConfig {
+                model: model.into(),
+                reasoning_mode: true,
+                ..Default::default()
+            };
+            assert!(
+                !config.use_thinking_mode(),
+                "thinking mode should be off for {}",
+                model
+            );
         }
     }
 
@@ -1156,13 +1313,22 @@ base_url = "http://192.168.1.100:8080/v1"
     fn test_system_prompt_default() {
         let config = PawanConfig::default();
         let prompt = config.get_system_prompt();
-        assert!(prompt.contains("Pawan"), "default prompt should mention Pawan");
-        assert!(prompt.contains("coding"), "default prompt should mention coding");
+        assert!(
+            prompt.contains("Pawan"),
+            "default prompt should mention Pawan"
+        );
+        assert!(
+            prompt.contains("coding"),
+            "default prompt should mention coding"
+        );
     }
 
     #[test]
     fn test_system_prompt_custom_override() {
-        let config = PawanConfig { system_prompt: Some("Custom system prompt.".into()), ..Default::default() };
+        let config = PawanConfig {
+            system_prompt: Some("Custom system prompt.".into()),
+            ..Default::default()
+        };
         let prompt = config.get_system_prompt();
         assert!(prompt.starts_with("Custom system prompt."));
     }
@@ -1216,8 +1382,14 @@ fix_tests = true
         let prompt = config.get_system_prompt();
         // In the pawan repo, PAWAN.md exists, so it should be in the prompt
         if std::path::Path::new("PAWAN.md").exists() {
-            assert!(prompt.contains("Project Context"), "Should inject project context when PAWAN.md exists");
-            assert!(prompt.contains("from PAWAN.md"), "Should identify source as PAWAN.md");
+            assert!(
+                prompt.contains("Project Context"),
+                "Should inject project context when PAWAN.md exists"
+            );
+            assert!(
+                prompt.contains("from PAWAN.md"),
+                "Should identify source as PAWAN.md"
+            );
         }
     }
 
@@ -1231,7 +1403,10 @@ fix_tests = true
         let prompt = config.get_system_prompt();
         // If any context file is found, it should show "from <filename>"
         if prompt.contains("Project Context") {
-            assert!(prompt.contains("from "), "Injection should include source filename");
+            assert!(
+                prompt.contains("from "),
+                "Injection should include source filename"
+            );
         }
     }
 
@@ -1284,7 +1459,10 @@ fix_tests = true
         // Must never return the bogus path
         if let Some(ref p) = resolved {
             assert_ne!(p, &bogus, "nonexistent env var path must not be returned");
-            assert!(p.is_dir(), "any returned path must be an existing directory");
+            assert!(
+                p.is_dir(),
+                "any returned path must be an existing directory"
+            );
         }
     }
 
@@ -1339,8 +1517,14 @@ fix_tests = true
         );
 
         // Custom entry must be intact
-        let entry = config.mcp.get("eruka").expect("eruka entry must still exist");
-        assert_eq!(entry.command, "custom-eruka", "custom command must be preserved");
+        let entry = config
+            .mcp
+            .get("eruka")
+            .expect("eruka entry must still exist");
+        assert_eq!(
+            entry.command, "custom-eruka",
+            "custom command must be preserved"
+        );
         assert_eq!(entry.args, vec!["--custom-flag".to_string()]);
     }
 
@@ -1375,7 +1559,12 @@ fix_tests = true
         std::env::remove_var("PAWAN_SKILLS_REPO");
 
         let skills = config.discover_skills_from_repo();
-        assert_eq!(skills.len(), 1, "expected exactly 1 skill, got {:?}", skills);
+        assert_eq!(
+            skills.len(),
+            1,
+            "expected exactly 1 skill, got {:?}",
+            skills
+        );
 
         let (name, desc, path) = &skills[0];
         assert_eq!(name, "example-skill");
@@ -1414,8 +1603,7 @@ model = "meta/llama-3.1-405b-instruct"
         assert!(result.is_err(), "malformed TOML must return Err");
         let err_msg = format!("{}", result.unwrap_err());
         assert!(
-            err_msg.to_lowercase().contains("parse")
-                || err_msg.to_lowercase().contains("failed"),
+            err_msg.to_lowercase().contains("parse") || err_msg.to_lowercase().contains("failed"),
             "error should mention parse/failed, got: {}",
             err_msg
         );
@@ -1495,97 +1683,103 @@ workers = 4
         assert_eq!(config.provider, defaults.provider);
     }
 }
-    #[test]
-    fn test_default_config_version() {
-        assert_eq!(default_config_version(), 1);
-    }
+#[test]
+fn test_default_config_version() {
+    assert_eq!(default_config_version(), 1);
+}
 
-    #[test]
-    fn test_default_tool_idle_timeout() {
-        assert_eq!(default_tool_idle_timeout(), 300);
-    }
+#[test]
+fn test_default_tool_idle_timeout() {
+    assert_eq!(default_tool_idle_timeout(), 300);
+}
 
-    #[test]
-    fn test_config_version_field_exists() {
-        let config = PawanConfig::default();
-        assert_eq!(config.config_version, 1);
-    }
+#[test]
+fn test_config_version_field_exists() {
+    let config = PawanConfig::default();
+    assert_eq!(config.config_version, 1);
+}
 
-    #[test]
-    fn test_tool_idle_timeout_field_exists() {
-        let config = PawanConfig::default();
-        assert_eq!(config.tool_call_idle_timeout_secs, 300);
-    }
+#[test]
+fn test_tool_idle_timeout_field_exists() {
+    let config = PawanConfig::default();
+    assert_eq!(config.tool_call_idle_timeout_secs, 300);
+}
 
-    #[test]
-    fn test_migration_result_fields() {
-        let result = MigrationResult {
-            migrated: true,
-            from_version: 0,
-            to_version: 1,
-            backup_path: Some(std::path::PathBuf::from("/tmp/backup.toml")),
-        };
-        assert!(result.migrated);
-        assert_eq!(result.from_version, 0);
-        assert_eq!(result.to_version, 1);
-        assert!(result.backup_path.is_some());
-    }
+#[test]
+fn test_migration_result_fields() {
+    let result = MigrationResult {
+        migrated: true,
+        from_version: 0,
+        to_version: 1,
+        backup_path: Some(std::path::PathBuf::from("/tmp/backup.toml")),
+    };
+    assert!(result.migrated);
+    assert_eq!(result.from_version, 0);
+    assert_eq!(result.to_version, 1);
+    assert!(result.backup_path.is_some());
+}
 
-    #[test]
-    fn test_migrate_to_latest_no_migration_needed() {
-        let mut config = PawanConfig::default();
-        config.config_version = 1; // Already at latest version
-        
-        let result = migrate_to_latest(&mut config, None);
-        
-        assert!(!result.migrated, "Should not migrate if already at latest version");
-        assert_eq!(result.from_version, 1);
-        assert_eq!(result.to_version, 1);
-    }
+#[test]
+fn test_migrate_to_latest_no_migration_needed() {
+    let mut config = PawanConfig::default();
+    config.config_version = 1; // Already at latest version
 
-    #[test]
-    fn test_migrate_to_latest_performs_migration() {
-        let mut config = PawanConfig::default();
-        config.config_version = 0; // Old version
-        
-        let result = migrate_to_latest(&mut config, None);
-        
-        assert!(result.migrated, "Should migrate from old version");
-        assert_eq!(result.from_version, 0);
-        assert_eq!(result.to_version, 1);
-        assert_eq!(config.config_version, 1, "Config version should be updated");
-    }
+    let result = migrate_to_latest(&mut config, None);
 
-    #[test]
-    fn test_migrate_to_v1_adds_default_fields() {
-        let mut config = PawanConfig::default();
-        config.config_version = 0;
-        
-        let result = migration::migrate_to_v1(&mut config);
-        
-        assert!(result.is_ok(), "Migration should succeed");
-        assert_eq!(result.unwrap(), 1, "Should return new version");
-        assert_eq!(config.config_version, 1, "Config version should be updated");
-    }
+    assert!(
+        !result.migrated,
+        "Should not migrate if already at latest version"
+    );
+    assert_eq!(result.from_version, 1);
+    assert_eq!(result.to_version, 1);
+}
 
-    #[test]
-    fn test_migration_result_no_migration() {
-        let result = MigrationResult::no_migration(1);
-        
-        assert!(!result.migrated, "Should indicate no migration");
-        assert_eq!(result.from_version, 1);
-        assert_eq!(result.to_version, 1);
-        assert!(result.backup_path.is_none(), "Should not have backup path");
-    }
+#[test]
+fn test_migrate_to_latest_performs_migration() {
+    let mut config = PawanConfig::default();
+    config.config_version = 0; // Old version
 
-    #[test]
-    fn test_migration_result_with_backup() {
-        let backup_path = std::path::PathBuf::from("/tmp/backup.toml");
-        let result = MigrationResult::new(0, 1, Some(backup_path.clone()));
-        
-        assert!(result.migrated, "Should indicate migration occurred");
-        assert_eq!(result.from_version, 0);
-        assert_eq!(result.to_version, 1);
-        assert_eq!(result.backup_path, Some(backup_path), "Should have backup path");
-    }
+    let result = migrate_to_latest(&mut config, None);
 
+    assert!(result.migrated, "Should migrate from old version");
+    assert_eq!(result.from_version, 0);
+    assert_eq!(result.to_version, 1);
+    assert_eq!(config.config_version, 1, "Config version should be updated");
+}
+
+#[test]
+fn test_migrate_to_v1_adds_default_fields() {
+    let mut config = PawanConfig::default();
+    config.config_version = 0;
+
+    let result = migration::migrate_to_v1(&mut config);
+
+    assert!(result.is_ok(), "Migration should succeed");
+    assert_eq!(result.unwrap(), 1, "Should return new version");
+    assert_eq!(config.config_version, 1, "Config version should be updated");
+}
+
+#[test]
+fn test_migration_result_no_migration() {
+    let result = MigrationResult::no_migration(1);
+
+    assert!(!result.migrated, "Should indicate no migration");
+    assert_eq!(result.from_version, 1);
+    assert_eq!(result.to_version, 1);
+    assert!(result.backup_path.is_none(), "Should not have backup path");
+}
+
+#[test]
+fn test_migration_result_with_backup() {
+    let backup_path = std::path::PathBuf::from("/tmp/backup.toml");
+    let result = MigrationResult::new(0, 1, Some(backup_path.clone()));
+
+    assert!(result.migrated, "Should indicate migration occurred");
+    assert_eq!(result.from_version, 0);
+    assert_eq!(result.to_version, 1);
+    assert_eq!(
+        result.backup_path,
+        Some(backup_path),
+        "Should have backup path"
+    );
+}

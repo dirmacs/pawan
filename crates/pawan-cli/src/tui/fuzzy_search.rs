@@ -55,10 +55,10 @@ impl FuzzySearchState {
         };
     }
 
-    /// Move selection down.
+    /// Move selection down (wraps past the last row).
     pub fn next(&mut self) {
         if !self.results.is_empty() {
-            self.selected = (self.selected + 1).min(self.results.len() - 1);
+            self.selected = (self.selected + 1) % self.results.len();
         }
     }
 
@@ -97,5 +97,22 @@ mod tests {
     #[test]
     fn command_prefix_takes_left_side() {
         assert_eq!(command_prefix("/export — x"), "/export");
+    }
+
+    #[test]
+    fn test_filter_updates_results() {
+        let items = vec!["apple".to_string(), "banana".to_string(), "apricot".to_string()];
+        let mut search = FuzzySearchState::new(items);
+        search.filter("ap");
+        assert!(search.results.iter().all(|r| r.contains("ap")));
+    }
+
+    #[test]
+    fn test_next_wraps_around() {
+        let items = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let mut search = FuzzySearchState::new(items);
+        search.selected = 2;
+        search.next();
+        assert_eq!(search.selected, 0);
     }
 }

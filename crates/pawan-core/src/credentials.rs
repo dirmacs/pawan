@@ -29,7 +29,9 @@ pub enum CredentialError {
 impl From<Error> for CredentialError {
     fn from(err: Error) -> Self {
         match err {
-            Error::PlatformFailure(e) => CredentialError::StoreError(format!("Platform error: {}", e)),
+            Error::PlatformFailure(e) => {
+                CredentialError::StoreError(format!("Platform error: {}", e))
+            }
             Error::NoEntry => CredentialError::NotFound,
             _ => CredentialError::StoreError(format!("Credential store error: {}", err)),
         }
@@ -140,7 +142,10 @@ mod tests {
     #[test]
     fn test_credential_error_store_error() {
         let err = CredentialError::StoreError("test error".to_string());
-        assert_eq!(err.to_string(), "Failed to access credential store: test error");
+        assert_eq!(
+            err.to_string(),
+            "Failed to access credential store: test error"
+        );
     }
 
     #[test]
@@ -163,7 +168,7 @@ mod tests {
     fn test_from_error_platform_failure() {
         let platform_err = Error::PlatformFailure(Box::new(std::io::Error::new(
             std::io::ErrorKind::Other,
-            "DBus error"
+            "DBus error",
         )));
         let cred_err: CredentialError = platform_err.into();
         match cred_err {
@@ -205,7 +210,7 @@ mod tests {
         // Test with NoStorageAccess instead
         let no_storage_err = Error::NoStorageAccess(Box::new(std::io::Error::new(
             std::io::ErrorKind::PermissionDenied,
-            "Access denied"
+            "Access denied",
         )));
         let cred_err: CredentialError = no_storage_err.into();
         match cred_err {

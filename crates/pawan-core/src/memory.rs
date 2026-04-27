@@ -71,7 +71,7 @@ impl MemoryStore {
         Ok(())
     }
 
-    fn key_to_filename(key: &str) -> String {
+    pub fn key_to_filename(key: &str) -> String {
         // Keep it filesystem-safe and stable.
         let mut out = String::with_capacity(key.len());
         for ch in key.chars() {
@@ -573,6 +573,11 @@ impl MemoryStore {
     }
 }
 
+/// Map a memory key to a stable, filesystem-safe filename (`unsafe` → `'_'`).
+pub fn sanitize_key(key: &str) -> String {
+    MemoryStore::key_to_filename(key)
+}
+
 fn ordered_word_tokens(text: &str) -> Vec<String> {
     text.to_lowercase()
         .split(|c: char| !c.is_alphanumeric() && c != '_')
@@ -1008,5 +1013,25 @@ mod tests {
         let store = MemoryStore::new(td.path().join("memories"));
         let s = store.inject_as_context("does-not-exist-xyz").unwrap();
         assert!(s.is_empty());
+    }
+
+    #[test]
+    fn test_sanitize_key_removes_unsafe_chars() {
+        assert_eq!(sanitize_key("hello/world"), "hello_world");
+        assert_eq!(sanitize_key("test-file.v2"), "test-file.v2");
+    }
+
+    #[test]
+    fn test_key_to_filename() {
+        let result = MemoryStore::key_to_filename("Test Key!@#");
+        assert!(result.contains("Test"));
+    }
+
+    #[test]
+    fn test_sanitize_key_empty_and_large_inputs() {
+        assert_eq!(sanitize_key(""), "_");
+        let big = "a".repeat(50_000);
+        let s = sanitize_key(&big);
+        assert_eq!(s.len(), 50_000);
     }
 }

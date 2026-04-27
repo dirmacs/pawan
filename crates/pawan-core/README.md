@@ -48,10 +48,11 @@ Core library for the Pawan CLI coding agent. Contains the agent engine, tool sys
 ## Usage
 
 ```rust
-use pawan_core::{Agent, Config};
+use pawan::{PawanAgent, PawanConfig};
+use std::path::PathBuf;
 
-let config = Config::load()?;
-let agent = Agent::new(config).await?;
+let config = PawanConfig::load(None)?;
+let _agent = PawanAgent::new(config, PathBuf::from("."));
 ```
 
 This crate is the foundation — use `pawan` (the CLI binary) for the full experience.
