@@ -463,6 +463,11 @@ mod tests {
     fn make_test_session() -> Session {
         Session {
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: vec![],
             id: "test-123".to_string(),
             model: "test-model".to_string(),
             created_at: "2025-01-01T00:00:00Z".to_string(),
@@ -628,6 +633,11 @@ mod tests {
     fn test_not_distillable_no_tools() {
         let session = Session {
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: vec![],
             id: "empty".to_string(),
             model: "m".to_string(),
             created_at: "now".to_string(),
@@ -713,6 +723,11 @@ mod tests {
         // distilling — you can't learn a pattern from one round trip.
         let session = Session {
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: vec![],
             id: "short".into(),
             model: "m".into(),
             created_at: "now".into(),
@@ -759,6 +774,11 @@ mod tests {
         // must still produce a TeacherSession — just with a placeholder task.
         let session = Session {
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: vec![],
             id: "no-user".into(),
             model: "m".into(),
             created_at: "now".into(),
@@ -862,6 +882,11 @@ mod tests {
         // no tool calls, not enough messages
         let session = Session {
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: vec![],
             id: "empty".into(),
             model: "m".into(),
             created_at: "t".into(),
@@ -884,6 +909,11 @@ mod tests {
         // there's nothing meaningful to distill even if tools ran.
         let session = Session {
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: vec![],
             id: "no-user".into(),
             model: "m".into(),
             created_at: "t".into(),
@@ -934,6 +964,11 @@ mod tests {
         // must flatten them all into a single Vec<ToffToolCall>.
         let session = Session {
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: vec![],
             id: "multi".into(),
             model: "test-model".into(),
             created_at: "t".into(),
@@ -1002,6 +1037,11 @@ mod tests {
         // distiller can log which model produced the trajectory.
         let session = Session {
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: vec![],
             id: "m".into(),
             model: "qwen3.5-122b-exotic-variant".into(),
             created_at: "t".into(),
