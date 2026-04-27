@@ -1,15 +1,19 @@
-# pawan-core v0.4.13
+# pawan-core v0.5.0
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
 
-## What's New in v0.4.13
+## What's New in v0.5.0
 
-- **Pure-Rust git engine** — replaced `libgit2` (C) with `gix` 0.82 (gitoxide). No C toolchain dep. `GitSessionStore` API unchanged; 789 tests pass.
-- **mold linker + split-debuginfo** — faster dev/test linking on Linux.
-- **Feature-gated heavy deps** — `deagle`, `tasks`, `git-sessions`, `lancor` optional; all in `default`. Faster cold builds when toggled off.
-- **Workspace dep deduplication** — `which`, `dirs`, `dotenvy`, `tempfile` promoted to workspace dependencies.
-- **Module splits** — `coordinator/types.rs` extracted (796→459 lines); `tools/git.rs` → `tools/git/` (5 files); `tools/native.rs` split into `native_search`, `mise`, `lsp_tool` submodules.
-- **Type deduplication** — `MessageRole` removed (dup of `agent::Role`); `to_definition()` alias removed; `FinishReason` canonical with `Display + Eq`.
+- **Session store** — SQLite in WAL mode with FTS5 and JSON migration; JSONL branching with `parent_id` (depth capped at 5); session labels and bookmarks
+- **Agent pool** — concurrent agents with semaphore bounding; agent definitions with YAML frontmatter; 6 agent types, 300s timeout
+- **Parallel tool execution** — bounded concurrency (`max_parallel_tools`); batch tool (25 concurrent calls)
+- **Bash permission tiers** — tree-sitter based, feature-gated with main/sub/lua audience bitflags
+- **Doom-loop detection** — configurable backoff multiplier; retry policy with exponential backoff + jitter
+- **Auto-compaction** — LLM summarization via `/compact`; strategies: default (10 msgs), aggressive (5 msgs), conservative (20 msgs)
+- **Memory system** — consolidation (Jaccard similarity), retrieval, prompt injection scanner (6 patterns), `SessionScopedMemory` fencing
+- **Tool registry overhaul** — `Tool::execute` now async; `on_pre_compress` hook for context pre-processing; `sync_turn` on return
+- **Module splits** — `coordinator/types.rs` extracted; `tools/git.rs` → `tools/git/` (5 files); `tools/native.rs` split into `native_search`, `mise`, `lsp_tool`
+- **208 tests** passing (173 library + 35 CLI integration)
 
 ## What's New in v0.4.8
 

@@ -57,6 +57,35 @@ The core claim:
 
 The short version: **pawan is the vibe-coding runtime for people whose production language already fights bad code for them.** If you're using Rust in anger, that's the feature you want.
 
+## What's New in v0.5.0
+
+### TUI overhaul — 12 new components, animated theme transitions
+- Complete ratatui refactor: `theme`, `splash`, `highlight`, `layout`, `status_bar`, `scrollbar`, `activity_panel`, `queue_panel`, `tool_display`, `render`, `app`, `slash_commands`
+- `ColorTransition::set()` animates accent color on `/theme` switch (focus borders + input title bar)
+- `⚡` animation indicator in input area title bar while transition is in progress
+- `StatusBar` component: rich status strip with mode badge (INPUT/NORMAL/CMD/HELP/MODEL), context bar, iteration counter, flash-on-event for UI events
+
+### Session & Memory
+- SQLite session store in WAL mode with FTS5 and JSON migration
+- JSONL session branching with `parent_id` and branch depth cap (5)
+- Session labels and bookmarks, memory consolidation and retrieval
+- Prompt injection scanner with six detection patterns
+- Memory fencing with `SessionScopedMemory`
+
+### Agent & Tooling
+- Concurrent agent pool with semaphore bounding; agent definitions with YAML frontmatter
+- Parallel tool execution with bounded concurrency; batch tool (25 concurrent calls)
+- Bash permission tiers (tree-sitter based, feature-gated)
+- Tool audience bitflags (MAIN, SUB, LUA); subagent task tool (6 agent types, 300s timeout)
+- Doom-loop detection with configurable backoff; retry policy with exponential backoff + jitter
+
+### CLI
+- `--print` headless mode: print final response, skip TUI
+- `--output-format` with `text`, `json`, `stream-json`
+- `--continue` / `--session <id>` / `--list-sessions` session management
+- Fuzzy search modal (`Ctrl+P`), model picker modal (`Ctrl+M`), keybind contexts
+- Slash commands: `/model`, `/session`, `/clear`, `/retry`, `/compact`, `/help`
+
 ## Install
 
 ```bash
@@ -106,9 +135,8 @@ pawan commit -a        # AI-generated commit messages
 pawan review           # AI code review of current changes
 pawan test --fix       # run tests, AI-analyze and fix failures
 pawan explain src/x.rs # explain code
-pawan run "prompt"     # headless single-prompt (for scripting)
 pawan watch -i 10      # poll cargo check, auto-heal on errors
-pawan tasks ready      # show actionable unblocked beads
+pawan tasks list --status ready   # show actionable unblocked beads
 pawan doctor           # diagnose setup issues
 ```
 
@@ -157,7 +185,7 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.4.13)
+## TUI (v0.5.0)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets

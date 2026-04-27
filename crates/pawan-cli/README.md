@@ -1,14 +1,20 @@
-# pawan v0.4.13
+# pawan v0.5.0
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 34 tools, and cross-session memory.
 
-## What's New in v0.4.13
+## What's New in v0.5.0
 
-- **Pure-Rust git engine** — replaced `libgit2` (C) with `gix` 0.82 (gitoxide). Faster cold builds, no C toolchain required.
-- **Build optimizations** — mold linker, `split-debuginfo = unpacked`, feature-gated heavy deps.
-- **Modularization** — coordinator, tools/git, tools/native split into focused submodules.
-- **Type deduplication** — removed duplicate `MessageRole`, forwarding aliases, and redundant type definitions.
-- **789 library tests** — all passing; 59 integration tests passing.
+- **TUI overhaul** — 12 ratatui components: theme, splash, highlight, layout, status_bar, scrollbar, activity_panel, queue_panel, tool_display, render, app, slash_commands
+- **Animated theme transitions** — `ColorTransition::set()` animates accent color on `/theme` switch; `⚡` indicator during transition
+- **StatusBar component** — mode badge (INPUT/NORMAL/CMD/HELP/MODEL), context bar, flash-on-event for UI events, iteration counter, timestamp
+- **Session store** — SQLite in WAL mode with FTS5 and JSON migration; JSONL session branching (parent_id, depth cap 5)
+- **Agent pool** — concurrent agents with semaphore bounding; 6 agent types, 300s timeout
+- **Parallel tool execution** — bounded concurrency; batch tool (25 concurrent calls)
+- **Bash permission tiers** — tree-sitter based, feature-gated
+- **Doom-loop detection** — configurable backoff; retry policy with exponential backoff + jitter
+- **CLI flags** — `--print` headless, `--output-format` (text/json/stream-json), `--continue`, `--session`, `--list-sessions`
+- **Keybind contexts + model picker modal** (`Ctrl+M`); fuzzy search modal (`Ctrl+P`)
+- **208 tests** — 173 TUI + 35 CLI passing
 
 ## What's New in v0.4.8
 
