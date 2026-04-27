@@ -7,6 +7,16 @@ use std::path::PathBuf;
 
 const SESSION_LIST_PREVIEW_MAX_CHARS: usize = 60;
 
+/// Named bookmark within a saved session's message timeline.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionLabel {
+    /// Human-visible name for this bookmark.
+    pub name: String,
+    /// Index into [`Session::messages`] (0-based).
+    #[serde(default)]
+    pub message_index: usize,
+}
+
 fn first_message_preview_for_messages(messages: &[Message]) -> String {
     for msg in messages {
         let collapsed: String = msg.content.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -51,6 +61,21 @@ pub struct Session {
     /// User notes/description for this session
     #[serde(default)]
     pub notes: String,
+    /// Parent session for branching
+    #[serde(default)]
+    pub parent_id: Option<String>,
+    /// Root session of this branch
+    #[serde(default)]
+    pub root_id: Option<String>,
+    /// User-provided branch name
+    #[serde(default)]
+    pub branch_label: Option<String>,
+    /// Depth in branch tree (cap at 5 when enforced by callers)
+    #[serde(default)]
+    pub branch_depth: u32,
+    /// Named bookmarks
+    #[serde(default)]
+    pub labels: Vec<SessionLabel>,
 }
 
 impl Session {
@@ -72,6 +97,11 @@ impl Session {
             iteration_count: 0,
             tags,
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: Vec::new(),
         }
     }
 
@@ -89,6 +119,11 @@ impl Session {
             iteration_count: 0,
             tags,
             notes: String::new(),
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: Vec::new(),
         }
     }
 
@@ -106,6 +141,11 @@ impl Session {
             iteration_count: 0,
             tags: Vec::new(),
             notes,
+            parent_id: None,
+            root_id: None,
+            branch_label: None,
+            branch_depth: 0,
+            labels: Vec::new(),
         }
     }
 

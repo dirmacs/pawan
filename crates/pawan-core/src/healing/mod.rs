@@ -316,7 +316,8 @@ impl CompilerFixer {
 
     /// Run cargo check and get diagnostics
     pub async fn check(&self) -> Result<Vec<Diagnostic>> {
-        let output = run_cargo_command(&self.workspace_root, &["check", "--message-format=json"]).await?;
+        let output =
+            run_cargo_command(&self.workspace_root, &["check", "--message-format=json"]).await?;
         Ok(self.parse_diagnostics(&output))
     }
 }
@@ -336,7 +337,8 @@ impl ClippyFixer {
         let output = run_cargo_command(
             &self.workspace_root,
             &["clippy", "--message-format=json", "--", "-W", "clippy::all"],
-        ).await?;
+        )
+        .await?;
         let fixer = CompilerFixer::new(self.workspace_root.clone());
         let mut diagnostics = fixer.parse_diagnostics(&output);
         diagnostics.retain(|d| d.kind == DiagnosticKind::Warning);
@@ -439,9 +441,7 @@ impl AuditFixer {
 
                 diagnostics.push(Diagnostic {
                     kind: DiagnosticKind::Error,
-                    message: format!(
-                        "[security] {crate_name} {crate_version}: {title}"
-                    ),
+                    message: format!("[security] {crate_name} {crate_version}: {title}"),
                     file: None,
                     line: None,
                     column: None,
@@ -474,9 +474,7 @@ impl AuditFixer {
 
                         diagnostics.push(Diagnostic {
                             kind: DiagnosticKind::Warning,
-                            message: format!(
-                                "[{kind_name}] {crate_name}: {title}"
-                            ),
+                            message: format!("[{kind_name}] {crate_name}: {title}"),
                             file: None,
                             line: None,
                             column: None,
@@ -524,7 +522,8 @@ impl TestFixer {
         let output = run_cargo_command(
             &self.workspace_root,
             &["test", "--no-fail-fast", "--", "--nocapture"],
-        ).await?;
+        )
+        .await?;
         Ok(self.parse_test_output(&output))
     }
 
@@ -585,7 +584,10 @@ impl TestFixer {
 
         // Also look for simple FAILED lines (but skip "test result:" summary lines)
         for line in output.lines() {
-            if line.contains("FAILED") && line.starts_with("test ") && !line.starts_with("test result:") {
+            if line.contains("FAILED")
+                && line.starts_with("test ")
+                && !line.starts_with("test result:")
+            {
                 let parts: Vec<&str> = line.split_whitespace().collect();
                 if parts.len() >= 2 {
                     let test_name = parts[1].trim_end_matches(" ...");
@@ -684,10 +686,7 @@ impl Healer {
 
     /// Count total issues concurrently: (errors, warnings, failed_tests).
     pub async fn count_issues(&self) -> Result<(usize, usize, usize)> {
-        let (diagnostics, tests) = tokio::join!(
-            self.get_diagnostics(),
-            self.get_failed_tests(),
-        );
+        let (diagnostics, tests) = tokio::join!(self.get_diagnostics(), self.get_failed_tests(),);
         let diagnostics = diagnostics?;
         let tests = tests?;
 
@@ -873,7 +872,10 @@ mod tests {
         let fixer = CompilerFixer::new(PathBuf::from("."));
         let diagnostics = fixer.parse_text_diagnostics(output);
         assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].suggestion, Some("consider importing this".to_string()));
+        assert_eq!(
+            diagnostics[0].suggestion,
+            Some("consider importing this".to_string())
+        );
     }
 
     #[test]
@@ -1300,22 +1302,38 @@ mod tests {
 
     #[test]
     fn test_fingerprint_same_diag_is_stable() {
-        let d = make_diag(DiagnosticKind::Error, Some("E0425"), "cannot find value `x`");
-        assert_eq!(d.fingerprint(), d.fingerprint(), "fingerprint must be deterministic");
+        let d = make_diag(
+            DiagnosticKind::Error,
+            Some("E0425"),
+            "cannot find value `x`",
+        );
+        assert_eq!(
+            d.fingerprint(),
+            d.fingerprint(),
+            "fingerprint must be deterministic"
+        );
     }
 
     #[test]
     fn test_fingerprint_different_code_differs() {
         let d1 = make_diag(DiagnosticKind::Error, Some("E0425"), "msg");
         let d2 = make_diag(DiagnosticKind::Error, Some("E0308"), "msg");
-        assert_ne!(d1.fingerprint(), d2.fingerprint(), "different codes must differ");
+        assert_ne!(
+            d1.fingerprint(),
+            d2.fingerprint(),
+            "different codes must differ"
+        );
     }
 
     #[test]
     fn test_fingerprint_different_kind_differs() {
         let d1 = make_diag(DiagnosticKind::Error, Some("E0001"), "msg");
         let d2 = make_diag(DiagnosticKind::Warning, Some("E0001"), "msg");
-        assert_ne!(d1.fingerprint(), d2.fingerprint(), "different kinds must differ");
+        assert_ne!(
+            d1.fingerprint(),
+            d2.fingerprint(),
+            "different kinds must differ"
+        );
     }
 
     #[test]
@@ -1327,7 +1345,11 @@ mod tests {
         let mut d2 = d1.clone();
         d1.raw = "first run output".to_string();
         d2.raw = "second run output (different)".to_string();
-        assert_eq!(d1.fingerprint(), d2.fingerprint(), "raw must not affect fingerprint");
+        assert_eq!(
+            d1.fingerprint(),
+            d2.fingerprint(),
+            "raw must not affect fingerprint"
+        );
     }
 
     #[test]
@@ -1369,13 +1391,17 @@ mod tests {
         assert!(diag.is_some(), "exit non-zero should return Ok(Some(_))");
         let d = diag.unwrap();
         assert_eq!(d.kind, DiagnosticKind::Error);
-        assert!(d.message.contains("false"), "message should name the command");
+        assert!(
+            d.message.contains("false"),
+            "message should name the command"
+        );
     }
 
     #[tokio::test]
     async fn test_run_verify_cmd_failure_captures_stderr() {
         // echo to stderr then exit non-zero
-        let result = run_verify_cmd(Path::new("."), "echo 'stage2-failure-marker' >&2; exit 1").await;
+        let result =
+            run_verify_cmd(Path::new("."), "echo 'stage2-failure-marker' >&2; exit 1").await;
         assert!(result.is_ok());
         let d = result.unwrap().expect("should be Some on failure");
         assert!(

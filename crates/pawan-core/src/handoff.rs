@@ -169,11 +169,13 @@ fn extract_context(messages: &[Message], config: &HandoffConfig) -> HandoffConte
 fn extract_file_paths(content: &str, file_paths: &mut HashSet<String>) {
     for line in content.lines() {
         // Match file paths with common extensions
-        let extensions = [".rs", ".ts", ".js", ".py", ".go", ".java", ".md", ".toml", ".json"];
-        
+        let extensions = [
+            ".rs", ".ts", ".js", ".py", ".go", ".java", ".md", ".toml", ".json",
+        ];
+
         for word in line.split_whitespace() {
             let word = word.trim_matches(['\"', '\'', '(', ')', ',', ':', '[', ']']);
-            
+
             // Check if word ends with a known extension
             if extensions.iter().any(|ext| word.ends_with(ext)) {
                 file_paths.insert(word.to_string());
@@ -181,7 +183,9 @@ fn extract_file_paths(content: &str, file_paths: &mut HashSet<String>) {
             }
 
             // Check for path-like patterns (src/, lib/, test/, etc.)
-            if word.contains('/') && (word.contains("src") || word.contains("lib") || word.contains("test")) {
+            if word.contains('/')
+                && (word.contains("src") || word.contains("lib") || word.contains("test"))
+            {
                 file_paths.insert(word.to_string());
             }
         }
@@ -192,9 +196,9 @@ fn extract_file_paths(content: &str, file_paths: &mut HashSet<String>) {
 fn extract_constraints(content: &str, constraints: &mut Vec<String>) {
     for line in content.lines() {
         let line = line.trim();
-        
+
         // Look for constraint keywords
-        let is_constraint = line.contains("MUST") 
+        let is_constraint = line.contains("MUST")
             || line.contains("MUST NOT")
             || line.contains("SHOULD")
             || line.contains("SHOULD NOT")
@@ -212,7 +216,7 @@ fn extract_constraints(content: &str, constraints: &mut Vec<String>) {
 fn extract_tasks(content: &str, tasks: &mut Vec<String>) {
     for line in content.lines() {
         let line = line.trim();
-        
+
         // Look for task indicators
         let is_task = line.starts_with("-")
             || line.starts_with("*")
@@ -290,7 +294,10 @@ fn build_handoff_prompt(
             parts.push(format!("- {}", constraint));
         }
         if context.constraints.len() > config.max_constraints {
-            parts.push(format!("- ... and {} more", context.constraints.len() - config.max_constraints));
+            parts.push(format!(
+                "- ... and {} more",
+                context.constraints.len() - config.max_constraints
+            ));
         }
         parts.push(String::new());
     }
@@ -304,7 +311,10 @@ fn build_handoff_prompt(
             parts.push(format!("- {}", task));
         }
         if context.tasks.len() > config.max_tasks {
-            parts.push(format!("- ... and {} more", context.tasks.len() - config.max_tasks));
+            parts.push(format!(
+                "- ... and {} more",
+                context.tasks.len() - config.max_tasks
+            ));
         }
         parts.push(String::new());
     }
@@ -358,9 +368,9 @@ mod tests {
                 tool_result: None,
             },
         ];
-        
+
         let prompt = generate_handoff_prompt(&messages, "test-model", 3, 1, &[], "", None);
-        
+
         assert!(prompt.contains("Session Handoff"));
         assert!(prompt.contains("Model:"));
         assert!(prompt.contains("Messages:"));
@@ -370,17 +380,15 @@ mod tests {
 
     #[test]
     fn test_extract_file_paths() {
-        let messages = vec![
-            Message {
-                role: Role::User,
-                content: "Edit src/main.rs and lib/helper.ts".to_string(),
-                tool_calls: vec![],
-                tool_result: None,
-            },
-        ];
-        
+        let messages = vec![Message {
+            role: Role::User,
+            content: "Edit src/main.rs and lib/helper.ts".to_string(),
+            tool_calls: vec![],
+            tool_result: None,
+        }];
+
         let prompt = generate_handoff_prompt(&messages, "test-model", 0, 0, &[], "", None);
-        
+
         assert!(prompt.contains("Files Referenced"));
         assert!(prompt.contains("src/main.rs"));
         assert!(prompt.contains("lib/helper.ts"));
@@ -388,34 +396,30 @@ mod tests {
 
     #[test]
     fn test_extract_constraints() {
-        let messages = vec![
-            Message {
-                role: Role::User,
-                content: "MUST use async functions\nMUST NOT break existing tests".to_string(),
-                tool_calls: vec![],
-                tool_result: None,
-            },
-        ];
-        
+        let messages = vec![Message {
+            role: Role::User,
+            content: "MUST use async functions\nMUST NOT break existing tests".to_string(),
+            tool_calls: vec![],
+            tool_result: None,
+        }];
+
         let prompt = generate_handoff_prompt(&messages, "test-model", 0, 0, &[], "", None);
-        
+
         assert!(prompt.contains("Constraints"));
         assert!(prompt.contains("MUST"));
     }
 
     #[test]
     fn test_extract_tasks() {
-        let messages = vec![
-            Message {
-                role: Role::User,
-                content: "- Implement feature X\n- Fix bug Y\n* Add tests".to_string(),
-                tool_calls: vec![],
-                tool_result: None,
-            },
-        ];
-        
+        let messages = vec![Message {
+            role: Role::User,
+            content: "- Implement feature X\n- Fix bug Y\n* Add tests".to_string(),
+            tool_calls: vec![],
+            tool_result: None,
+        }];
+
         let prompt = generate_handoff_prompt(&messages, "test-model", 0, 0, &[], "", None);
-        
+
         assert!(prompt.contains("Key Tasks"));
         assert!(prompt.contains("Implement feature X") || prompt.contains("feature X"));
     }
@@ -448,9 +452,9 @@ mod tests {
                 tool_result: None,
             },
         ];
-        
+
         let prompt = generate_handoff_prompt(&messages, "test-model", 0, 0, &[], "", None);
-        
+
         assert!(prompt.contains("Recent Context"));
         assert!(prompt.contains("User") || prompt.contains("Assistant"));
     }
@@ -471,31 +475,29 @@ mod tests {
                 tool_result: None,
             },
         ];
-        
+
         let prompt = generate_handoff_prompt(&messages, "test-model", 0, 0, &[], "", None);
-        
+
         // Should show total message count (2), not deduplicated count
         assert!(prompt.contains("**Messages:** 2"));
     }
 
     #[test]
     fn test_custom_config() {
-        let messages = vec![
-            Message {
-                role: Role::User,
-                content: "- Task 1\n- Task 2\n- Task 3\n- Task 4\n- Task 5".to_string(),
-                tool_calls: vec![],
-                tool_result: None,
-            },
-        ];
-        
+        let messages = vec![Message {
+            role: Role::User,
+            content: "- Task 1\n- Task 2\n- Task 3\n- Task 4\n- Task 5".to_string(),
+            tool_calls: vec![],
+            tool_result: None,
+        }];
+
         let config = HandoffConfig {
             max_tasks: 2,
             ..Default::default()
         };
-        
+
         let prompt = generate_handoff_prompt(&messages, "test-model", 0, 0, &[], "", Some(config));
-        
+
         assert!(prompt.contains("Key Tasks"));
         // Should limit to 2 tasks
         assert!(prompt.contains("- Task 1"));

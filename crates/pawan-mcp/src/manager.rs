@@ -46,17 +46,19 @@ pub struct McpManager {
 impl McpManager {
     /// Connect to all configured MCP servers in parallel and discover their tools
     pub async fn connect(configs: &[McpServerConfig]) -> Result<Self> {
-        let enabled: Vec<_> = configs.iter().filter(|c| {
-            if !c.enabled {
-                tracing::debug!("Skipping disabled MCP server: {}", c.name);
-            }
-            c.enabled
-        }).collect();
+        let enabled: Vec<_> = configs
+            .iter()
+            .filter(|c| {
+                if !c.enabled {
+                    tracing::debug!("Skipping disabled MCP server: {}", c.name);
+                }
+                c.enabled
+            })
+            .collect();
 
         // Connect to all servers concurrently
-        let results = futures::future::join_all(
-            enabled.iter().map(|config| Self::connect_one(config))
-        ).await;
+        let results =
+            futures::future::join_all(enabled.iter().map(|config| Self::connect_one(config))).await;
 
         let mut servers = Vec::new();
         for result in results {
@@ -134,7 +136,8 @@ impl McpManager {
 
         for server in &self.servers {
             for definition in &server.tool_names {
-                let bridge = ThulpMcpBridge::new(&server.name, definition, Arc::clone(&server.client));
+                let bridge =
+                    ThulpMcpBridge::new(&server.name, definition, Arc::clone(&server.client));
                 registry.register(Arc::new(bridge));
                 count += 1;
             }
@@ -190,7 +193,10 @@ mod tests {
         assert_eq!(config.command, "mcp-server");
         assert!(config.args.is_empty(), "args default is empty vec");
         assert!(config.env.is_empty(), "env default is empty map");
-        assert!(config.enabled, "enabled default is true (default_true helper)");
+        assert!(
+            config.enabled,
+            "enabled default is true (default_true helper)"
+        );
     }
 
     #[test]
@@ -249,7 +255,11 @@ mod tests {
         .await
         .expect("connect must not hang on bad command")
         .expect("connect must return Ok even when individual spawns fail");
-        assert_eq!(mgr.summary().len(), 0, "failed spawn ⇒ no registered server");
+        assert_eq!(
+            mgr.summary().len(),
+            0,
+            "failed spawn ⇒ no registered server"
+        );
     }
 
     // ─── Edge cases for McpManager + McpServerConfig (task #25) ──────────

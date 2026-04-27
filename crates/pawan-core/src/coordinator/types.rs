@@ -1,6 +1,6 @@
 //! Coordinator wire types — ToolCallingConfig, FinishReason, ConversationMessage, CoordinatorResult
 
-use crate::agent::{Role, ToolCallRecord, ToolCallRequest, TokenUsage};
+use crate::agent::{Role, TokenUsage, ToolCallRecord, ToolCallRequest};
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
@@ -20,6 +20,10 @@ pub struct ToolCallingConfig {
     /// requested. Defaults to `true`.
     pub parallel_execution: bool,
 
+    /// Maximum number of tool calls to execute concurrently within a single
+    /// iteration when parallel execution is enabled. Defaults to 10.
+    pub max_parallel_tools: usize,
+
     /// Timeout for individual tool execution. Defaults to 30 seconds.
     pub tool_timeout: Duration,
 
@@ -35,6 +39,7 @@ impl Default for ToolCallingConfig {
         Self {
             max_iterations: 10,
             parallel_execution: true,
+            max_parallel_tools: 10,
             tool_timeout: Duration::from_secs(30),
             stop_on_error: false,
         }
@@ -212,22 +217,13 @@ mod tests {
 
     #[test]
     fn conversation_message_role_serializes_as_lowercase_string() {
-        assert_eq!(
-            serde_json::to_string(&Role::System).unwrap(),
-            "\"system\""
-        );
-        assert_eq!(
-            serde_json::to_string(&Role::User).unwrap(),
-            "\"user\""
-        );
+        assert_eq!(serde_json::to_string(&Role::System).unwrap(), "\"system\"");
+        assert_eq!(serde_json::to_string(&Role::User).unwrap(), "\"user\"");
         assert_eq!(
             serde_json::to_string(&Role::Assistant).unwrap(),
             "\"assistant\""
         );
-        assert_eq!(
-            serde_json::to_string(&Role::Tool).unwrap(),
-            "\"tool\""
-        );
+        assert_eq!(serde_json::to_string(&Role::Tool).unwrap(), "\"tool\"");
     }
 
     #[test]

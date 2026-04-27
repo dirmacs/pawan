@@ -52,12 +52,27 @@ impl Tool for GlobSearchTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("glob_search")
             .description(self.description())
-            .parameter(Parameter::builder("pattern").param_type(ParameterType::String).required(true)
-                .description("Glob pattern to match files").build())
-            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(false)
-                .description("Directory to search in (optional, defaults to workspace root)").build())
-            .parameter(Parameter::builder("max_results").param_type(ParameterType::Integer).required(false)
-                .description("Maximum number of results (default: 100)").build())
+            .parameter(
+                Parameter::builder("pattern")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Glob pattern to match files")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Directory to search in (optional, defaults to workspace root)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("max_results")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Maximum number of results (default: 100)")
+                    .build(),
+            )
             .build()
     }
 
@@ -181,16 +196,41 @@ impl Tool for GrepSearchTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("grep_search")
             .description(self.description())
-            .parameter(Parameter::builder("pattern").param_type(ParameterType::String).required(true)
-                .description("Pattern to search for (supports regex)").build())
-            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(false)
-                .description("Directory to search in (optional, defaults to workspace root)").build())
-            .parameter(Parameter::builder("include").param_type(ParameterType::String).required(false)
-                .description("File pattern to include (e.g., '*.rs', '*.{ts,tsx}')").build())
-            .parameter(Parameter::builder("max_results").param_type(ParameterType::Integer).required(false)
-                .description("Maximum number of matching files (default: 50)").build())
-            .parameter(Parameter::builder("context_lines").param_type(ParameterType::Integer).required(false)
-                .description("Lines of context around matches (default: 0)").build())
+            .parameter(
+                Parameter::builder("pattern")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Pattern to search for (supports regex)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("Directory to search in (optional, defaults to workspace root)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("include")
+                    .param_type(ParameterType::String)
+                    .required(false)
+                    .description("File pattern to include (e.g., '*.rs', '*.{ts,tsx}')")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("max_results")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Maximum number of matching files (default: 50)")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("context_lines")
+                    .param_type(ParameterType::Integer)
+                    .required(false)
+                    .description("Lines of context around matches (default: 0)")
+                    .build(),
+            )
             .build()
     }
 
@@ -386,7 +426,10 @@ mod tests {
             std::fs::write(tmp.path().join(format!("f{}.rs", i)), "code").unwrap();
         }
         let tool = GlobSearchTool::new(tmp.path().into());
-        let result = tool.execute(json!({"pattern": "*.rs", "max_results": 3})).await.unwrap();
+        let result = tool
+            .execute(json!({"pattern": "*.rs", "max_results": 3}))
+            .await
+            .unwrap();
         assert_eq!(result["count"], 3);
         assert_eq!(result["truncated"], true);
     }
@@ -399,7 +442,10 @@ mod tests {
         std::fs::write(tmp.path().join("b.rs"), "code").unwrap();
         let tool = GlobSearchTool::new(tmp.path().into());
         // Search only in sub/
-        let result = tool.execute(json!({"pattern": "*.rs", "path": "sub"})).await.unwrap();
+        let result = tool
+            .execute(json!({"pattern": "*.rs", "path": "sub"}))
+            .await
+            .unwrap();
         assert_eq!(result["count"], 1);
     }
 
@@ -422,7 +468,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("f.rs"), "fn main() {}").unwrap();
         let tool = GrepSearchTool::new(tmp.path().into());
-        let result = tool.execute(json!({"pattern": "nonexistent_string_xyz"})).await.unwrap();
+        let result = tool
+            .execute(json!({"pattern": "nonexistent_string_xyz"}))
+            .await
+            .unwrap();
         assert_eq!(result["file_count"], 0);
         assert_eq!(result["total_matches"], 0);
     }
@@ -430,9 +479,16 @@ mod tests {
     #[tokio::test]
     async fn test_grep_regex() {
         let tmp = TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("f.rs"), "fn foo() {}\nfn bar() {}\nfn baz() {}").unwrap();
+        std::fs::write(
+            tmp.path().join("f.rs"),
+            "fn foo() {}\nfn bar() {}\nfn baz() {}",
+        )
+        .unwrap();
         let tool = GrepSearchTool::new(tmp.path().into());
-        let result = tool.execute(json!({"pattern": "fn \\w+\\(\\)"})).await.unwrap();
+        let result = tool
+            .execute(json!({"pattern": "fn \\w+\\(\\)"}))
+            .await
+            .unwrap();
         assert_eq!(result["total_matches"], 3);
     }
 
@@ -458,7 +514,10 @@ mod tests {
         std::fs::write(tmp.path().join("a.rs"), "hello").unwrap();
         std::fs::write(tmp.path().join("b.txt"), "hello").unwrap();
         let tool = GrepSearchTool::new(tmp.path().into());
-        let result = tool.execute(json!({"pattern": "hello", "include": "*.rs"})).await.unwrap();
+        let result = tool
+            .execute(json!({"pattern": "hello", "include": "*.rs"}))
+            .await
+            .unwrap();
         assert_eq!(result["file_count"], 1);
         let path = result["files"][0]["path"].as_str().unwrap();
         assert!(path.ends_with(".rs"));
@@ -467,9 +526,16 @@ mod tests {
     #[tokio::test]
     async fn test_grep_context_lines() {
         let tmp = TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("f.rs"), "line1\nline2\nTARGET\nline4\nline5").unwrap();
+        std::fs::write(
+            tmp.path().join("f.rs"),
+            "line1\nline2\nTARGET\nline4\nline5",
+        )
+        .unwrap();
         let tool = GrepSearchTool::new(tmp.path().into());
-        let result = tool.execute(json!({"pattern": "TARGET", "context_lines": 1})).await.unwrap();
+        let result = tool
+            .execute(json!({"pattern": "TARGET", "context_lines": 1}))
+            .await
+            .unwrap();
         let matches = result["files"][0]["matches"].as_array().unwrap();
         assert!(matches[0]["context"].is_array());
         let ctx = matches[0]["context"].as_array().unwrap();
@@ -483,7 +549,10 @@ mod tests {
             std::fs::write(tmp.path().join(format!("f{}.rs", i)), "match_me").unwrap();
         }
         let tool = GrepSearchTool::new(tmp.path().into());
-        let result = tool.execute(json!({"pattern": "match_me", "max_results": 3})).await.unwrap();
+        let result = tool
+            .execute(json!({"pattern": "match_me", "max_results": 3}))
+            .await
+            .unwrap();
         assert_eq!(result["file_count"], 3);
         assert_eq!(result["truncated"], true);
     }
@@ -505,8 +574,14 @@ mod tests {
         std::fs::write(tmp.path().join("f.rs"), &long_line).unwrap();
         let tool = GrepSearchTool::new(tmp.path().into());
         let result = tool.execute(json!({"pattern": "x+"})).await.unwrap();
-        let content = result["files"][0]["matches"][0]["content"].as_str().unwrap();
-        assert_eq!(content.len(), 200, "Line content should be truncated to 200 chars");
+        let content = result["files"][0]["matches"][0]["content"]
+            .as_str()
+            .unwrap();
+        assert_eq!(
+            content.len(),
+            200,
+            "Line content should be truncated to 200 chars"
+        );
     }
 
     #[tokio::test]
@@ -521,6 +596,9 @@ mod tests {
         // First file should have more matches
         let first_count = files[0]["match_count"].as_u64().unwrap();
         let second_count = files[1]["match_count"].as_u64().unwrap();
-        assert!(first_count >= second_count, "Results should be sorted by match count desc");
+        assert!(
+            first_count >= second_count,
+            "Results should be sorted by match count desc"
+        );
     }
 }

@@ -227,7 +227,11 @@ impl OpenAiCompatBackend {
                 if let Some(data) = line.strip_prefix("data: ") {
                     if let Ok(json) = serde_json::from_str::<Value>(data) {
                         // Capture usage from final chunk (OpenAI stream_options, vllm-mlx, etc.)
-                        if json.get("usage").and_then(|u| u.get("total_tokens")).is_some() {
+                        if json
+                            .get("usage")
+                            .and_then(|u| u.get("total_tokens"))
+                            .is_some()
+                        {
                             stream_usage = Self::parse_usage(&json);
                         }
 
@@ -242,7 +246,8 @@ impl OpenAiCompatBackend {
                                     }
 
                                     // Capture reasoning/thinking content from streaming deltas
-                                    if let Some(r) = delta.get("reasoning_content")
+                                    if let Some(r) = delta
+                                        .get("reasoning_content")
                                         .or_else(|| delta.get("reasoning"))
                                         .and_then(|v| v.as_str())
                                     {
@@ -343,7 +348,11 @@ impl OpenAiCompatBackend {
         let content = Self::strip_think_from_str(&content);
 
         // Build reasoning from streamed chunks
-        let reasoning = if stream_reasoning.is_empty() { None } else { Some(stream_reasoning) };
+        let reasoning = if stream_reasoning.is_empty() {
+            None
+        } else {
+            Some(stream_reasoning)
+        };
 
         // Enrich stream usage with reasoning token estimate
         let usage = stream_usage.map(|mut u| {
@@ -542,10 +551,8 @@ impl OpenAiCompatBackend {
         // Variant 2: compact — func_name{"key":"value"}
         if let Some(brace_pos) = after.find('{') {
             let name = after[..brace_pos].trim();
-            let is_valid_ident = !name.is_empty()
-                && name
-                    .chars()
-                    .all(|c| c.is_alphanumeric() || c == '_');
+            let is_valid_ident =
+                !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_');
             if is_valid_ident {
                 let json_part = &after[brace_pos..];
                 let brace_end = Self::find_matching_bracket(json_part, '{', '}');
@@ -601,17 +608,23 @@ impl OpenAiCompatBackend {
     /// Parse API error response body for a user-friendly message
     fn format_api_error(status: reqwest::StatusCode, body: &str) -> String {
         // Try to extract message from JSON error body
-        let detail = serde_json::from_str::<Value>(body)
-            .ok()
-            .and_then(|json| {
-                // Common patterns: { "error": { "message": "..." } } or { "detail": "..." } or { "message": "..." }
-                json.get("error")
-                    .and_then(|e| e.get("message"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from)
-                    .or_else(|| json.get("detail").and_then(|v| v.as_str()).map(String::from))
-                    .or_else(|| json.get("message").and_then(|v| v.as_str()).map(String::from))
-            });
+        let detail = serde_json::from_str::<Value>(body).ok().and_then(|json| {
+            // Common patterns: { "error": { "message": "..." } } or { "detail": "..." } or { "message": "..." }
+            json.get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|v| v.as_str())
+                .map(String::from)
+                .or_else(|| {
+                    json.get("detail")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                })
+                .or_else(|| {
+                    json.get("message")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                })
+        });
 
         let hint = match status.as_u16() {
             401 => " (check your API key)",
@@ -631,7 +644,10 @@ impl OpenAiCompatBackend {
 
     fn parse_usage(json: &Value) -> Option<TokenUsage> {
         let u = json.get("usage")?;
-        let completion = u.get("completion_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+        let completion = u
+            .get("completion_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
         Some(TokenUsage {
             prompt_tokens: u.get("prompt_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
             completion_tokens: completion,
@@ -685,13 +701,12 @@ impl LlmBackend for OpenAiCompatBackend {
         request_body["seed"] = json!(42);
 
         // Build model chain: primary model + fallback models (same provider)
-        let mut model_chains: Vec<(String, Option<String>, Vec<String>)> = vec![
-            (self.cfg.api_url.clone(), self.cfg.api_key.clone(), {
+        let mut model_chains: Vec<(String, Option<String>, Vec<String>)> =
+            vec![(self.cfg.api_url.clone(), self.cfg.api_key.clone(), {
                 let mut m = vec![self.cfg.model.clone()];
                 m.extend(self.cfg.fallback_models.clone());
                 m
-            }),
-        ];
+            })];
 
         // Add cloud fallback chain if configured (different provider/URL)
         if let Some(ref cloud) = self.cfg.cloud {
@@ -712,21 +727,29 @@ impl LlmBackend for OpenAiCompatBackend {
 
                 // Dynamically add/remove thinking params based on model support
                 if Self::supports_reasoning_effort(model) {
-                    request_body.as_object_mut().map(|o| o.remove("chat_template_kwargs"));
+                    request_body
+                        .as_object_mut()
+                        .map(|o| o.remove("chat_template_kwargs"));
                     request_body["reasoning_effort"] = if self.cfg.use_thinking {
                         json!("high")
                     } else {
                         json!("none")
                     };
                 } else if Self::supports_chat_template_kwargs(model) {
-                    request_body.as_object_mut().map(|o| o.remove("reasoning_effort"));
+                    request_body
+                        .as_object_mut()
+                        .map(|o| o.remove("reasoning_effort"));
                     if request_body.get("chat_template_kwargs").is_none() {
                         request_body["chat_template_kwargs"] =
                             Self::thinking_kwargs(model, self.cfg.use_thinking);
                     }
                 } else {
-                    request_body.as_object_mut().map(|o| o.remove("chat_template_kwargs"));
-                    request_body.as_object_mut().map(|o| o.remove("reasoning_effort"));
+                    request_body
+                        .as_object_mut()
+                        .map(|o| o.remove("chat_template_kwargs"));
+                    request_body
+                        .as_object_mut()
+                        .map(|o| o.remove("reasoning_effort"));
                 }
 
                 // Dynamically add/remove tools based on model support
@@ -772,8 +795,16 @@ impl LlmBackend for OpenAiCompatBackend {
                                 model = model.as_str(),
                                 provider = if is_cloud { "cloud" } else { "local" },
                                 latency_ms,
-                                prompt_tokens = response.usage.as_ref().map(|u| u.prompt_tokens).unwrap_or(0),
-                                completion_tokens = response.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+                                prompt_tokens = response
+                                    .usage
+                                    .as_ref()
+                                    .map(|u| u.prompt_tokens)
+                                    .unwrap_or(0),
+                                completion_tokens = response
+                                    .usage
+                                    .as_ref()
+                                    .map(|u| u.completion_tokens)
+                                    .unwrap_or(0),
                                 finish_reason = response.finish_reason.as_str(),
                                 response_len = response.content.len(),
                                 tool_calls = response.tool_calls.len(),
@@ -794,9 +825,14 @@ impl LlmBackend for OpenAiCompatBackend {
                             last_error = Some(err);
 
                             if let Some(PawanError::Llm(ref msg)) = last_error.as_ref() {
-                                if (msg.contains("429") || msg.contains("500") || msg.contains("501") ||
-                                    msg.contains("502") || msg.contains("503") || msg.contains("504")) &&
-                                    attempt < max_retries {
+                                if (msg.contains("429")
+                                    || msg.contains("500")
+                                    || msg.contains("501")
+                                    || msg.contains("502")
+                                    || msg.contains("503")
+                                    || msg.contains("504"))
+                                    && attempt < max_retries
+                                {
                                     let delay = Self::calculate_backoff_delay(attempt);
                                     tracing::warn!(
                                         attempt = attempt + 1,
@@ -889,7 +925,8 @@ mod tests {
 
     #[test]
     fn test_parse_mistral_tool_calls_with_preamble() {
-        let content = "I'll edit the file now.\n[TOOL_CALLS]shell_exec{\"command\":\"cargo check\"}";
+        let content =
+            "I'll edit the file now.\n[TOOL_CALLS]shell_exec{\"command\":\"cargo check\"}";
         let calls = OpenAiCompatBackend::parse_mistral_tool_calls(content);
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "shell_exec");
@@ -945,14 +982,12 @@ mod tests {
             cloud: None,
         });
 
-        let messages = vec![
-            Message {
-                role: Role::User,
-                content: "Hello".into(),
-                tool_calls: vec![],
-                tool_result: None,
-            },
-        ];
+        let messages = vec![Message {
+            role: Role::User,
+            content: "Hello".into(),
+            tool_calls: vec![],
+            tool_result: None,
+        }];
 
         let api_messages = backend.build_messages(&messages);
         assert_eq!(api_messages.len(), 2); // system + user
@@ -969,65 +1004,114 @@ mod tests {
         let delay_2 = OpenAiCompatBackend::calculate_backoff_delay(2);
 
         // Base delays should be around 1s, 2s, 4s (with ±20% jitter)
-        assert!(delay_0.as_millis() >= 800 && delay_0.as_millis() <= 1200, 
-                "Delay 0 should be ~1s with jitter: {}ms", delay_0.as_millis());
-        assert!(delay_1.as_millis() >= 1600 && delay_1.as_millis() <= 2400, 
-                "Delay 1 should be ~2s with jitter: {}ms", delay_1.as_millis());
-        assert!(delay_2.as_millis() >= 3200 && delay_2.as_millis() <= 4800,
-                "Delay 2 should be ~4s with jitter: {}ms", delay_2.as_millis());
+        assert!(
+            delay_0.as_millis() >= 800 && delay_0.as_millis() <= 1200,
+            "Delay 0 should be ~1s with jitter: {}ms",
+            delay_0.as_millis()
+        );
+        assert!(
+            delay_1.as_millis() >= 1600 && delay_1.as_millis() <= 2400,
+            "Delay 1 should be ~2s with jitter: {}ms",
+            delay_1.as_millis()
+        );
+        assert!(
+            delay_2.as_millis() >= 3200 && delay_2.as_millis() <= 4800,
+            "Delay 2 should be ~4s with jitter: {}ms",
+            delay_2.as_millis()
+        );
     }
 
     #[test]
     fn test_supports_chat_template_kwargs() {
-        assert!(OpenAiCompatBackend::supports_chat_template_kwargs("Qwen/Qwen2.5-72B-Instruct"));
-        assert!(OpenAiCompatBackend::supports_chat_template_kwargs("deepseek-ai/deepseek-v3"));
-        assert!(OpenAiCompatBackend::supports_chat_template_kwargs("google/gemma-4-31b-it"));
-        assert!(OpenAiCompatBackend::supports_chat_template_kwargs("z-ai/glm4.7"));
-        assert!(OpenAiCompatBackend::supports_chat_template_kwargs("z-ai/glm5"));
+        assert!(OpenAiCompatBackend::supports_chat_template_kwargs(
+            "Qwen/Qwen2.5-72B-Instruct"
+        ));
+        assert!(OpenAiCompatBackend::supports_chat_template_kwargs(
+            "deepseek-ai/deepseek-v3"
+        ));
+        assert!(OpenAiCompatBackend::supports_chat_template_kwargs(
+            "google/gemma-4-31b-it"
+        ));
+        assert!(OpenAiCompatBackend::supports_chat_template_kwargs(
+            "z-ai/glm4.7"
+        ));
+        assert!(OpenAiCompatBackend::supports_chat_template_kwargs(
+            "z-ai/glm5"
+        ));
 
         // Mistral uses reasoning_effort, not chat_template_kwargs
-        assert!(!OpenAiCompatBackend::supports_chat_template_kwargs("mistralai/mistral-small-4-119b-2603"));
-        assert!(!OpenAiCompatBackend::supports_chat_template_kwargs("meta/llama-3.1-70b-instruct"));
-        assert!(!OpenAiCompatBackend::supports_chat_template_kwargs("stepfun-ai/step-3.5-flash"));
-        assert!(!OpenAiCompatBackend::supports_chat_template_kwargs("minimaxai/minimax-m2.5"));
+        assert!(!OpenAiCompatBackend::supports_chat_template_kwargs(
+            "mistralai/mistral-small-4-119b-2603"
+        ));
+        assert!(!OpenAiCompatBackend::supports_chat_template_kwargs(
+            "meta/llama-3.1-70b-instruct"
+        ));
+        assert!(!OpenAiCompatBackend::supports_chat_template_kwargs(
+            "stepfun-ai/step-3.5-flash"
+        ));
+        assert!(!OpenAiCompatBackend::supports_chat_template_kwargs(
+            "minimaxai/minimax-m2.5"
+        ));
     }
 
     #[test]
     fn test_supports_reasoning_effort() {
-        assert!(OpenAiCompatBackend::supports_reasoning_effort("mistralai/mistral-small-4-119b-2603"));
-        assert!(!OpenAiCompatBackend::supports_reasoning_effort("stepfun-ai/step-3.5-flash"));
-        assert!(!OpenAiCompatBackend::supports_reasoning_effort("minimaxai/minimax-m2.5"));
-        assert!(!OpenAiCompatBackend::supports_reasoning_effort("qwen/qwen3.5-122b-a10b"));
+        assert!(OpenAiCompatBackend::supports_reasoning_effort(
+            "mistralai/mistral-small-4-119b-2603"
+        ));
+        assert!(!OpenAiCompatBackend::supports_reasoning_effort(
+            "stepfun-ai/step-3.5-flash"
+        ));
+        assert!(!OpenAiCompatBackend::supports_reasoning_effort(
+            "minimaxai/minimax-m2.5"
+        ));
+        assert!(!OpenAiCompatBackend::supports_reasoning_effort(
+            "qwen/qwen3.5-122b-a10b"
+        ));
     }
 
     #[test]
     fn test_thinking_kwargs_gemma_uses_enable_thinking() {
-        assert_eq!(OpenAiCompatBackend::thinking_kwargs("google/gemma-4-31b-it", true),
-                   json!({ "enable_thinking": true }));
-        assert_eq!(OpenAiCompatBackend::thinking_kwargs("google/gemma-4-31b-it", false),
-                   json!({ "enable_thinking": false }));
+        assert_eq!(
+            OpenAiCompatBackend::thinking_kwargs("google/gemma-4-31b-it", true),
+            json!({ "enable_thinking": true })
+        );
+        assert_eq!(
+            OpenAiCompatBackend::thinking_kwargs("google/gemma-4-31b-it", false),
+            json!({ "enable_thinking": false })
+        );
     }
 
     #[test]
     fn test_thinking_kwargs_glm_uses_enable_thinking_and_clear_thinking() {
-        assert_eq!(OpenAiCompatBackend::thinking_kwargs("z-ai/glm4.7", true),
-                   json!({ "enable_thinking": true, "clear_thinking": false }));
-        assert_eq!(OpenAiCompatBackend::thinking_kwargs("z-ai/glm5", false),
-                   json!({ "enable_thinking": false, "clear_thinking": false }));
+        assert_eq!(
+            OpenAiCompatBackend::thinking_kwargs("z-ai/glm4.7", true),
+            json!({ "enable_thinking": true, "clear_thinking": false })
+        );
+        assert_eq!(
+            OpenAiCompatBackend::thinking_kwargs("z-ai/glm5", false),
+            json!({ "enable_thinking": false, "clear_thinking": false })
+        );
     }
 
     #[test]
     fn test_thinking_kwargs_qwen_uses_thinking() {
-        assert_eq!(OpenAiCompatBackend::thinking_kwargs("Qwen/Qwen2.5-72B-Instruct", true),
-                   json!({ "thinking": true }));
-        assert_eq!(OpenAiCompatBackend::thinking_kwargs("Qwen/Qwen2.5-72B-Instruct", false),
-                   json!({ "thinking": false }));
+        assert_eq!(
+            OpenAiCompatBackend::thinking_kwargs("Qwen/Qwen2.5-72B-Instruct", true),
+            json!({ "thinking": true })
+        );
+        assert_eq!(
+            OpenAiCompatBackend::thinking_kwargs("Qwen/Qwen2.5-72B-Instruct", false),
+            json!({ "thinking": false })
+        );
     }
 
     #[test]
     fn test_thinking_kwargs_deepseek_uses_thinking() {
-        assert_eq!(OpenAiCompatBackend::thinking_kwargs("deepseek-ai/deepseek-r1", true),
-                   json!({ "thinking": true }));
+        assert_eq!(
+            OpenAiCompatBackend::thinking_kwargs("deepseek-ai/deepseek-r1", true),
+            json!({ "thinking": true })
+        );
     }
 }
 
@@ -1056,7 +1140,10 @@ mod think_strip_tests {
     #[test]
     fn strip_nested_content() {
         let s = "prefix <think>line1\nline2\nline3</think> suffix";
-        assert_eq!(OpenAiCompatBackend::strip_think_from_str(s), "prefix suffix");
+        assert_eq!(
+            OpenAiCompatBackend::strip_think_from_str(s),
+            "prefix suffix"
+        );
     }
 
     #[test]
@@ -1068,12 +1155,16 @@ mod think_strip_tests {
     #[test]
     fn strip_no_blocks() {
         let s = "No think blocks here";
-        assert_eq!(OpenAiCompatBackend::strip_think_from_str(s), "No think blocks here");
+        assert_eq!(
+            OpenAiCompatBackend::strip_think_from_str(s),
+            "No think blocks here"
+        );
     }
 
     #[test]
     fn strip_from_json_args() {
-        let s = r#"<think>let me figure out the path</think>{"path":"src/main.rs","content":"hello"}"#;
+        let s =
+            r#"<think>let me figure out the path</think>{"path":"src/main.rs","content":"hello"}"#;
         let clean = OpenAiCompatBackend::strip_think_from_str(s);
         let parsed: serde_json::Value = serde_json::from_str(&clean).unwrap();
         assert_eq!(parsed["path"], "src/main.rs");
@@ -1086,7 +1177,7 @@ mod think_strip_tests {
         let clean = OpenAiCompatBackend::strip_think_from_str(s);
         // After stripping, JSON should be parseable
         let result = serde_json::from_str::<serde_json::Value>(&clean);
-        // This specific case may not parse due to comma positioning, 
+        // This specific case may not parse due to comma positioning,
         // but the stripping itself should not panic
         let _ = result;
     }
@@ -1199,7 +1290,10 @@ mod streaming_tool_call_tests {
 
         // Contrast: json!({}) returns None for as_str()
         let bad_arguments = json!({});
-        assert!(bad_arguments.as_str().is_none(), "json!({{}}) is not a string");
+        assert!(
+            bad_arguments.as_str().is_none(),
+            "json!({{}}) is not a string"
+        );
     }
 
     #[test]
@@ -1207,7 +1301,8 @@ mod streaming_tool_call_tests {
         use super::OpenAiCompatBackend;
 
         // Simulate StepFun/Qwen model interleaving <think> in arguments
-        let accumulated = r#"<think>let me write the path</think>{"path":"test.rs","content":"fn main() {}"}"#;
+        let accumulated =
+            r#"<think>let me write the path</think>{"path":"test.rs","content":"fn main() {}"}"#;
         let clean = OpenAiCompatBackend::strip_think_from_str(accumulated);
         let parsed: serde_json::Value = serde_json::from_str(&clean).unwrap();
         assert_eq!(parsed["path"], "test.rs");
@@ -1221,14 +1316,23 @@ mod bracket_matching_tests {
 
     #[test]
     fn find_matching_bracket_simple() {
-        assert_eq!(OpenAiCompatBackend::find_matching_bracket("{}", '{', '}'), 2);
-        assert_eq!(OpenAiCompatBackend::find_matching_bracket("[]", '[', ']'), 2);
+        assert_eq!(
+            OpenAiCompatBackend::find_matching_bracket("{}", '{', '}'),
+            2
+        );
+        assert_eq!(
+            OpenAiCompatBackend::find_matching_bracket("[]", '[', ']'),
+            2
+        );
     }
 
     #[test]
     fn find_matching_bracket_nested() {
         // {"a":{"b":1}} = 13 bytes, outer } at index 12, returns 13
-        assert_eq!(OpenAiCompatBackend::find_matching_bracket(r#"{"a":{"b":1}}"#, '{', '}'), 13);
+        assert_eq!(
+            OpenAiCompatBackend::find_matching_bracket(r#"{"a":{"b":1}}"#, '{', '}'),
+            13
+        );
     }
 
     #[test]
@@ -1242,7 +1346,10 @@ mod bracket_matching_tests {
 
     #[test]
     fn find_matching_bracket_unmatched() {
-        assert_eq!(OpenAiCompatBackend::find_matching_bracket("{unclosed", '{', '}'), 0);
+        assert_eq!(
+            OpenAiCompatBackend::find_matching_bracket("{unclosed", '{', '}'),
+            0
+        );
     }
 
     #[test]

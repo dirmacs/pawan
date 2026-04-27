@@ -105,8 +105,8 @@ impl LlmBackend for LancorBackend {
         _tools: &[ToolDefinition],
         _on_token: Option<&TokenCallback>,
     ) -> Result<LLMResponse> {
-        let mut req = ChatCompletionRequest::new(&self.model)
-            .messages(Self::to_lancor_messages(messages));
+        let mut req =
+            ChatCompletionRequest::new(&self.model).messages(Self::to_lancor_messages(messages));
         if let Some(t) = self.temperature {
             req = req.temperature(t);
         }
@@ -287,9 +287,24 @@ mod tests {
     #[test]
     fn test_to_lancor_messages_preserves_order_across_all_four_roles() {
         let messages = vec![
-            Message { role: Role::System, content: "sys".into(), tool_calls: vec![], tool_result: None },
-            Message { role: Role::User, content: "usr".into(), tool_calls: vec![], tool_result: None },
-            Message { role: Role::Assistant, content: "asst".into(), tool_calls: vec![], tool_result: None },
+            Message {
+                role: Role::System,
+                content: "sys".into(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+            Message {
+                role: Role::User,
+                content: "usr".into(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+            Message {
+                role: Role::Assistant,
+                content: "asst".into(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
             Message {
                 role: Role::Tool,
                 content: "raw".into(),
@@ -317,7 +332,10 @@ mod tests {
         assert!(result.is_err(), "Invalid URL should return error");
         match result {
             Err(PawanError::Llm(msg)) => {
-                assert!(msg.contains("lancor client init failed"), "Error message should mention init failure");
+                assert!(
+                    msg.contains("lancor client init failed"),
+                    "Error message should mention init failure"
+                );
             }
             _ => panic!("Expected PawanError::Llm variant"),
         }
@@ -330,7 +348,10 @@ mod tests {
         assert!(result.is_err(), "Invalid URL should return error");
         match result {
             Err(PawanError::Llm(msg)) => {
-                assert!(msg.contains("lancor client init failed"), "Error message should mention init failure");
+                assert!(
+                    msg.contains("lancor client init failed"),
+                    "Error message should mention init failure"
+                );
             }
             _ => panic!("Expected PawanError::Llm variant"),
         }

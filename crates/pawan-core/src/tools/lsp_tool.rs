@@ -1,7 +1,7 @@
 //! ast-grep and LSP (rust-analyzer) tool wrappers.
 
-use super::Tool;
 use super::native_search::{ensure_binary, run_cmd};
+use super::Tool;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -21,7 +21,9 @@ impl AstGrepTool {
 
 #[async_trait]
 impl Tool for AstGrepTool {
-    fn name(&self) -> &str { "ast_grep" }
+    fn name(&self) -> &str {
+        "ast_grep"
+    }
 
     fn description(&self) -> &str {
         "ast-grep — structural code search and rewrite using AST patterns. \
@@ -108,11 +110,14 @@ impl Tool for AstGrepTool {
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         ensure_binary("ast-grep", &self.workspace_root).await?;
 
-        let action = args["action"].as_str()
+        let action = args["action"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("action required (search or rewrite)".into()))?;
-        let pattern = args["pattern"].as_str()
+        let pattern = args["pattern"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("pattern required".into()))?;
-        let path = args["path"].as_str()
+        let path = args["path"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("path required".into()))?;
 
         let mut cmd_args: Vec<String> = vec!["run".into()];
@@ -130,25 +135,29 @@ impl Tool for AstGrepTool {
                 cmd_args.push(path.into());
             }
             "rewrite" => {
-                let rewrite = args["rewrite"].as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("rewrite pattern required for action=rewrite".into()))?;
+                let rewrite = args["rewrite"].as_str().ok_or_else(|| {
+                    crate::PawanError::Tool("rewrite pattern required for action=rewrite".into())
+                })?;
                 cmd_args.push("--rewrite".into());
                 cmd_args.push(rewrite.into());
                 cmd_args.push("--update-all".into());
                 cmd_args.push(path.into());
             }
             _ => {
-                return Err(crate::PawanError::Tool(
-                    format!("Unknown action: {}. Use 'search' or 'rewrite'", action),
-                ));
+                return Err(crate::PawanError::Tool(format!(
+                    "Unknown action: {}. Use 'search' or 'rewrite'",
+                    action
+                )));
             }
         }
 
         let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-        let (stdout, stderr, success) = run_cmd("ast-grep", &cmd_refs, &self.workspace_root).await
+        let (stdout, stderr, success) = run_cmd("ast-grep", &cmd_refs, &self.workspace_root)
+            .await
             .map_err(crate::PawanError::Tool)?;
 
-        let match_count = stdout.lines()
+        let match_count = stdout
+            .lines()
             .filter(|l| l.starts_with('/') || l.contains("│"))
             .count();
 
@@ -176,7 +185,9 @@ impl LspTool {
 
 #[async_trait]
 impl Tool for LspTool {
-    fn name(&self) -> &str { "lsp" }
+    fn name(&self) -> &str {
+        "lsp"
+    }
 
     fn description(&self) -> &str {
         "LSP code intelligence via rust-analyzer. Provides type-aware code understanding \
@@ -259,22 +270,26 @@ impl Tool for LspTool {
     async fn execute(&self, args: Value) -> crate::Result<Value> {
         ensure_binary("rust-analyzer", &self.workspace_root).await?;
 
-        let action = args["action"].as_str()
+        let action = args["action"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("action required".into()))?;
 
         let timeout_dur = std::time::Duration::from_secs(60);
 
         match action {
             "diagnostics" => {
-                let path = args["path"].as_str()
+                let path = args["path"]
+                    .as_str()
                     .unwrap_or(self.workspace_root.to_str().unwrap_or("."));
                 let mut cmd_args = vec!["diagnostics", path];
                 if let Some(sev) = args["severity"].as_str() {
                     cmd_args.extend(["--severity", sev]);
                 }
-                let result = tokio::time::timeout(timeout_dur,
-                    run_cmd("rust-analyzer", &cmd_args, &self.workspace_root)
-                ).await;
+                let result = tokio::time::timeout(
+                    timeout_dur,
+                    run_cmd("rust-analyzer", &cmd_args, &self.workspace_root),
+                )
+                .await;
                 match result {
                     Ok(Ok((stdout, stderr, success))) => Ok(json!({
                         "success": success,
@@ -283,15 +298,20 @@ impl Tool for LspTool {
                         "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
                     })),
                     Ok(Err(e)) => Err(crate::PawanError::Tool(e)),
-                    Err(_) => Err(crate::PawanError::Tool("rust-analyzer diagnostics timed out (60s)".into())),
+                    Err(_) => Err(crate::PawanError::Tool(
+                        "rust-analyzer diagnostics timed out (60s)".into(),
+                    )),
                 }
             }
             "search" => {
-                let pattern = args["pattern"].as_str()
+                let pattern = args["pattern"]
+                    .as_str()
                     .ok_or_else(|| crate::PawanError::Tool("pattern required for search".into()))?;
-                let result = tokio::time::timeout(timeout_dur,
-                    run_cmd("rust-analyzer", &["search", pattern], &self.workspace_root)
-                ).await;
+                let result = tokio::time::timeout(
+                    timeout_dur,
+                    run_cmd("rust-analyzer", &["search", pattern], &self.workspace_root),
+                )
+                .await;
                 match result {
                     Ok(Ok((stdout, stderr, success))) => Ok(json!({
                         "success": success,
@@ -300,17 +320,22 @@ impl Tool for LspTool {
                         "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
                     })),
                     Ok(Err(e)) => Err(crate::PawanError::Tool(e)),
-                    Err(_) => Err(crate::PawanError::Tool("rust-analyzer search timed out (60s)".into())),
+                    Err(_) => Err(crate::PawanError::Tool(
+                        "rust-analyzer search timed out (60s)".into(),
+                    )),
                 }
             }
             "ssr" => {
-                let pattern = args["pattern"].as_str()
-                    .ok_or_else(|| crate::PawanError::Tool(
-                        "pattern required for ssr (format: '$a.unwrap() ==>> $a?')".into()
-                    ))?;
-                let result = tokio::time::timeout(timeout_dur,
-                    run_cmd("rust-analyzer", &["ssr", pattern], &self.workspace_root)
-                ).await;
+                let pattern = args["pattern"].as_str().ok_or_else(|| {
+                    crate::PawanError::Tool(
+                        "pattern required for ssr (format: '$a.unwrap() ==>> $a?')".into(),
+                    )
+                })?;
+                let result = tokio::time::timeout(
+                    timeout_dur,
+                    run_cmd("rust-analyzer", &["ssr", pattern], &self.workspace_root),
+                )
+                .await;
                 match result {
                     Ok(Ok((stdout, stderr, success))) => Ok(json!({
                         "success": success,
@@ -318,19 +343,23 @@ impl Tool for LspTool {
                         "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
                     })),
                     Ok(Err(e)) => Err(crate::PawanError::Tool(e)),
-                    Err(_) => Err(crate::PawanError::Tool("rust-analyzer ssr timed out (60s)".into())),
+                    Err(_) => Err(crate::PawanError::Tool(
+                        "rust-analyzer ssr timed out (60s)".into(),
+                    )),
                 }
             }
             "symbols" => {
-                let path = args["path"].as_str()
+                let path = args["path"]
+                    .as_str()
                     .ok_or_else(|| crate::PawanError::Tool("path required for symbols".into()))?;
                 let full_path = if std::path::Path::new(path).is_absolute() {
                     PathBuf::from(path)
                 } else {
                     self.workspace_root.join(path)
                 };
-                let content = tokio::fs::read_to_string(&full_path).await
-                    .map_err(|e| crate::PawanError::Tool(format!("Failed to read {}: {}", path, e)))?;
+                let content = tokio::fs::read_to_string(&full_path).await.map_err(|e| {
+                    crate::PawanError::Tool(format!("Failed to read {}: {}", path, e))
+                })?;
 
                 let mut child = tokio::process::Command::new("rust-analyzer")
                     .arg("symbols")
@@ -338,7 +367,9 @@ impl Tool for LspTool {
                     .stdout(Stdio::piped())
                     .stderr(Stdio::piped())
                     .spawn()
-                    .map_err(|e| crate::PawanError::Tool(format!("Failed to spawn rust-analyzer: {}", e)))?;
+                    .map_err(|e| {
+                        crate::PawanError::Tool(format!("Failed to spawn rust-analyzer: {}", e))
+                    })?;
 
                 if let Some(mut stdin) = child.stdin.take() {
                     use tokio::io::AsyncWriteExt;
@@ -346,8 +377,9 @@ impl Tool for LspTool {
                     drop(stdin);
                 }
 
-                let output = child.wait_with_output().await
-                    .map_err(|e| crate::PawanError::Tool(format!("rust-analyzer symbols failed: {}", e)))?;
+                let output = child.wait_with_output().await.map_err(|e| {
+                    crate::PawanError::Tool(format!("rust-analyzer symbols failed: {}", e))
+                })?;
 
                 let stdout = String::from_utf8_lossy(&output.stdout).to_string();
                 Ok(json!({
@@ -357,11 +389,18 @@ impl Tool for LspTool {
                 }))
             }
             "analyze" => {
-                let path = args["path"].as_str()
+                let path = args["path"]
+                    .as_str()
                     .unwrap_or(self.workspace_root.to_str().unwrap_or("."));
-                let result = tokio::time::timeout(timeout_dur,
-                    run_cmd("rust-analyzer", &["analysis-stats", "--skip-inference", path], &self.workspace_root)
-                ).await;
+                let result = tokio::time::timeout(
+                    timeout_dur,
+                    run_cmd(
+                        "rust-analyzer",
+                        &["analysis-stats", "--skip-inference", path],
+                        &self.workspace_root,
+                    ),
+                )
+                .await;
                 match result {
                     Ok(Ok((stdout, stderr, success))) => Ok(json!({
                         "success": success,
@@ -369,12 +408,14 @@ impl Tool for LspTool {
                         "stderr": if stderr.is_empty() { None::<String> } else { Some(stderr) }
                     })),
                     Ok(Err(e)) => Err(crate::PawanError::Tool(e)),
-                    Err(_) => Err(crate::PawanError::Tool("rust-analyzer analysis-stats timed out (60s)".into())),
+                    Err(_) => Err(crate::PawanError::Tool(
+                        "rust-analyzer analysis-stats timed out (60s)".into(),
+                    )),
                 }
             }
-            _ => Err(crate::PawanError::Tool(
-                format!("Unknown action: {action}. Use diagnostics/search/ssr/symbols/analyze")
-            )),
+            _ => Err(crate::PawanError::Tool(format!(
+                "Unknown action: {action}. Use diagnostics/search/ssr/symbols/analyze"
+            ))),
         }
     }
 }

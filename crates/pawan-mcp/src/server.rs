@@ -293,7 +293,7 @@ mod tests {
     fn test_workspace_path_with_none() {
         let path = workspace_path(None);
         // Should default to current directory or "."
-		// workspace_path with None calls std::env::current_dir() which may fail in test environment
+        // workspace_path with None calls std::env::current_dir() which may fail in test environment
     }
 
     #[test]
@@ -306,7 +306,7 @@ mod tests {
     fn test_create_agent_with_workspace() {
         let config = PawanConfig::default();
         let agent = create_agent(&config, Some("/tmp/test"));
-		// Agent is created successfully
+        // Agent is created successfully
     }
 
     #[test]
@@ -385,23 +385,23 @@ mod tests {
         assert!(true);
     }
 }
-	#[test]
-	fn test_create_agent_with_workspace() {
-		let config = PawanConfig::default();
-		let _agent = create_agent(&config, Some("/tmp/test"));
-		// Agent is created successfully
-	}
+#[test]
+fn test_create_agent_with_workspace() {
+    let config = PawanConfig::default();
+    let _agent = create_agent(&config, Some("/tmp/test"));
+    // Agent is created successfully
+}
 
-	#[test]
-	fn test_create_agent_without_workspace() {
-		let config = PawanConfig::default();
-		let _agent = create_agent(&config, None);
-		// Agent is created successfully
-	}
+#[test]
+fn test_create_agent_without_workspace() {
+    let config = PawanConfig::default();
+    let _agent = create_agent(&config, None);
+    // Agent is created successfully
+}
 
-	#[test]
-	fn test_build_server_creates_server() {
-		let config = PawanConfig::default();
-		let _server = build_server(config);
-		// Server is created successfully
-	}
+#[test]
+fn test_build_server_creates_server() {
+    let config = PawanConfig::default();
+    let _server = build_server(config);
+    // Server is created successfully
+}

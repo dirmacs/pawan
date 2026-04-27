@@ -169,7 +169,10 @@ mod tests {
     fn pawan_agent_skeleton_includes_pawan_toml_in_file_list() {
         let sk = pawan_agent_skeleton("demo");
         let has_pawan_toml = sk.files.iter().any(|(p, _)| p == "pawan.toml");
-        assert!(has_pawan_toml, "pawan_agent_skeleton must include pawan.toml");
+        assert!(
+            has_pawan_toml,
+            "pawan_agent_skeleton must include pawan.toml"
+        );
     }
 
     #[test]
@@ -178,7 +181,10 @@ mod tests {
         let sk = rust_binary_skeleton("nested");
         sk.write_to(dir.path()).unwrap();
         // src/ directory must have been created for src/main.rs
-        assert!(dir.path().join("src").is_dir(), "src/ directory not created");
+        assert!(
+            dir.path().join("src").is_dir(),
+            "src/ directory not created"
+        );
         assert!(dir.path().join("src/main.rs").is_file());
     }
 
@@ -197,8 +203,14 @@ mod tests {
             (pawan_agent_skeleton("z"), "z"),
         ] {
             let cargo = &sk.files.iter().find(|(p, _)| p == "Cargo.toml").unwrap().1;
-            assert!(cargo.contains("edition = \"2021\""), "{expected_name} missing edition");
-            assert!(cargo.contains("rust-version = \"1.75\""), "{expected_name} missing rust-version");
+            assert!(
+                cargo.contains("edition = \"2021\""),
+                "{expected_name} missing edition"
+            );
+            assert!(
+                cargo.contains("rust-version = \"1.75\""),
+                "{expected_name} missing rust-version"
+            );
         }
     }
 

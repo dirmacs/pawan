@@ -43,8 +43,7 @@ mod tests {
     }
 
     fn agent_with_backend(backend: Box<dyn LlmBackend>) -> PawanAgent {
-        PawanAgent::new(PawanConfig::default(), PathBuf::from("."))
-            .with_backend(backend)
+        PawanAgent::new(PawanConfig::default(), PathBuf::from(".")).with_backend(backend)
     }
 
     #[tokio::test]

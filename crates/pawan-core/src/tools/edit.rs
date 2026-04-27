@@ -1,7 +1,7 @@
 //! Edit tool for precise string replacement with write safety
 
-use super::Tool;
 use super::file::{normalize_path, validate_file_write};
+use super::Tool;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -69,14 +69,34 @@ impl Tool for EditFileTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("edit_file")
             .description(self.description())
-            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
-                .description("Path to the file to edit").build())
-            .parameter(Parameter::builder("old_string").param_type(ParameterType::String).required(true)
-                .description("The exact string to find and replace").build())
-            .parameter(Parameter::builder("new_string").param_type(ParameterType::String).required(true)
-                .description("The string to replace it with").build())
-            .parameter(Parameter::builder("replace_all").param_type(ParameterType::Boolean).required(false)
-                .description("Replace all occurrences (default: false)").build())
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Path to the file to edit")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("old_string")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("The exact string to find and replace")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("new_string")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("The string to replace it with")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("replace_all")
+                    .param_type(ParameterType::Boolean)
+                    .required(false)
+                    .description("Replace all occurrences (default: false)")
+                    .build(),
+            )
             .build()
     }
 
@@ -91,16 +111,24 @@ impl Tool for EditFileTool {
 
         let new_string_val = &args["new_string"];
         let new_string = if let Some(arr) = new_string_val.as_array() {
-            arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n")
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
         } else {
-            new_string_val.as_str().ok_or_else(|| crate::PawanError::Tool("new_string is required".into()))?.to_string()
+            new_string_val
+                .as_str()
+                .ok_or_else(|| crate::PawanError::Tool("new_string is required".into()))?
+                .to_string()
         };
         let new_string = &new_string;
 
         let replace_all = args["replace_all"].as_bool().unwrap_or(false);
 
         let full_path = self.resolve_path(path);
-        validate_file_write(&full_path).map_err(|r| crate::PawanError::Tool(format!("Edit blocked: {} — {}", full_path.display(), r)))?;
+        validate_file_write(&full_path).map_err(|r| {
+            crate::PawanError::Tool(format!("Edit blocked: {} — {}", full_path.display(), r))
+        })?;
 
         if !full_path.exists() {
             return Err(crate::PawanError::NotFound(format!(
@@ -243,10 +271,13 @@ impl Tool for EditFileLinesTool {
             .ok_or_else(|| crate::PawanError::Tool("path is required".into()))?;
 
         let full_path = self.resolve_path(path);
-        validate_file_write(&full_path).map_err(|r| crate::PawanError::Tool(format!("Edit blocked: {} — {}", full_path.display(), r)))?;
+        validate_file_write(&full_path).map_err(|r| {
+            crate::PawanError::Tool(format!("Edit blocked: {} — {}", full_path.display(), r))
+        })?;
         if !full_path.exists() {
             return Err(crate::PawanError::NotFound(format!(
-                "File not found: {}", full_path.display()
+                "File not found: {}",
+                full_path.display()
             )));
         }
 
@@ -266,7 +297,9 @@ impl Tool for EditFileLinesTool {
             let anchor_normalized: String = anchor.split_whitespace().collect::<Vec<_>>().join(" ");
             let found = lines.iter().position(|l| {
                 // Try exact match first
-                if l.contains(anchor) { return true; }
+                if l.contains(anchor) {
+                    return true;
+                }
                 // Then try whitespace-normalized match
                 let line_normalized: String = l.split_whitespace().collect::<Vec<_>>().join(" ");
                 line_normalized.contains(&anchor_normalized)
@@ -281,7 +314,11 @@ impl Tool for EditFileLinesTool {
                     // Try case-insensitive as last resort
                     let anchor_lower = anchor_normalized.to_lowercase();
                     let found_ci = lines.iter().position(|l| {
-                        let norm: String = l.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+                        let norm: String = l
+                            .split_whitespace()
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                            .to_lowercase();
                         norm.contains(&anchor_lower)
                     });
                     match found_ci {
@@ -301,22 +338,29 @@ impl Tool for EditFileLinesTool {
             }
         } else {
             // Line number mode
-            let start = args["start_line"]
-                .as_u64()
-                .ok_or_else(|| crate::PawanError::Tool(
-                    "Either anchor_text or start_line+end_line is required".into()
-                ))? as usize;
+            let start = args["start_line"].as_u64().ok_or_else(|| {
+                crate::PawanError::Tool(
+                    "Either anchor_text or start_line+end_line is required".into(),
+                )
+            })? as usize;
             let end = args["end_line"]
                 .as_u64()
-                .ok_or_else(|| crate::PawanError::Tool("end_line is required".into()))? as usize;
+                .ok_or_else(|| crate::PawanError::Tool("end_line is required".into()))?
+                as usize;
             (start, end)
         };
 
         let new_content_val = &args["new_content"];
         let new_content = if let Some(arr) = new_content_val.as_array() {
-            arr.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>().join("\n")
+            arr.iter()
+                .filter_map(|v| v.as_str())
+                .collect::<Vec<_>>()
+                .join("\n")
         } else {
-            new_content_val.as_str().ok_or_else(|| crate::PawanError::Tool("new_content is required".into()))?.to_string()
+            new_content_val
+                .as_str()
+                .ok_or_else(|| crate::PawanError::Tool("new_content is required".into()))?
+                .to_string()
         };
         let new_content = &new_content;
 
@@ -421,7 +465,7 @@ fn generate_diff(old: &str, new: &str, filename: &str) -> String {
 /// Tool for inserting text after a line matching a pattern.
 /// Safer than edit_file_lines for additions — never replaces existing content.
 pub struct InsertAfterTool {
-/// Tool for inserting text after a line matching a pattern.
+    /// Tool for inserting text after a line matching a pattern.
     workspace_root: PathBuf,
 }
 
@@ -464,43 +508,74 @@ impl Tool for InsertAfterTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("insert_after")
             .description(self.description())
-            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
-                .description("Path to the file").build())
-            .parameter(Parameter::builder("anchor_text").param_type(ParameterType::String).required(true)
-                .description("Text to find — insertion happens AFTER this line").build())
-            .parameter(Parameter::builder("content").param_type(ParameterType::String).required(true)
-                .description("Text to insert after the anchor line").build())
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Path to the file")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("anchor_text")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Text to find — insertion happens AFTER this line")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("content")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Text to insert after the anchor line")
+                    .build(),
+            )
             .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
-        let path = args["path"].as_str()
+        let path = args["path"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("path is required".into()))?;
-        let anchor = args["anchor_text"].as_str()
+        let anchor = args["anchor_text"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("anchor_text is required".into()))?;
-        let insert_content = args["content"].as_str()
+        let insert_content = args["content"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("content is required".into()))?;
 
         let full_path = self.resolve_path(path);
-        validate_file_write(&full_path).map_err(|r| crate::PawanError::Tool(format!("Edit blocked: {} — {}", full_path.display(), r)))?;
+        validate_file_write(&full_path).map_err(|r| {
+            crate::PawanError::Tool(format!("Edit blocked: {} — {}", full_path.display(), r))
+        })?;
         if !full_path.exists() {
-            return Err(crate::PawanError::NotFound(format!("File not found: {}", full_path.display())));
+            return Err(crate::PawanError::NotFound(format!(
+                "File not found: {}",
+                full_path.display()
+            )));
         }
 
-        let content = tokio::fs::read_to_string(&full_path).await.map_err(crate::PawanError::Io)?;
+        let content = tokio::fs::read_to_string(&full_path)
+            .await
+            .map_err(crate::PawanError::Io)?;
         let had_trailing_newline = content.ends_with('\n');
         let mut lines: Vec<String> = content.lines().map(|l| l.to_string()).collect();
 
         // Fuzzy anchor matching: exact → whitespace-normalized → case-insensitive
         let anchor_normalized: String = anchor.split_whitespace().collect::<Vec<_>>().join(" ");
         let found = lines.iter().position(|l| {
-            if l.contains(anchor) { return true; }
+            if l.contains(anchor) {
+                return true;
+            }
             let norm: String = l.split_whitespace().collect::<Vec<_>>().join(" ");
-            norm.contains(&anchor_normalized) || norm.to_lowercase().contains(&anchor_normalized.to_lowercase())
+            norm.contains(&anchor_normalized)
+                || norm
+                    .to_lowercase()
+                    .contains(&anchor_normalized.to_lowercase())
         });
         match found {
             Some(idx) => {
-                let insert_lines: Vec<String> = insert_content.lines().map(|l| l.to_string()).collect();
+                let insert_lines: Vec<String> =
+                    insert_content.lines().map(|l| l.to_string()).collect();
                 let insert_count = insert_lines.len();
 
                 // Smart insertion: if anchor line opens a block ({), insert AFTER the block closes
@@ -511,8 +586,12 @@ impl Tool for InsertAfterTool {
                     let mut close_idx = idx;
                     for (i, line) in lines.iter().enumerate().skip(idx) {
                         for ch in line.chars() {
-                            if ch == '{' { depth += 1; }
-                            if ch == '}' { depth -= 1; }
+                            if ch == '{' {
+                                depth += 1;
+                            }
+                            if ch == '}' {
+                                depth -= 1;
+                            }
                         }
                         if depth == 0 {
                             close_idx = i;
@@ -527,9 +606,13 @@ impl Tool for InsertAfterTool {
                     lines.insert(insert_at + i, line);
                 }
                 let mut new_content = lines.join("\n");
-                if had_trailing_newline { new_content.push('\n'); }
+                if had_trailing_newline {
+                    new_content.push('\n');
+                }
                 let diff = generate_diff(&content, &new_content, path);
-                tokio::fs::write(&full_path, &new_content).await.map_err(crate::PawanError::Io)?;
+                tokio::fs::write(&full_path, &new_content)
+                    .await
+                    .map_err(crate::PawanError::Io)?;
                 let block_skipped = insert_at != idx + 1;
                 Ok(json!({
                     "success": true,
@@ -544,7 +627,8 @@ impl Tool for InsertAfterTool {
                 }))
             }
             None => Err(crate::PawanError::Tool(format!(
-                "anchor_text {:?} not found in file", anchor
+                "anchor_text {:?} not found in file",
+                anchor
             ))),
         }
     }
@@ -592,35 +676,57 @@ impl Tool for AppendFileTool {
         use thulp_core::{Parameter, ParameterType};
         thulp_core::ToolDefinition::builder("append_file")
             .description(self.description())
-            .parameter(Parameter::builder("path").param_type(ParameterType::String).required(true)
-                .description("Path to the file").build())
-            .parameter(Parameter::builder("content").param_type(ParameterType::String).required(true)
-                .description("Content to append").build())
+            .parameter(
+                Parameter::builder("path")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Path to the file")
+                    .build(),
+            )
+            .parameter(
+                Parameter::builder("content")
+                    .param_type(ParameterType::String)
+                    .required(true)
+                    .description("Content to append")
+                    .build(),
+            )
             .build()
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
-        let path = args["path"].as_str()
+        let path = args["path"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("path is required".into()))?;
-        let append_content = args["content"].as_str()
+        let append_content = args["content"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("content is required".into()))?;
 
         let full_path = self.resolve_path(path);
         if let Some(parent) = full_path.parent() {
-            tokio::fs::create_dir_all(parent).await.map_err(crate::PawanError::Io)?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(crate::PawanError::Io)?;
         }
 
         let existing = if full_path.exists() {
-            tokio::fs::read_to_string(&full_path).await.map_err(crate::PawanError::Io)?
+            tokio::fs::read_to_string(&full_path)
+                .await
+                .map_err(crate::PawanError::Io)?
         } else {
             String::new()
         };
 
-        let separator = if existing.is_empty() || existing.ends_with('\n') { "" } else { "\n" };
+        let separator = if existing.is_empty() || existing.ends_with('\n') {
+            ""
+        } else {
+            "\n"
+        };
         let new_content = format!("{}{}{}\n", existing, separator, append_content);
         let appended_lines = append_content.lines().count();
 
-        tokio::fs::write(&full_path, &new_content).await.map_err(crate::PawanError::Io)?;
+        tokio::fs::write(&full_path, &new_content)
+            .await
+            .map_err(crate::PawanError::Io)?;
 
         Ok(json!({
             "success": true,
@@ -903,11 +1009,7 @@ mod tests {
     async fn test_edit_file_lines_anchor_mode_finds_and_replaces() {
         let temp_dir = TempDir::new().unwrap();
         let file_path = temp_dir.path().join("test.rs");
-        std::fs::write(
-            &file_path,
-            "fn alpha() {}\nfn beta() {}\nfn gamma() {}\n",
-        )
-        .unwrap();
+        std::fs::write(&file_path, "fn alpha() {}\nfn beta() {}\nfn gamma() {}\n").unwrap();
 
         let tool = EditFileLinesTool::new(temp_dir.path().to_path_buf());
         let result = tool
@@ -999,7 +1101,9 @@ mod tests {
         assert_eq!(result["block_skipped"], true);
         let content = std::fs::read_to_string(&file_path).unwrap();
         // fn second() must appear AFTER the closing brace of fn first()
-        let first_close = content.find("}\nfn second()").expect("second should be inserted after first's '}'");
+        let first_close = content
+            .find("}\nfn second()")
+            .expect("second should be inserted after first's '}'");
         assert!(first_close > content.find("println!").unwrap());
         // And before fn third()
         assert!(content.find("fn second()").unwrap() < content.find("fn third()").unwrap());

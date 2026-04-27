@@ -33,9 +33,14 @@ git-sessions = ["dep:gix"]
 # lancor: llama.cpp local inference backend (optional).
 lancor = ["dep:lancor"]
 
+# memory: lightweight long-term memory store + prompt injection.
+# Flat-file store under ~/.pawan/memories by default.
+memory = []
+
 [dependencies]
 # Core from workspace
 tokio = { workspace = true }
+tokio-util = "0.7"
 serde = { workspace = true }
 serde_json = { workspace = true }
 async-trait = { workspace = true }

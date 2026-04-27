@@ -1,7 +1,7 @@
 //! mise and zoxide tool wrappers.
 
-use super::Tool;
 use super::native_search::{binary_exists, run_cmd};
+use super::Tool;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -20,7 +20,9 @@ impl MiseTool {
 
 #[async_trait]
 impl Tool for MiseTool {
-    fn name(&self) -> &str { "mise" }
+    fn name(&self) -> &str {
+        "mise"
+    }
 
     fn description(&self) -> &str {
         "mise — polyglot tool manager, environment manager, and task runner. Replaces asdf, nvm, \
@@ -119,59 +121,75 @@ impl Tool for MiseTool {
         } else {
             let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
             let local = format!("{}/.local/bin/mise", home);
-            if std::path::Path::new(&local).exists() { local } else {
+            if std::path::Path::new(&local).exists() {
+                local
+            } else {
                 return Err(crate::PawanError::Tool(
-                    "mise not found. Install: curl https://mise.run | sh".into()
+                    "mise not found. Install: curl https://mise.run | sh".into(),
                 ));
             }
         };
 
-        let action = args["action"].as_str()
+        let action = args["action"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("action required".into()))?;
         let global = args["global"].as_bool().unwrap_or(false);
 
         let cmd_args: Vec<String> = match action {
             "install" => {
-                let tool = args["tool"].as_str()
+                let tool = args["tool"]
+                    .as_str()
                     .ok_or_else(|| crate::PawanError::Tool("tool required for install".into()))?;
                 vec!["install".into(), tool.into(), "-y".into()]
             }
             "uninstall" => {
-                let tool = args["tool"].as_str()
+                let tool = args["tool"]
+                    .as_str()
                     .ok_or_else(|| crate::PawanError::Tool("tool required for uninstall".into()))?;
                 vec!["uninstall".into(), tool.into()]
             }
             "upgrade" => {
                 let mut v = vec!["upgrade".into()];
-                if let Some(tool) = args["tool"].as_str() { v.push(tool.into()); }
+                if let Some(tool) = args["tool"].as_str() {
+                    v.push(tool.into());
+                }
                 v
             }
             "list" => vec!["ls".into()],
             "search" => {
-                let tool = args["tool"].as_str()
+                let tool = args["tool"]
+                    .as_str()
                     .ok_or_else(|| crate::PawanError::Tool("tool required for search".into()))?;
                 vec!["registry".into(), tool.into()]
             }
             "use" => {
-                let tool = args["tool"].as_str()
+                let tool = args["tool"]
+                    .as_str()
                     .ok_or_else(|| crate::PawanError::Tool("tool required for use".into()))?;
                 let mut v = vec!["use".into()];
-                if global { v.push("--global".into()); }
+                if global {
+                    v.push("--global".into());
+                }
                 v.push(tool.into());
                 v
             }
             "outdated" => {
                 let mut v = vec!["outdated".into()];
-                if let Some(tool) = args["tool"].as_str() { v.push(tool.into()); }
+                if let Some(tool) = args["tool"].as_str() {
+                    v.push(tool.into());
+                }
                 v
             }
             "prune" => {
                 let mut v = vec!["prune".into(), "-y".into()];
-                if let Some(tool) = args["tool"].as_str() { v.push(tool.into()); }
+                if let Some(tool) = args["tool"].as_str() {
+                    v.push(tool.into());
+                }
                 v
             }
             "exec" => {
-                let tool = args["tool"].as_str()
+                let tool = args["tool"]
+                    .as_str()
                     .ok_or_else(|| crate::PawanError::Tool("tool required for exec".into()))?;
                 let extra = args["args"].as_str().unwrap_or("");
                 let mut v = vec!["exec".into(), tool.into(), "--".into()];
@@ -181,7 +199,8 @@ impl Tool for MiseTool {
                 v
             }
             "run" => {
-                let task = args["task"].as_str()
+                let task = args["task"]
+                    .as_str()
                     .ok_or_else(|| crate::PawanError::Tool("task required for run".into()))?;
                 let mut v = vec!["run".into(), task.into()];
                 if let Some(extra) = args["args"].as_str() {
@@ -191,7 +210,8 @@ impl Tool for MiseTool {
                 v
             }
             "watch" => {
-                let task = args["task"].as_str()
+                let task = args["task"]
+                    .as_str()
                     .ok_or_else(|| crate::PawanError::Tool("task required for watch".into()))?;
                 let mut v = vec!["watch".into(), task.into()];
                 if let Some(extra) = args["args"].as_str() {
@@ -206,16 +226,21 @@ impl Tool for MiseTool {
             "self-update" => vec!["self-update".into(), "-y".into()],
             "trust" => {
                 let mut v = vec!["trust".into()];
-                if let Some(extra) = args["args"].as_str() { v.push(extra.into()); }
+                if let Some(extra) = args["args"].as_str() {
+                    v.push(extra.into());
+                }
                 v
             }
-            _ => return Err(crate::PawanError::Tool(
-                format!("Unknown action: {action}. See tool description for available actions.")
-            )),
+            _ => {
+                return Err(crate::PawanError::Tool(format!(
+                    "Unknown action: {action}. See tool description for available actions."
+                )))
+            }
         };
 
         let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-        let (stdout, stderr, success) = run_cmd(&mise_bin, &cmd_refs, &self.workspace_root).await
+        let (stdout, stderr, success) = run_cmd(&mise_bin, &cmd_refs, &self.workspace_root)
+            .await
             .map_err(crate::PawanError::Tool)?;
 
         Ok(json!({
@@ -241,7 +266,9 @@ impl ZoxideTool {
 
 #[async_trait]
 impl Tool for ZoxideTool {
-    fn name(&self) -> &str { "z" }
+    fn name(&self) -> &str {
+        "z"
+    }
 
     fn description(&self) -> &str {
         "zoxide — smart directory jumper. Learns from your cd history. \
@@ -282,26 +309,35 @@ impl Tool for ZoxideTool {
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
-        let action = args["action"].as_str()
+        let action = args["action"]
+            .as_str()
             .ok_or_else(|| crate::PawanError::Tool("action required (query/add/list)".into()))?;
 
         let cmd_args: Vec<String> = match action {
             "query" => {
-                let path = args["path"].as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("path/search term required for query".into()))?;
+                let path = args["path"].as_str().ok_or_else(|| {
+                    crate::PawanError::Tool("path/search term required for query".into())
+                })?;
                 vec!["query".into(), path.into()]
             }
             "add" => {
-                let path = args["path"].as_str()
+                let path = args["path"]
+                    .as_str()
                     .ok_or_else(|| crate::PawanError::Tool("path required for add".into()))?;
                 vec!["add".into(), path.into()]
             }
             "list" => vec!["query".into(), "--list".into()],
-            _ => return Err(crate::PawanError::Tool(format!("Unknown action: {}. Use query/add/list", action))),
+            _ => {
+                return Err(crate::PawanError::Tool(format!(
+                    "Unknown action: {}. Use query/add/list",
+                    action
+                )))
+            }
         };
 
         let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
-        let (stdout, stderr, success) = run_cmd("zoxide", &cmd_refs, &self.workspace_root).await
+        let (stdout, stderr, success) = run_cmd("zoxide", &cmd_refs, &self.workspace_root)
+            .await
             .map_err(crate::PawanError::Tool)?;
 
         Ok(json!({
@@ -336,7 +372,10 @@ mod tests {
         assert_eq!(tool.name(), "z");
         assert!(!tool.description().is_empty());
         let schema = tool.parameters_schema();
-        assert!(schema["required"].as_array().unwrap().contains(&serde_json::json!("action")));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("action")));
     }
 
     #[tokio::test]
@@ -350,7 +389,8 @@ mod tests {
         let msg = format!("{}", err);
         assert!(
             msg.contains("Unknown action") && msg.contains("totally_not_a_real_verb"),
-            "error must name the unknown action, got: {}", msg
+            "error must name the unknown action, got: {}",
+            msg
         );
     }
 
@@ -365,7 +405,8 @@ mod tests {
         let msg = format!("{}", err);
         assert!(
             msg.contains("tool required for install"),
-            "error should mention 'tool required for install', got: {}", msg
+            "error should mention 'tool required for install', got: {}",
+            msg
         );
     }
 }

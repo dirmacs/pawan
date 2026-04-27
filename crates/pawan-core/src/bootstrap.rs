@@ -198,9 +198,7 @@ pub fn ensure_deagle(force: bool) -> BootstrapStep {
             let brief: String = stderr.chars().take(200).collect();
             BootstrapStepStatus::Failed(format!("cargo install deagle failed: {}", brief))
         }
-        Err(e) => {
-            BootstrapStepStatus::Failed(format!("cargo install deagle spawn failed: {}", e))
-        }
+        Err(e) => BootstrapStepStatus::Failed(format!("cargo install deagle spawn failed: {}", e)),
     };
 
     BootstrapStep {
@@ -304,9 +302,7 @@ pub fn ensure_native_tool(tool: &str) -> BootstrapStep {
             let brief: String = stderr.chars().take(200).collect();
             BootstrapStepStatus::Failed(format!("mise install {} failed: {}", tool, brief))
         }
-        Err(e) => {
-            BootstrapStepStatus::Failed(format!("mise install {} spawn failed: {}", tool, e))
-        }
+        Err(e) => BootstrapStepStatus::Failed(format!("mise install {} spawn failed: {}", tool, e)),
     };
 
     BootstrapStep {
@@ -728,7 +724,10 @@ mod tests {
 
         assert_eq!(step.name, "deagle");
         // Will fail in test env, but we verify the attempt was made
-        assert!(matches!(step.status, BootstrapStepStatus::Installed | BootstrapStepStatus::Failed(_)));
+        assert!(matches!(
+            step.status,
+            BootstrapStepStatus::Installed | BootstrapStepStatus::Failed(_)
+        ));
     }
 
     #[test]
@@ -818,7 +817,10 @@ mod tests {
 
         assert_eq!(step.name, "rg");
         // Will fail in test env, but we verify it didn't skip
-        assert!(matches!(step.status, BootstrapStepStatus::Installed | BootstrapStepStatus::Failed(_)));
+        assert!(matches!(
+            step.status,
+            BootstrapStepStatus::Installed | BootstrapStepStatus::Failed(_)
+        ));
     }
 
     #[serial_test::serial(pawan_session_tests)]
@@ -952,4 +954,5 @@ mod tests {
         // Will fail if deagle not installed, but we verify the attempt
         assert!(result.is_ok() || result.is_err());
         assert!(!marker.exists(), "marker must be removed regardless");
-    }}
+    }
+}

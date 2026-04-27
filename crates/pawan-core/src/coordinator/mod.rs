@@ -31,7 +31,7 @@ pub mod types;
 pub use types::*;
 
 use crate::agent::backend::LlmBackend;
-use crate::agent::{Message, Role, ToolCallRecord, ToolCallRequest, ToolResultMessage, TokenUsage};
+use crate::agent::{Message, Role, TokenUsage, ToolCallRecord, ToolCallRequest, ToolResultMessage};
 use crate::tools::ToolRegistry;
 use futures::future::join_all;
 use std::sync::Arc;
@@ -56,7 +56,8 @@ fn to_backend_message(msg: &ConversationMessage) -> Message {
     let tool_result = if msg.role == Role::Tool {
         msg.tool_call_id.as_ref().map(|id| ToolResultMessage {
             tool_call_id: id.clone(),
-            content: serde_json::from_str(&msg.content).unwrap_or(serde_json::Value::String(msg.content.clone())),
+            content: serde_json::from_str(&msg.content)
+                .unwrap_or(serde_json::Value::String(msg.content.clone())),
             success: true,
         })
     } else {
@@ -108,7 +109,11 @@ impl ToolCoordinator {
         registry: Arc<ToolRegistry>,
         config: ToolCallingConfig,
     ) -> Self {
-        Self { backend, registry, config }
+        Self {
+            backend,
+            registry,
+            config,
+        }
     }
 
     /// Execute a tool-calling session starting from a plain prompt.
@@ -142,8 +147,7 @@ impl ToolCoordinator {
 
         for iteration in 0..self.config.max_iterations {
             // Convert coordinator messages to backend wire format.
-            let backend_messages: Vec<Message> =
-                messages.iter().map(to_backend_message).collect();
+            let backend_messages: Vec<Message> = messages.iter().map(to_backend_message).collect();
 
             // Call backend — no streaming callback needed for coordinator.
             let response = self
@@ -391,8 +395,15 @@ mod tests {
         use std::time::Duration;
         let cfg = ToolCallingConfig::default();
         assert_eq!(cfg.max_iterations, 10, "max_iterations default changed");
-        assert!(cfg.parallel_execution, "parallel_execution should default to true");
-        assert_eq!(cfg.tool_timeout, Duration::from_secs(30), "tool_timeout default changed");
+        assert!(
+            cfg.parallel_execution,
+            "parallel_execution should default to true"
+        );
+        assert_eq!(
+            cfg.tool_timeout,
+            Duration::from_secs(30),
+            "tool_timeout default changed"
+        );
         assert!(!cfg.stop_on_error, "stop_on_error should default to false");
     }
 
@@ -403,8 +414,8 @@ mod tests {
     #[tokio::test]
     async fn coordinator_result_captures_finish_reason_max_iterations() {
         use crate::agent::backend::mock::{MockBackend, MockResponse};
-        use async_trait::async_trait;
         use crate::tools::Tool;
+        use async_trait::async_trait;
         use serde_json::Value;
 
         // A trivial no-op tool that always succeeds.
@@ -412,8 +423,12 @@ mod tests {
 
         #[async_trait]
         impl Tool for NoOpTool {
-            fn name(&self) -> &str { "noop" }
-            fn description(&self) -> &str { "does nothing" }
+            fn name(&self) -> &str {
+                "noop"
+            }
+            fn description(&self) -> &str {
+                "does nothing"
+            }
             fn parameters_schema(&self) -> Value {
                 serde_json::json!({"type": "object", "properties": {}})
             }
