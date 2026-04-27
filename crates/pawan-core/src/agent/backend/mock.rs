@@ -187,23 +187,15 @@ impl MockBackend {
 
     /// Convenience constructor for repeated tool calls (never stops)
     pub fn with_repeated_tool_call(name: &str) -> Self {
-        Self::new(vec![
-            MockResponse::ToolCall {
-                id: "call_1".to_string(),
+        let mut responses = Vec::new();
+        for i in 0..32 {
+            responses.push(MockResponse::ToolCall {
+                id: format!("call_{i}"),
                 name: name.to_string(),
                 args: json!({}),
-            },
-            MockResponse::ToolCall {
-                id: "call_2".to_string(),
-                name: name.to_string(),
-                args: json!({}),
-            },
-            MockResponse::ToolCall {
-                id: "call_3".to_string(),
-                name: name.to_string(),
-                args: json!({}),
-            },
-        ])
+            });
+        }
+        Self::new(responses)
     }
 
     /// Convenience constructor for multiple tool calls in a single turn
