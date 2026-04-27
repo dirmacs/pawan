@@ -244,8 +244,8 @@ impl MemoryStore {
 
         entries.sort_by(|a, b| a.0.cmp(&b.0));
         let to_delete = entries.len().saturating_sub(keep_last);
-        for i in 0..to_delete {
-            let _ = fs::remove_file(&entries[i].1);
+        for (_, path) in entries.iter().take(to_delete) {
+            let _ = fs::remove_file(path);
         }
         Ok(())
     }
@@ -861,7 +861,7 @@ pub fn make_session_extract_memory(session_id: &str, markdown: String) -> Memory
 }
 
 pub fn now_rfc3339() -> String {
-    DateTime::<Utc>::from(Utc::now()).to_rfc3339()
+    Utc::now().to_rfc3339()
 }
 
 pub fn is_empty_or_ws(s: &str) -> bool {

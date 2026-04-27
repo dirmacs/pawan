@@ -201,20 +201,20 @@ pub fn compact_messages(messages: Vec<Message>, strategy: &CompactionStrategy) -
             .keep_keywords
             .iter()
             .any(|kw| content_lower.contains(&kw.to_lowercase()))
+            && !compacted.iter().any(|m| m.content == msg.content)
         {
-            if !compacted.iter().any(|m| m.content == msg.content) {
-                compacted.push(msg.clone());
-            }
+            compacted.push(msg.clone());
         }
     }
 
     // Keep tool results if enabled
     if strategy.keep_tool_results {
         for msg in &messages {
-            if msg.tool_result.is_some() && !msg.tool_calls.is_empty() {
-                if !compacted.iter().any(|m| m.content == msg.content) {
-                    compacted.push(msg.clone());
-                }
+            if msg.tool_result.is_some()
+                && !msg.tool_calls.is_empty()
+                && !compacted.iter().any(|m| m.content == msg.content)
+            {
+                compacted.push(msg.clone());
             }
         }
     }
@@ -333,14 +333,14 @@ pub fn parse_compaction_summary(summary: &str) -> Result<ParsedCompactionSummary
         let line = line.trim();
 
         // Detect section headers
-        if line.starts_with("## ") {
-            current_section = Some(line[3..].to_string());
+        if let Some(rest) = line.strip_prefix("## ") {
+            current_section = Some(rest.to_string());
             continue;
         }
 
         // Detect subsection headers (###)
-        if line.starts_with("### ") {
-            let subsection = line[4..].to_string();
+        if let Some(subsection) = line.strip_prefix("### ") {
+            let subsection = subsection.to_string();
 
             // If we were building a code change, save it
             if let Some(code_change) = current_code_change.take() {
@@ -357,16 +357,16 @@ pub fn parse_compaction_summary(summary: &str) -> Result<ParsedCompactionSummary
             }
 
             // Start new code change or error
-            if subsection.starts_with("File: ") {
+            if let Some(file) = subsection.strip_prefix("File: ") {
                 current_code_change = Some(CodeChange {
-                    file: subsection[6..].to_string(),
+                    file: file.to_string(),
                     change: String::new(),
                     rationale: String::new(),
                     impact: String::new(),
                 });
-            } else if subsection.starts_with("Error: ") {
+            } else if let Some(error) = subsection.strip_prefix("Error: ") {
                 current_error = Some(ErrorSolution {
-                    error: subsection[7..].to_string(),
+                    error: error.to_string(),
                     location: String::new(),
                     solution: String::new(),
                     prevention: String::new(),
@@ -383,40 +383,44 @@ pub fn parse_compaction_summary(summary: &str) -> Result<ParsedCompactionSummary
                 parsed.user_intent.push(' ');
             }
             Some("Key Decisions") => {
-                if line.starts_with("- ") {
-                    parsed.key_decisions.push(line[2..].to_string());
+                if let Some(item) = line.strip_prefix("- ") {
+                    parsed.key_decisions.push(item.to_string());
                 }
             }
             Some("Code Changes") => {
                 if let Some(ref mut code_change) = current_code_change {
-                    if line.starts_with("- **Change**: ") {
-                        code_change.change = line[12..].to_string();
-                    } else if line.starts_with("- **Rationale**: ") {
-                        code_change.rationale = line[14..].to_string();
-                    } else if line.starts_with("- **Impact**: ") {
-                        code_change.impact = line[11..].to_string();
+                    if let Some(rest) = line.strip_prefix("- **Change**: ") {
+                        code_change.change = rest.to_string();
+                    } else if let Some(rest) = line.strip_prefix("- **Rationale**: ") {
+                        code_change.rationale = rest.to_string();
+                    } else if let Some(rest) = line.strip_prefix("- **Impact**: ") {
+                        code_change.impact = rest.to_string();
                     }
                 }
             }
             Some("Errors and Solutions") => {
                 if let Some(ref mut error) = current_error {
-                    if line.starts_with("- **Location**: ") {
-                        error.location = line[14..].to_string();
-                    } else if line.starts_with("- **Solution**: ") {
-                        error.solution = line[14..].to_string();
-                    } else if line.starts_with("- **Prevention**: ") {
-                        error.prevention = line[15..].to_string();
+                    if let Some(rest) = line.strip_prefix("- **Location**: ") {
+                        error.location = rest.to_string();
+                    } else if let Some(rest) = line.strip_prefix("- **Solution**: ") {
+                        error.solution = rest.to_string();
+                    } else if let Some(rest) = line.strip_prefix("- **Prevention**: ") {
+                        error.prevention = rest.to_string();
                     }
                 }
             }
             Some("Debugging Steps") => {
-                if line.starts_with("1. ") || line.starts_with("2. ") || line.starts_with("3. ") {
-                    parsed.debugging_steps.push(line[3..].to_string());
+                if let Some(rest) = line
+                    .strip_prefix("1. ")
+                    .or_else(|| line.strip_prefix("2. "))
+                    .or_else(|| line.strip_prefix("3. "))
+                {
+                    parsed.debugging_steps.push(rest.to_string());
                 }
             }
             Some("Warnings and Notes") => {
-                if line.starts_with("- ") {
-                    parsed.warnings_and_notes.push(line[2..].to_string());
+                if let Some(item) = line.strip_prefix("- ") {
+                    parsed.warnings_and_notes.push(item.to_string());
                 }
             }
             Some("Current State") => {
@@ -424,8 +428,12 @@ pub fn parse_compaction_summary(summary: &str) -> Result<ParsedCompactionSummary
                 parsed.current_state.push(' ');
             }
             Some("Next Steps") => {
-                if line.starts_with("1. ") || line.starts_with("2. ") || line.starts_with("3. ") {
-                    parsed.next_steps.push(line[3..].to_string());
+                if let Some(rest) = line
+                    .strip_prefix("1. ")
+                    .or_else(|| line.strip_prefix("2. "))
+                    .or_else(|| line.strip_prefix("3. "))
+                {
+                    parsed.next_steps.push(rest.to_string());
                 }
             }
             _ => {}
@@ -467,9 +475,9 @@ pub fn summary_to_message(summary: &ParsedCompactionSummary) -> Message {
         for decision in &summary.key_decisions {
             content.push_str("- ");
             content.push_str(decision);
-            content.push_str("\n");
+            content.push('\n');
         }
-        content.push_str("\n");
+        content.push('\n');
     }
 
     if !summary.code_changes.is_empty() {
@@ -479,7 +487,7 @@ pub fn summary_to_message(summary: &ParsedCompactionSummary) -> Message {
             content.push_str(&format!("- **Change**: {}\n", change.change));
             content.push_str(&format!("- **Rationale**: {}\n", change.rationale));
             content.push_str(&format!("- **Impact**: {}\n", change.impact));
-            content.push_str("\n");
+            content.push('\n');
         }
     }
 
@@ -490,7 +498,7 @@ pub fn summary_to_message(summary: &ParsedCompactionSummary) -> Message {
             content.push_str(&format!("- **Location**: {}\n", error.location));
             content.push_str(&format!("- **Solution**: {}\n", error.solution));
             content.push_str(&format!("- **Prevention**: {}\n", error.prevention));
-            content.push_str("\n");
+            content.push('\n');
         }
     }
 
@@ -499,7 +507,7 @@ pub fn summary_to_message(summary: &ParsedCompactionSummary) -> Message {
         for (i, step) in summary.debugging_steps.iter().enumerate() {
             content.push_str(&format!("{}. {}\n", i + 1, step));
         }
-        content.push_str("\n");
+        content.push('\n');
     }
 
     if !summary.warnings_and_notes.is_empty() {
@@ -507,9 +515,9 @@ pub fn summary_to_message(summary: &ParsedCompactionSummary) -> Message {
         for warning in &summary.warnings_and_notes {
             content.push_str("- ");
             content.push_str(warning);
-            content.push_str("\n");
+            content.push('\n');
         }
-        content.push_str("\n");
+        content.push('\n');
     }
 
     content.push_str("## Current State\n");

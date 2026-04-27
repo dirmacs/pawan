@@ -15,6 +15,7 @@ pub struct AresBackend {
     system_prompt: String,
 }
 
+#[allow(clippy::wrong_self_convention)]
 impl AresBackend {
     /// Create from an existing ares LLMClient
     pub fn new(client: Box<dyn ares::llm::LLMClient>, system_prompt: String) -> Self {

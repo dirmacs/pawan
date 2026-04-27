@@ -20,11 +20,11 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame, Terminal,
 };
+use ratatui_textarea::{Input, TextArea};
 use regex::Regex;
 use std::io::{self, Stdout};
 use std::sync::OnceLock;
 use std::time::Instant;
-use ratatui_textarea::{Input, TextArea};
 use tokio::sync::mpsc;
 
 use super::app::App;
@@ -38,20 +38,13 @@ impl<'a> App<'a> {
         };
         let query = self.session_browser_query.to_lowercase();
         if !query.is_empty() {
-            if query.starts_with("tag:") {
-                let tag = query["tag:".len()..].trim();
-                sessions = sessions
-                    .into_iter()
-                    .filter(|s| s.tags.iter().any(|t| t.to_lowercase() == tag))
-                    .collect();
+            if let Some(tag) = query.strip_prefix("tag:") {
+                let tag = tag.trim();
+                sessions.retain(|s| s.tags.iter().any(|t| t.to_lowercase() == tag));
             } else {
-                sessions = sessions
-                    .into_iter()
-                    .filter(|s| {
-                        s.id.to_lowercase().contains(&query)
-                            || s.model.to_lowercase().contains(&query)
-                    })
-                    .collect();
+                sessions.retain(|s| {
+                    s.id.to_lowercase().contains(&query) || s.model.to_lowercase().contains(&query)
+                });
             }
         }
         // Apply sorting based on session_sort_mode

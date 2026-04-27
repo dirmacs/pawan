@@ -13,8 +13,9 @@ use std::path::{Path, PathBuf};
 
 use tracing::warn;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThinkingLevel {
+    #[default]
     Minimal,
     Low,
     Medium,
@@ -30,12 +31,6 @@ impl ThinkingLevel {
             "high" => Some(Self::High),
             _ => None,
         }
-    }
-}
-
-impl Default for ThinkingLevel {
-    fn default() -> Self {
-        Self::Minimal
     }
 }
 

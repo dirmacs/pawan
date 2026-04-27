@@ -395,7 +395,8 @@ pub struct HealingConfig {
     /// remaining failure and retries.  Useful values:
     ///   - `"cargo test --workspace"` — run full test suite
     ///   - `"cargo clippy -- -D warnings"` — enforce zero warnings
-    /// Leave unset (default) to skip the second stage.
+    ///
+    ///     Leave unset (default) to skip the second stage.
     #[serde(default)]
     pub verify_cmd: Option<String>,
 }

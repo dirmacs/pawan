@@ -454,7 +454,7 @@ impl ToolRegistry {
         }
 
         // Sort by score descending
-        scored.sort_by(|a, b| b.0.cmp(&a.0));
+        scored.sort_by_key(|&(score, _)| std::cmp::Reverse(score));
 
         // Collect: all Core tools + top-K scored tools
         let mut result: Vec<ToolDefinition> = self

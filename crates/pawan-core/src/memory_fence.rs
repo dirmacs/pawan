@@ -1,6 +1,6 @@
 //! Session-scoped memory boundaries and key/content sanitization.
 
-use crate::memory::{Memory, MemoryStore, now_rfc3339};
+use crate::memory::{now_rfc3339, Memory, MemoryStore};
 use crate::{PawanError, Result};
 use std::cmp::Ordering;
 use std::collections::HashSet;
@@ -78,7 +78,7 @@ impl SessionScopedMemory {
         }
 
         // Pull a larger candidate pool, then apply the session fence.
-        let pool = (limit.saturating_mul(8)).max(32).min(2000);
+        let pool = limit.saturating_mul(8).clamp(32, 2000);
         let mut hits: Vec<Memory> = self
             .store
             .search(query, pool)?
@@ -176,9 +176,7 @@ impl SessionScopedMemory {
 /// Sanitize a string to prevent injection in memory keys: keep alnum, dash, underscore, dot.
 pub fn sanitize_key(s: &str) -> String {
     s.chars()
-        .filter(|ch| {
-            ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_' || *ch == '.'
-        })
+        .filter(|ch| ch.is_ascii_alphanumeric() || *ch == '-' || *ch == '_' || *ch == '.')
         .collect()
 }
 

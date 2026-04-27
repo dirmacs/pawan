@@ -37,15 +37,17 @@ impl GitSessionStore {
     pub fn init() -> Result<Self> {
         let path = Self::default_path()?;
         let repo = if path.join("HEAD").exists() {
-            gix::open(&path)
-                .map_err(|e| PawanError::Git(format!("Open repo: {}", e)))?
+            gix::open(&path).map_err(|e| PawanError::Git(format!("Open repo: {}", e)))?
         } else {
             std::fs::create_dir_all(&path)
                 .map_err(|e| PawanError::Git(format!("Create dir: {}", e)))?;
-            gix::create::into(&path, gix::create::Kind::Bare, gix::create::Options::default())
-                .map_err(|e| PawanError::Git(format!("Init repo: {}", e)))?;
-            gix::open(&path)
-                .map_err(|e| PawanError::Git(format!("Open after init: {}", e)))?
+            gix::create::into(
+                &path,
+                gix::create::Kind::Bare,
+                gix::create::Options::default(),
+            )
+            .map_err(|e| PawanError::Git(format!("Init repo: {}", e)))?;
+            gix::open(&path).map_err(|e| PawanError::Git(format!("Open after init: {}", e)))?
         };
         Ok(Self { repo })
     }
@@ -79,14 +81,16 @@ impl GitSessionStore {
             .map_err(|e| PawanError::Git(format!("Serialize: {}", e)))?;
 
         // Write blob
-        let blob_id = self.repo
+        let blob_id = self
+            .repo
             .write_blob(json.as_bytes())
             .map_err(|e| PawanError::Git(format!("Blob: {}", e)))?
             .detach();
 
         // Build tree with a single "session.json" entry
         let empty_tree_id = self.repo.empty_tree().id;
-        let tree_id = self.repo
+        let tree_id = self
+            .repo
             .edit_tree(empty_tree_id)
             .map_err(|e| PawanError::Git(format!("TreeEditor init: {}", e)))?
             .upsert("session.json", EntryKind::Blob, blob_id)
@@ -103,7 +107,7 @@ impl GitSessionStore {
         let sig = gix::actor::SignatureRef {
             name: "pawan".into(),
             email: "pawan@localhost".into(),
-            time: time_str.as_str().into(),
+            time: time_str.as_str(),
         };
 
         // Resolve parent OIDs
@@ -112,14 +116,16 @@ impl GitSessionStore {
                 let oid = ObjectId::from_hex(h.as_bytes())
                     .map_err(|e| PawanError::Git(format!("Bad hash: {}", e)))?;
                 // Verify commit exists
-                self.repo.find_commit(oid)
+                self.repo
+                    .find_commit(oid)
                     .map_err(|e| PawanError::Git(format!("Parent not found: {}", e)))?;
                 vec![oid]
             }
             None => vec![],
         };
 
-        let commit_id = self.repo
+        let commit_id = self
+            .repo
             .commit_as(sig, sig, refname.as_str(), msg.as_str(), tree_id, parents)
             .map_err(|e| PawanError::Git(format!("Commit: {}", e)))?
             .detach();
@@ -131,7 +137,9 @@ impl GitSessionStore {
     pub fn load_commit(&self, hash: &str) -> Result<Session> {
         let oid = ObjectId::from_hex(hash.as_bytes())
             .map_err(|e| PawanError::Git(format!("Bad hash: {}", e)))?;
-        let commit = self.repo.find_commit(oid)
+        let commit = self
+            .repo
+            .find_commit(oid)
             .map_err(|e| PawanError::Git(format!("Not found: {}", e)))?;
         self.session_from_commit(&commit)
     }
@@ -173,7 +181,9 @@ impl GitSessionStore {
         let mut chain = Vec::new();
 
         loop {
-            let commit = self.repo.find_commit(oid)
+            let commit = self
+                .repo
+                .find_commit(oid)
                 .map_err(|e| PawanError::Git(format!("Not found: {}", e)))?;
             chain.push(self.info(oid)?);
             let mut parents = commit.parent_ids();
@@ -209,9 +219,12 @@ impl GitSessionStore {
     /// List all session refs (latest commit per session)
     pub fn list_sessions(&self) -> Result<Vec<CommitInfo>> {
         let mut sessions = Vec::new();
-        let refs = self.repo.references()
+        let refs = self
+            .repo
+            .references()
             .map_err(|e| PawanError::Git(format!("References: {}", e)))?;
-        let session_refs = refs.prefixed("refs/sessions/")
+        let session_refs = refs
+            .prefixed("refs/sessions/")
             .map_err(|e| PawanError::Git(format!("Prefixed refs: {}", e)))?;
         for r in session_refs.flatten() {
             if let Some(id) = r.try_id() {
@@ -231,7 +244,9 @@ impl GitSessionStore {
         let mut visited: HashSet<ObjectId> = HashSet::new();
         let mut stack: Vec<ObjectId> = Vec::new();
 
-        let refs = self.repo.references()
+        let refs = self
+            .repo
+            .references()
             .map_err(|e| PawanError::Git(format!("References: {}", e)))?;
         if let Ok(session_refs) = refs.prefixed("refs/sessions/") {
             for r in session_refs.flatten() {
@@ -242,7 +257,9 @@ impl GitSessionStore {
         }
 
         while let Some(oid) = stack.pop() {
-            if !visited.insert(oid) { continue; }
+            if !visited.insert(oid) {
+                continue;
+            }
             oids.push(oid);
             if let Ok(c) = self.repo.find_commit(oid) {
                 for pid in c.parent_ids() {
@@ -257,16 +274,22 @@ impl GitSessionStore {
     }
 
     fn info(&self, oid: ObjectId) -> Result<CommitInfo> {
-        let commit = self.repo.find_commit(oid)
+        let commit = self
+            .repo
+            .find_commit(oid)
             .map_err(|e| PawanError::Git(format!("Not found: {}", e)))?;
         let hash = oid.to_hex().to_string();
         let (mc, model) = self.session_meta(&commit).unwrap_or((0, "unknown".into()));
-        let decoded = commit.decode()
+        let decoded = commit
+            .decode()
             .map_err(|e| PawanError::Git(format!("Decode: {}", e)))?;
         // decoded.author is &BStr (raw); parse it to get time
-        let author_sig = decoded.author()
+        let author_sig = decoded
+            .author()
             .map_err(|e| PawanError::Git(format!("Author parse: {}", e)))?;
-        let timestamp: i64 = author_sig.time.parse::<gix::date::Time>()
+        let timestamp: i64 = author_sig
+            .time
+            .parse::<gix::date::Time>()
             .map(|t| t.seconds)
             .unwrap_or(0);
 
@@ -285,7 +308,10 @@ impl GitSessionStore {
         let tree_oid = decoded.tree();
         let tree = self.repo.find_tree(tree_oid).ok()?;
         let tree_data = tree.decode().ok()?;
-        let entry = tree_data.entries.iter().find(|e| e.filename == b"session.json")?;
+        let entry = tree_data
+            .entries
+            .iter()
+            .find(|e| e.filename == b"session.json")?;
         let entry_oid = entry.oid.to_owned();
         let blob = self.repo.find_blob(entry_oid).ok()?;
         let json = std::str::from_utf8(&blob.data).ok()?;
@@ -294,23 +320,30 @@ impl GitSessionStore {
     }
 
     fn session_from_commit(&self, commit: &gix::Commit<'_>) -> Result<Session> {
-        let decoded = commit.decode()
+        let decoded = commit
+            .decode()
             .map_err(|e| PawanError::Git(format!("Decode: {}", e)))?;
         let tree_oid = decoded.tree();
-        let tree = self.repo.find_tree(tree_oid)
+        let tree = self
+            .repo
+            .find_tree(tree_oid)
             .map_err(|e| PawanError::Git(format!("Tree: {}", e)))?;
-        let tree_data = tree.decode()
+        let tree_data = tree
+            .decode()
             .map_err(|e| PawanError::Git(format!("Decode tree: {}", e)))?;
-        let entry = tree_data.entries.iter()
+        let entry = tree_data
+            .entries
+            .iter()
             .find(|e| e.filename == b"session.json")
             .ok_or_else(|| PawanError::Git("No session.json".into()))?;
         let entry_oid = entry.oid.to_owned();
-        let blob = self.repo.find_blob(entry_oid)
+        let blob = self
+            .repo
+            .find_blob(entry_oid)
             .map_err(|e| PawanError::Git(format!("Blob: {}", e)))?;
         let json = std::str::from_utf8(&blob.data)
             .map_err(|e| PawanError::Git(format!("UTF-8: {}", e)))?;
-        serde_json::from_str(json)
-            .map_err(|e| PawanError::Git(format!("Parse: {}", e)))
+        serde_json::from_str(json).map_err(|e| PawanError::Git(format!("Parse: {}", e)))
     }
 }
 
@@ -321,8 +354,12 @@ mod tests {
 
     fn test_store() -> (GitSessionStore, tempfile::TempDir) {
         let dir = tempfile::TempDir::new().unwrap();
-        gix::create::into(dir.path(), gix::create::Kind::Bare, gix::create::Options::default())
-            .unwrap();
+        gix::create::into(
+            dir.path(),
+            gix::create::Kind::Bare,
+            gix::create::Options::default(),
+        )
+        .unwrap();
         let repo = gix::open(dir.path()).unwrap();
         (GitSessionStore { repo }, dir)
     }
@@ -400,8 +437,12 @@ mod tests {
         let s = session("s1", "root");
         let root = store.save_commit(&s, None).unwrap();
 
-        store.save_commit(&session("a", "fork1"), Some(&root)).unwrap();
-        store.save_commit(&session("b", "fork2"), Some(&root)).unwrap();
+        store
+            .save_commit(&session("a", "fork1"), Some(&root))
+            .unwrap();
+        store
+            .save_commit(&session("b", "fork2"), Some(&root))
+            .unwrap();
 
         let children = store.children(&root).unwrap();
         assert_eq!(children.len(), 2);
@@ -414,7 +455,10 @@ mod tests {
         store.save_commit(&s, None).unwrap();
 
         let sessions = store.list_sessions().unwrap();
-        assert!(!sessions.is_empty(), "list_sessions must be non-empty after save");
+        assert!(
+            !sessions.is_empty(),
+            "list_sessions must be non-empty after save"
+        );
         let found = sessions.iter().any(|c| c.message.contains("sess-list-1"));
         assert!(found, "saved session id must appear in list_sessions()");
     }
@@ -461,7 +505,10 @@ mod tests {
             msg.contains("new session"),
             "commit message with no user messages must say 'new session', got: {msg}"
         );
-        assert!(msg.contains("no-msg"), "must include session id, got: {msg}");
+        assert!(
+            msg.contains("no-msg"),
+            "must include session id, got: {msg}"
+        );
     }
 
     #[test]
@@ -471,7 +518,11 @@ mod tests {
         let root_hash = store.save_commit(&s, None).unwrap();
 
         let lineage = store.lineage(&root_hash).unwrap();
-        assert_eq!(lineage.len(), 1, "root commit must have lineage of length 1");
+        assert_eq!(
+            lineage.len(),
+            1,
+            "root commit must have lineage of length 1"
+        );
         assert_eq!(lineage[0].hash, root_hash);
     }
 }
