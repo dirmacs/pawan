@@ -689,7 +689,7 @@ enum TasksAction {
 
 #[derive(Subcommand)]
 enum DepAction {
-    /// Add dependency: <id> depends on <blocks_id>
+    /// Add dependency: `<id>` depends on `<blocks_id>`
     Add { id: String, blocks_id: String },
     /// Remove dependency
     Rm { id: String, blocks_id: String },

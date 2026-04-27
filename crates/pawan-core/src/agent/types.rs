@@ -98,7 +98,7 @@ pub struct LLMResponse {
     pub usage: Option<TokenUsage>,
 }
 
-/// Result from a complete agent run (returned by [`PawanAgent::run`])
+/// Result from a complete agent run (returned by [`super::PawanAgent::execute`])
 #[derive(Debug)]
 pub struct AgentResponse {
     /// Final text response

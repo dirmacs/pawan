@@ -44,7 +44,7 @@ impl MigrationResult {
     }
 }
 
-/// Migrate `config` to [`LATEST_CONFIG_VERSION`] in place.
+/// Migrate `config` to the latest on-disk schema version in place.
 ///
 /// Creates a timestamped backup at `config_path` (when provided) before
 /// applying any changes. Migration steps are applied sequentially; if any
