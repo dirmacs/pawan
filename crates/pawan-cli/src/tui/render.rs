@@ -268,10 +268,10 @@ impl<'a> App<'a> {
                 self.render_slash_popup(f, layout.input_area);
             }
 
-            let _ = (
-                self.current_theme.as_str(),
-                self.accent_transition.is_animating(),
-            );
+            // accent_transition.resolve() returns the in-flight animated accent color
+            // Track animation state: used to show transition indicator in UI chrome
+            let animating = self.accent_transition.is_animating();
+            let _ = animating;
         }
 
         if self.permission_dialog.is_some() {
@@ -716,8 +716,9 @@ impl<'a> App<'a> {
             }
         }
 
+        let accent_color = self.accent_transition.resolve();
         let border_style = if self.focus == Panel::Messages {
-            Style::default().fg(Color::Cyan)
+            Style::default().fg(accent_color)
         } else {
             Style::default().fg(Color::DarkGray)
         };
@@ -971,22 +972,26 @@ impl<'a> App<'a> {
     }
 
     pub(crate) fn render_input(&self, f: &mut Frame, area: Rect) {
+        let accent_color = self.accent_transition.resolve();
+        let animating = self.accent_transition.is_animating();
         let border_style = if self.focus == Panel::Input {
-            Style::default().fg(Color::Cyan)
+            Style::default().fg(accent_color)
         } else {
             Style::default().fg(Color::DarkGray)
         };
 
+        let anim_indicator = if animating { " ⚡" } else { "" };
         let title = if self.processing {
-            " Input (processing...) "
+            format!(" Input (processing...){} ", anim_indicator)
         } else {
-            match self.current_context {
-                KeybindContext::Input => " Input (Enter send | : or ^P command | ^M model) ",
-                KeybindContext::Normal => " Input (i focus) ",
-                KeybindContext::Command => " Input (fuzzy search open) ",
-                KeybindContext::Help => " Input (F1) ",
-                KeybindContext::ModelPicker => " Input (model picker open) ",
-            }
+            let base = match self.current_context {
+                KeybindContext::Input => "Input (Enter send | : or ^P command | ^M model)",
+                KeybindContext::Normal => "Input (i focus)",
+                KeybindContext::Command => "Input (fuzzy search open)",
+                KeybindContext::Help => "Input (F1)",
+                KeybindContext::ModelPicker => "Input (model picker open)",
+            };
+            format!(" {} {}", base, anim_indicator)
         };
 
         let block = Block::default()
