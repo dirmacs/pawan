@@ -20,14 +20,14 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame, Terminal,
 };
+use ratatui_textarea::{Input, TextArea};
 use regex::Regex;
 use std::io::{self, Stdout};
 use std::sync::OnceLock;
 use std::time::Instant;
-use ratatui_textarea::{Input, TextArea};
 use tokio::sync::mpsc;
 
-use super::app::{App, SlashCommandRegistry, SlashCommand};
+use super::app::{App, SlashCommand, SlashCommandRegistry};
 use super::types::*;
 
 impl<'a> App<'a> {
@@ -38,7 +38,7 @@ impl<'a> App<'a> {
             .as_deref()
             .ok_or_else(|| PawanError::Agent("internal: missing slash context".to_string()))?
             .to_string();
-        let a = args.get(0).map(|s| *s).unwrap_or("");
+        let a = args.first().copied().unwrap_or("");
         app.slash_route(&c, a);
         Ok(())
     }
@@ -46,11 +46,11 @@ impl<'a> App<'a> {
     /// Handle slash commands locally without sending to the agent
     pub(crate) fn handle_slash_command(&mut self, cmd: &str) {
         let s = cmd.trim();
-        let normalized: String = if s.starts_with(':') {
-            if s == ":" {
+        let normalized: String = if let Some(rest) = s.strip_prefix(':') {
+            if rest.is_empty() {
                 "/".to_string()
             } else {
-                format!("/{}", &s[1..])
+                format!("/{rest}")
             }
         } else {
             s.to_string()
@@ -62,7 +62,10 @@ impl<'a> App<'a> {
         if self.slash_registry.get(command).is_none() {
             self.messages.push(DisplayMessage::new_text(
                 Role::System,
-                format!("Unknown command: {}. Type /help for available commands.", command),
+                format!(
+                    "Unknown command: {}. Type /help for available commands.",
+                    command
+                ),
             ));
             return;
         }
@@ -418,7 +421,6 @@ impl<'a> App<'a> {
                 }
             }
 
-
             "/save" => {
                 if self.messages.is_empty() {
                     self.messages.push(DisplayMessage::new_text(
@@ -635,12 +637,12 @@ impl<'a> App<'a> {
                 let mut max_days: Option<u32> = None;
                 let mut max_sessions: Option<usize> = None;
                 for part in arg.split_whitespace() {
-                    if part.ends_with('d') {
-                        if let Ok(d) = part[..part.len() - 1].parse::<u32>() {
+                    if let Some(base) = part.strip_suffix('d') {
+                        if let Ok(d) = base.parse::<u32>() {
                             max_days = Some(d);
                         }
-                    } else if part.ends_with('s') {
-                        if let Ok(s) = part[..part.len() - 1].parse::<usize>() {
+                    } else if let Some(base) = part.strip_suffix('s') {
+                        if let Ok(s) = base.parse::<usize>() {
                             max_sessions = Some(s);
                         }
                     }
@@ -672,8 +674,8 @@ impl<'a> App<'a> {
                         Role::System,
                         "Usage: /tag add <tags> | rm <tag> | list | clear".to_string(),
                     ));
-                } else if arg.starts_with("add ") {
-                    let tags_str = arg["add ".len()..].trim();
+                } else if let Some(tags_str) = arg.strip_prefix("add ") {
+                    let tags_str = tags_str.trim();
                     let mut added = Vec::new();
                     for raw in tags_str.split_whitespace() {
                         let sanitized = raw.trim().to_string();
@@ -693,8 +695,8 @@ impl<'a> App<'a> {
                             "No new tags added".to_string(),
                         ));
                     }
-                } else if arg.starts_with("rm ") {
-                    let tag = arg["rm ".len()..].trim();
+                } else if let Some(tag) = arg.strip_prefix("rm ") {
+                    let tag = tag.trim();
                     if let Some(pos) = self.session_tags.iter().position(|t| t == tag) {
                         self.session_tags.remove(pos);
                         self.messages.push(DisplayMessage::new_text(
@@ -933,7 +935,12 @@ impl<'a> App<'a> {
                         Role::System,
                         "Cannot retry while a response is in progress.".to_string(),
                     ));
-                } else if self.messages.iter().rposition(|m| m.role == Role::Assistant).is_none() {
+                } else if self
+                    .messages
+                    .iter()
+                    .rposition(|m| m.role == Role::Assistant)
+                    .is_none()
+                {
                     self.messages.push(DisplayMessage::new_text(
                         Role::System,
                         "No assistant message to retry.".to_string(),
@@ -987,9 +994,15 @@ pub(crate) fn default_slash_fuzzy_lines() -> Vec<String> {
     // Model shortcut lines (kept from the old static palette)
     out.extend(
         [
-            ("/model qwen/qwen3.5-122b-a10b", "Qwen 3.5 122B (S tier, fast)"),
+            (
+                "/model qwen/qwen3.5-122b-a10b",
+                "Qwen 3.5 122B (S tier, fast)",
+            ),
             ("/model minimaxai/minimax-m2.5", "MiniMax M2.5 (SWE 80.2%)"),
-            ("/model stepfun-ai/step-3.5-flash", "Step 3.5 Flash (S+ tier)"),
+            (
+                "/model stepfun-ai/step-3.5-flash",
+                "Step 3.5 Flash (S+ tier)",
+            ),
             (
                 "/model mistralai/mistral-small-4-119b-2603",
                 "Mistral Small 4 119B",
@@ -1000,4 +1013,3 @@ pub(crate) fn default_slash_fuzzy_lines() -> Vec<String> {
     );
     out
 }
-

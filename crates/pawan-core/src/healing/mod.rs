@@ -774,7 +774,7 @@ pub async fn run_verify_cmd(workspace_root: &Path, cmd: &str) -> Result<Option<D
         .stderr(Stdio::piped())
         .output()
         .await
-        .map_err(|e| PawanError::Io(e))?;
+        .map_err(PawanError::Io)?;
 
     if output.status.success() {
         return Ok(None);

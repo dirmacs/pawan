@@ -20,14 +20,12 @@ use ratatui::{
     widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame, Terminal,
 };
+use ratatui_textarea::{Input, TextArea};
 use regex::Regex;
 use std::io::{self, Stdout};
 use std::sync::OnceLock;
 use std::time::Instant;
-use ratatui_textarea::{Input, TextArea};
 use tokio::sync::mpsc;
-
-use serde_json;
 
 /// Autosave interval (5 minutes)
 pub(crate) const AUTOSAVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(300);
@@ -94,33 +92,22 @@ pub enum SessionSortMode {
 
 /// Export format options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-
 pub enum ExportFormat {
     #[allow(dead_code)]
     Markdown,
-
     Html,
-
     Json,
-
     Txt,
 }
 
-/// Export format options
-
 impl ExportFormat {
     /// Parse format from string, defaulting to Markdown
-
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "html" => ExportFormat::Html,
-
             "json" => ExportFormat::Json,
-
             "txt" | "text" => ExportFormat::Txt,
-
             "md" | "markdown" => ExportFormat::Markdown,
-
             _ => ExportFormat::Markdown,
         }
     }
@@ -208,7 +195,6 @@ impl DisplayMessage {
     pub(crate) fn invalidate_cache(&mut self) {
         self.cached_block_lines = None;
     }
-
 
     /// Flat text content for search and export.
     pub(crate) fn text_content(&self) -> String {

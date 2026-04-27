@@ -13,7 +13,7 @@ use crate::{PawanError, Result};
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -55,7 +55,7 @@ impl TaskTool {
     }
 
     fn validate_agent_type(agent: &str) -> std::result::Result<(), String> {
-        if Self::known_agent_types().iter().any(|t| *t == agent) {
+        if Self::known_agent_types().contains(&agent) {
             Ok(())
         } else {
             Err(format!(
@@ -95,8 +95,9 @@ impl TaskTool {
         }
     }
 
-    fn registry_for(agent: &str, workspace_root: &PathBuf) -> ToolRegistry {
+    fn registry_for(agent: &str, workspace_root: &Path) -> ToolRegistry {
         use ToolTier::*;
+        let workspace_root = workspace_root.to_path_buf();
         let mut reg = ToolRegistry::new();
 
         // Read/search tools
@@ -244,10 +245,12 @@ impl TaskTool {
         timeout_secs: u64,
         backend_override: Option<Box<dyn LlmBackend>>,
     ) -> Result<Value> {
-        let mut config = PawanConfig::default();
-        config.system_prompt = Some(Self::system_prompt_for(agent_type));
-        config.max_context_tokens = 32_000;
-        config.max_tool_iterations = 20;
+        let mut config = PawanConfig {
+            system_prompt: Some(Self::system_prompt_for(agent_type)),
+            max_context_tokens: 32_000,
+            max_tool_iterations: 20,
+            ..Default::default()
+        };
         config.eruka.enabled = false;
         if let Some(m) = model {
             config.model = m.to_string();

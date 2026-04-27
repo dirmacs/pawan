@@ -674,11 +674,7 @@ pub fn search_sessions_with_options(
                                 // Find the match position for context extraction
                                 let content_lower = msg.content.to_lowercase();
                                 if let Some(pos) = content_lower.find(&query_lower) {
-                                    let start = if pos >= options.context_window {
-                                        pos - options.context_window
-                                    } else {
-                                        0
-                                    };
+                                    let start = pos.saturating_sub(options.context_window);
                                     let end = std::cmp::min(
                                         pos + query.len() + options.context_window,
                                         msg.content.len(),
