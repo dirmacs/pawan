@@ -47,10 +47,10 @@ hostname = "0.4"
 toml = { workspace = true }
 
 # Config
-dotenvy = "0.15"
-dirs = "6"
+dotenvy = { workspace = true }
+dirs = { workspace = true }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
-tempfile = "3"
+tempfile = { workspace = true }
 http-body-util = "0.1"
