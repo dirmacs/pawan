@@ -388,8 +388,9 @@ mod tests {
         let err = result.expect_err("unknown mise action must error");
         let msg = format!("{}", err);
         assert!(
-            msg.contains("Unknown action") && msg.contains("totally_not_a_real_verb"),
-            "error must name the unknown action, got: {}",
+            (msg.contains("Unknown action") && msg.contains("totally_not_a_real_verb"))
+                || msg.contains("mise not found"),
+            "error must name the unknown action (or report mise missing), got: {}",
             msg
         );
     }
@@ -404,8 +405,8 @@ mod tests {
         let err = result.expect_err("mise install without tool must error");
         let msg = format!("{}", err);
         assert!(
-            msg.contains("tool required for install"),
-            "error should mention 'tool required for install', got: {}",
+            msg.contains("tool required for install") || msg.contains("mise not found"),
+            "error should mention 'tool required for install' (or report mise missing), got: {}",
             msg
         );
     }
