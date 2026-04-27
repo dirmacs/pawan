@@ -17,168 +17,13 @@ const fn default_config_version() -> u32 {
 }
 
 /// Default tool idle timeout (5 minutes)
-const fn default_tool_idle_timeout() -> u64 {
+pub(super) const fn default_tool_idle_timeout() -> u64 {
     300
 }
 
-/// Config migration result
-#[derive(Debug)]
-pub struct MigrationResult {
-    /// Whether migration was performed
-    pub migrated: bool,
-    /// Original config version
-    pub from_version: u32,
-    /// Target config version
-    pub to_version: u32,
-    /// Path to backup if created
-    pub backup_path: Option<std::path::PathBuf>,
-}
 
-impl MigrationResult {
-    /// Create a new migration result
-    pub fn new(from_version: u32, to_version: u32, backup_path: Option<std::path::PathBuf>) -> Self {
-        Self {
-            migrated: from_version != to_version,
-            from_version,
-            to_version,
-            backup_path,
-        }
-    }
-
-    /// Create a result indicating no migration was needed
-    pub fn no_migration(version: u32) -> Self {
-        Self {
-            migrated: false,
-            from_version: version,
-            to_version: version,
-            backup_path: None,
-        }
-    }
-}
-
-/// Latest config version
-const LATEST_CONFIG_VERSION: u32 = 1;
-
-/// Migrate config to the latest version
-///
-/// This function handles version upgrades by applying migration steps
-/// sequentially from the current version to the latest version.
-///
-/// # Arguments
-/// * `config` - The config to migrate (will be modified in place)
-/// * `config_path` - Optional path to the config file (for backup)
-///
-/// # Returns
-/// Migration result indicating whether migration occurred and details
-pub fn migrate_to_latest(config: &mut PawanConfig, config_path: Option<&PathBuf>) -> MigrationResult {
-    let current_version = config.config_version;
-
-    if current_version >= LATEST_CONFIG_VERSION {
-        return MigrationResult::no_migration(current_version);
-    }
-
-    // Create backup if we have a path
-    let backup_path = config_path.and_then(|path| create_backup(path).ok());
-
-    // Apply migrations sequentially
-    let mut version = current_version;
-    while version < LATEST_CONFIG_VERSION {
-        version = match migrate_to_version(config, version + 1) {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::error!(
-                    from_version = version,
-                    to_version = LATEST_CONFIG_VERSION,
-                    error = %e,
-                    "Config migration failed"
-                );
-                return MigrationResult::new(current_version, version, backup_path);
-            }
-        };
-    }
-
-    config.config_version = LATEST_CONFIG_VERSION;
-    MigrationResult::new(current_version, LATEST_CONFIG_VERSION, backup_path)
-}
-
-/// Migrate config to a specific version
-///
-/// # Arguments
-/// * `config` - The config to migrate (will be modified in place)
-/// * `target_version` - The target version to migrate to
-///
-/// # Returns
-/// Ok with the new version, or Err if migration failed
-fn migrate_to_version(config: &mut PawanConfig, target_version: u32) -> Result<u32, String> {
-    match target_version {
-        1 => migrate_to_v1(config),
-        _ => Err(format!("Unknown target version: {}", target_version)),
-    }
-}
-
-/// Migrate config to version 1
-///
-/// Version 1 adds:
-/// - config_version field
-/// - tool_call_idle_timeout_secs field (default: 300)
-/// - skills_repo field
-/// - local_first field
-/// - local_endpoint field
-fn migrate_to_v1(config: &mut PawanConfig) -> Result<u32, String> {
-    // Set config version
-    config.config_version = 1;
-
-    // Set default tool idle timeout if not present
-    if config.tool_call_idle_timeout_secs == 0 {
-        config.tool_call_idle_timeout_secs = default_tool_idle_timeout();
-    }
-
-    // Note: skills_repo, local_first, and local_endpoint are Option fields
-    // so they'll be None by default if not present in the config
-
-    tracing::info!("Config migrated to version 1");
-    Ok(1)
-}
-
-/// Create a backup of the config file
-///
-/// # Arguments
-/// * `config_path` - Path to the config file
-///
-/// # Returns
-/// Ok with the backup path, or Err if backup failed
-fn create_backup(config_path: &PathBuf) -> Result<PathBuf, String> {
-    let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S");
-    let backup_path = config_path.with_extension(format!("toml.backup.{}", timestamp));
-
-    std::fs::copy(config_path, &backup_path).map_err(|e| {
-        format!("Failed to create backup at {}: {}", backup_path.display(), e)
-    })?;
-
-    tracing::info!(backup = %backup_path.display(), "Config backup created");
-    Ok(backup_path)
-}
-
-/// Save config to a file
-///
-/// # Arguments
-/// * `config` - The config to save
-/// * `path` - Path to save the config to
-///
-/// # Returns
-/// Ok if save succeeded, Err if save failed
-pub fn save_config(config: &PawanConfig, path: &PathBuf) -> Result<(), String> {
-    let toml_string = toml::to_string_pretty(config).map_err(|e| {
-        format!("Failed to serialize config to TOML: {}", e)
-    })?;
-
-    std::fs::write(path, toml_string).map_err(|e| {
-        format!("Failed to write config to {}: {}", path.display(), e)
-    })?;
-
-    tracing::info!(path = %path.display(), "Config saved");
-    Ok(())
-}
+pub mod migration;
+pub use migration::{migrate_to_latest, save_config, MigrationResult};
 
 /// LLM Provider type
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -1716,7 +1561,7 @@ workers = 4
         let mut config = PawanConfig::default();
         config.config_version = 0;
         
-        let result = migrate_to_v1(&mut config);
+        let result = migration::migrate_to_v1(&mut config);
         
         assert!(result.is_ok(), "Migration should succeed");
         assert_eq!(result.unwrap(), 1, "Should return new version");

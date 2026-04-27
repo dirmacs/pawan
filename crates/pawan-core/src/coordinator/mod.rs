@@ -13,7 +13,7 @@
 //! Types defined here:
 //! - [`ToolCallingConfig`]   — iteration / parallelism / timeout knobs
 //! - [`FinishReason`]        — why the session ended
-//! - [`MessageRole`]         — system / user / assistant / tool
+//! - [`Role`]              — re-exported from `crate::agent` (system/user/assistant/tool)
 //! - [`ConversationMessage`] — a single turn in the history
 //! - [`CoordinatorResult`]   — everything the caller gets back
 //! - [`ToolCoordinator`]     — the runtime that drives the LLM+tool loop
@@ -24,7 +24,7 @@
 //!   Failed tool calls land in `result` as a `{"error": "..."}` JSON object
 //!   with `success: false`, matching pawan's existing agent loop — there's no
 //!   separate `error` field on the record.
-//! - [`ConversationMessage::tool_call_id`] is only populated on [`MessageRole::Tool`]
+//! - [`ConversationMessage::tool_call_id`] is only populated on [`Role::Tool`]
 //!   turns and links the result back to the assistant message that requested it.
 
 use crate::agent::backend::LlmBackend;
@@ -75,6 +75,7 @@ impl Default for ToolCallingConfig {
 
 /// Reason why a tool coordination session ended.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", content = "message")]
 pub enum FinishReason {
     /// Model produced a final response with no tool calls.
     Stop,
@@ -85,6 +86,8 @@ pub enum FinishReason {
     Error(String),
     /// The model requested a tool that isn't registered in the tool registry.
     UnknownTool(String),
+    /// The session was cancelled by the caller.
+    Cancelled,
 }
 
 impl std::fmt::Display for FinishReason {
@@ -94,35 +97,21 @@ impl std::fmt::Display for FinishReason {
             FinishReason::MaxIterations => write!(f, "max_iterations"),
             FinishReason::Error(e) => write!(f, "error: {}", e),
             FinishReason::UnknownTool(t) => write!(f, "unknown_tool: {}", t),
+            FinishReason::Cancelled => write!(f, "cancelled"),
         }
     }
 }
 
-/// Role of a message sender in a tool-calling conversation.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum MessageRole {
-    /// System instructions — sets the assistant's behavior.
-    System,
-    /// User message — the prompt driving the conversation.
-    User,
-    /// Assistant response — may include `tool_calls`.
-    Assistant,
-    /// Tool execution result — carries a `tool_call_id` linking it to the
-    /// assistant message that requested it.
-    Tool,
-}
-
 /// A single message in a tool-calling conversation.
 ///
-/// Covers all four roles in [`MessageRole`]. For `Assistant` messages,
+/// Covers all four roles in [`Role`]. For `Assistant` messages,
 /// `tool_calls` may be populated with the requests the model wants executed.
 /// For `Tool` messages, `tool_call_id` carries the ID of the request being
 /// responded to and `content` holds the JSON-serialized result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationMessage {
     /// Who sent this message.
-    pub role: MessageRole,
+    pub role: Role,
 
     /// Text content. For `Tool` messages this is a JSON-serialized result.
     pub content: String,
@@ -141,7 +130,7 @@ impl ConversationMessage {
     /// Create a system message.
     pub fn system(content: impl Into<String>) -> Self {
         Self {
-            role: MessageRole::System,
+            role: Role::System,
             content: content.into(),
             tool_calls: Vec::new(),
             tool_call_id: None,
@@ -151,7 +140,7 @@ impl ConversationMessage {
     /// Create a user message.
     pub fn user(content: impl Into<String>) -> Self {
         Self {
-            role: MessageRole::User,
+            role: Role::User,
             content: content.into(),
             tool_calls: Vec::new(),
             tool_call_id: None,
@@ -161,7 +150,7 @@ impl ConversationMessage {
     /// Create an assistant message, optionally carrying tool calls.
     pub fn assistant(content: impl Into<String>, tool_calls: Vec<ToolCallRequest>) -> Self {
         Self {
-            role: MessageRole::Assistant,
+            role: Role::Assistant,
             content: content.into(),
             tool_calls,
             tool_call_id: None,
@@ -172,7 +161,7 @@ impl ConversationMessage {
     /// `content`; if serialization fails the message falls back to `"{}"`.
     pub fn tool_result(tool_call_id: impl Into<String>, result: &serde_json::Value) -> Self {
         Self {
-            role: MessageRole::Tool,
+            role: Role::Tool,
             content: serde_json::to_string(result).unwrap_or_else(|_| "{}".to_string()),
             tool_calls: Vec::new(),
             tool_call_id: Some(tool_call_id.into()),
@@ -222,14 +211,7 @@ pub struct CoordinatorResult {
 /// - `Assistant` messages: copy `tool_calls` directly (same type).
 /// - `System`/`User` messages: straightforward role + content copy.
 fn to_backend_message(msg: &ConversationMessage) -> Message {
-    let role = match msg.role {
-        MessageRole::System => Role::System,
-        MessageRole::User => Role::User,
-        MessageRole::Assistant => Role::Assistant,
-        MessageRole::Tool => Role::Tool,
-    };
-
-    let tool_result = if msg.role == MessageRole::Tool {
+    let tool_result = if msg.role == Role::Tool {
         msg.tool_call_id.as_ref().map(|id| ToolResultMessage {
             tool_call_id: id.clone(),
             content: serde_json::from_str(&msg.content).unwrap_or(serde_json::Value::String(msg.content.clone())),
@@ -240,7 +222,7 @@ fn to_backend_message(msg: &ConversationMessage) -> Message {
     };
 
     Message {
-        role,
+        role: msg.role.clone(),
         content: msg.content.clone(),
         tool_calls: msg.tool_calls.clone(),
         tool_result,
@@ -579,21 +561,21 @@ mod tests {
     }
 
     #[test]
-    fn message_role_serializes_as_lowercase_string() {
+    fn conversation_message_role_serializes_as_lowercase_string() {
         assert_eq!(
-            serde_json::to_string(&MessageRole::System).unwrap(),
+            serde_json::to_string(&Role::System).unwrap(),
             "\"system\""
         );
         assert_eq!(
-            serde_json::to_string(&MessageRole::User).unwrap(),
+            serde_json::to_string(&Role::User).unwrap(),
             "\"user\""
         );
         assert_eq!(
-            serde_json::to_string(&MessageRole::Assistant).unwrap(),
+            serde_json::to_string(&Role::Assistant).unwrap(),
             "\"assistant\""
         );
         assert_eq!(
-            serde_json::to_string(&MessageRole::Tool).unwrap(),
+            serde_json::to_string(&Role::Tool).unwrap(),
             "\"tool\""
         );
     }
@@ -601,7 +583,7 @@ mod tests {
     #[test]
     fn conversation_message_system_builder_sets_role_and_content() {
         let msg = ConversationMessage::system("you are an assistant");
-        assert_eq!(msg.role, MessageRole::System);
+        assert_eq!(msg.role, Role::System);
         assert_eq!(msg.content, "you are an assistant");
         assert!(msg.tool_calls.is_empty());
         assert!(msg.tool_call_id.is_none());
@@ -610,7 +592,7 @@ mod tests {
     #[test]
     fn conversation_message_user_builder_sets_role_and_content() {
         let msg = ConversationMessage::user("what is 2 + 2?");
-        assert_eq!(msg.role, MessageRole::User);
+        assert_eq!(msg.role, Role::User);
         assert_eq!(msg.content, "what is 2 + 2?");
         assert!(msg.tool_calls.is_empty());
         assert!(msg.tool_call_id.is_none());
@@ -624,7 +606,7 @@ mod tests {
             arguments: json!({"q": "rust"}),
         }];
         let msg = ConversationMessage::assistant("let me search", calls.clone());
-        assert_eq!(msg.role, MessageRole::Assistant);
+        assert_eq!(msg.role, Role::Assistant);
         assert_eq!(msg.content, "let me search");
         assert_eq!(msg.tool_calls.len(), 1);
         assert_eq!(msg.tool_calls[0].id, "call_1");
@@ -636,7 +618,7 @@ mod tests {
     fn conversation_message_tool_result_serializes_result_into_content() {
         let result = json!({"answer": 42, "units": "none"});
         let msg = ConversationMessage::tool_result("call_1", &result);
-        assert_eq!(msg.role, MessageRole::Tool);
+        assert_eq!(msg.role, Role::Tool);
         assert_eq!(msg.tool_call_id.as_deref(), Some("call_1"));
         assert!(msg.tool_calls.is_empty());
         // Content is the JSON-serialized form — not the Display form.
