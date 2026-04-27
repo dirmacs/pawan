@@ -490,11 +490,13 @@ impl PawanAgent {
                         let key =
                             get_api_key_with_secure_fallback("NVIDIA_API_KEY", "nvidia_api_key");
 
-                        // If no key found, prompt user
-                        let key = if key.is_none() {
-                            prompt_and_store_api_key("NVIDIA_API_KEY", "nvidia_api_key", "NVIDIA")
-                        } else {
+                        // If no key found, prompt user (skip interactive prompts in unit tests)
+                        let key = if key.is_some() {
                             key
+                        } else if cfg!(test) {
+                            Some("pawan-test-dummy-key".to_string())
+                        } else {
+                            prompt_and_store_api_key("NVIDIA_API_KEY", "nvidia_api_key", "NVIDIA")
                         };
 
                         if key.is_none() {
@@ -511,10 +513,12 @@ impl PawanAgent {
 
                         let key =
                             get_api_key_with_secure_fallback("OPENAI_API_KEY", "openai_api_key");
-                        let key = if key.is_none() {
-                            prompt_and_store_api_key("OPENAI_API_KEY", "openai_api_key", "OpenAI")
-                        } else {
+                        let key = if key.is_some() {
                             key
+                        } else if cfg!(test) {
+                            Some("pawan-test-dummy-key".to_string())
+                        } else {
+                            prompt_and_store_api_key("OPENAI_API_KEY", "openai_api_key", "OpenAI")
                         };
 
                         (url, key)
