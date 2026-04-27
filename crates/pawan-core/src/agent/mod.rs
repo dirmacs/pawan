@@ -10,6 +10,7 @@ pub mod backend;
 mod preflight;
 pub mod events;
 pub mod session;
+#[cfg(feature = "git-sessions")]
 pub mod git_session;
 
 // Re-export event types for public API

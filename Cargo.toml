@@ -68,6 +68,12 @@ tracing = "0.1"
 uuid = { version = "1.19", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 
+
+# Shared utility deps (used by 2+ crates)
+which = "8"
+dirs = "6.0"
+dotenvy = "0.15"
+tempfile = "3.23"
 [profile.release]
 opt-level = 3
 lto = true
@@ -80,6 +86,7 @@ opt-level = 0
 debug = 1
 incremental = true
 codegen-units = 256
+split-debuginfo = "unpacked"
 
 [profile.dev.package."*"]
 opt-level = 2
@@ -90,6 +97,7 @@ opt-level = 0
 debug = 1
 incremental = true
 codegen-units = 256
+split-debuginfo = "unpacked"
 
 [profile.test.package."*"]
 opt-level = 2
