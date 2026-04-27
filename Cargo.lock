@@ -5315,7 +5315,7 @@ checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 
 [[package]]
 name = "pawan"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "arboard",
  "arc-swap",
@@ -5358,7 +5358,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-aegis"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -5369,7 +5369,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-core"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "ares-server",
  "async-trait",
@@ -5414,7 +5414,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-mcp"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "async-trait",
  "futures",
@@ -5431,7 +5431,7 @@ dependencies = [
 
 [[package]]
 name = "pawan-web"
-version = "0.5.0"
+version = "0.5.1"
 dependencies = [
  "axum 0.8.9",
  "axum-extra",

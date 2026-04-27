@@ -1,4 +1,15 @@
-## [0.5.0] - 2026-04-27
+## [0.5.1] - 2026-04-27
+
+### Fixed
+- ColorTransition: `/theme` now animates accent color (focus borders, input title bar) via `set()` instead of instant-snap `new()`
+- TUI focus borders: hardcoded `Color::Cyan` replaced with `accent_transition.resolve()` for animated theme transitions
+- render_status: replaced with `StatusBar::view()` across both layout paths; dead `keybind_status_hint` and `KeyAction` removed
+
+### Added
+- StatusBar component: rich status strip with flash-on-event, mode badge (INPUT/NORMAL/CMD/HELP/MODEL), context bar, iteration counter, timestamp
+- `status_bar.flash()` integrated into `/theme` slash command on successful theme switch
+- `⚡` animation indicator in input area title bar while accent color transition is in progress
+- `KeybindContext` enum variants exposed in mode badge: Input, Normal, Command, Help, ModelPicker
 
 ### Added
 - Doom-loop detection with configurable backoff multiplier and automatic reset
