@@ -13,6 +13,7 @@ use gix::bstr::ByteSlice;
 use gix::object::tree::EntryKind;
 use gix::ObjectId;
 use serde::{Deserialize, Serialize};
+use std::cmp::Reverse;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
@@ -170,7 +171,7 @@ impl GitSessionStore {
                 }
             }
         }
-        leaves.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        leaves.sort_by_key(|info| Reverse(info.timestamp));
         Ok(leaves)
     }
 
@@ -233,7 +234,7 @@ impl GitSessionStore {
                 }
             }
         }
-        sessions.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        sessions.sort_by_key(|info| Reverse(info.timestamp));
         Ok(sessions)
     }
 
