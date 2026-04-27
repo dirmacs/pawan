@@ -36,9 +36,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install protoc
+      - name: Install CI deps (protoc + native CLI tools for tests)
         run: |
-          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler ripgrep fd-find
+          sudo ln -sf /usr/bin/fdfind /usr/local/bin/fd
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-nextest
         uses: taiki-e/install-action@v2
