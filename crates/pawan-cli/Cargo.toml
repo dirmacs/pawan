@@ -31,15 +31,15 @@ reqwest = { workspace = true }
 toml = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
-which = "8"
+which = { workspace = true }
 
 # CLI
 clap = { version = "4.5", features = ["derive", "color", "env"] }
 clap_complete = "4.5"
 owo-colors = "4.1"
 dialoguer = "0.12"
-dirs = "6.0"
-dotenvy = "0.15"
+dirs = { workspace = true }
+dotenvy = { workspace = true }
 indicatif = "0.18"
 
 # TUI (optional but default)
@@ -56,6 +56,6 @@ atty = "0.2.14"
 arboard = "3.4"
 
 [dev-dependencies]
-tempfile = "3.23"
+tempfile = { workspace = true }
 assert_cmd = "2.0"
 predicates = "3.1"

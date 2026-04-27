@@ -15,7 +15,7 @@ name = "pawan"
 path = "src/lib.rs"
 
 [features]
-default = ["deagle", "tasks"]
+default = ["deagle", "tasks", "git-sessions"]
 
 # deagle: embedded code-intelligence (deagle-core + deagle-parse + rayon).
 # Adds tree-sitter parsers for 9 languages; ~30-50 MB binary overhead.
@@ -25,6 +25,10 @@ deagle = ["dep:deagle-core", "dep:deagle-parse", "dep:rayon"]
 # tasks: SQLite-backed beads task tracker (rusqlite bundled).
 # Disable to skip the C build of SQLite.
 tasks = ["dep:rusqlite"]
+
+# git-sessions: gix-backed conversation tree persistence.
+# Disable to skip pure-Rust gix dep (no C, but adds compile units).
+git-sessions = ["dep:gix"]
 
 # lancor: llama.cpp local inference backend (optional).
 lancor = ["dep:lancor"]
@@ -46,10 +50,10 @@ toml = { workspace = true }
 reqwest = { workspace = true }
 
 # Binary detection for native tools
-which = "8"
+which = { workspace = true }
 
 # Home directory resolution
-dirs = "6.0"
+dirs = { workspace = true }
 
 # File operations
 glob = "0.3"
@@ -59,8 +63,8 @@ similar = "2.6"
 regex = "1.12"
 rand = "0.8"
 
-# Git-backed sessions (conversation trees)
-git2 = "0.20"
+# Git-backed sessions (pure Rust — gix, no C) (conversation trees)
+gix = { version = "0.82", default-features = false, features = ["sha1", "tree-editor"], optional = true }
 
 # Beads-style task tracking (SQLite-backed)
 rusqlite = { optional = true, version = "0.34", features = ["bundled"] }
@@ -102,7 +106,7 @@ keyring = "3.6"
 lancor = { workspace = true, optional = true }
 
 [dev-dependencies]
-tempfile = "3.23"
+tempfile = { workspace = true }
 tokio-test = "0.4"
 serial_test = "3.2"
 
