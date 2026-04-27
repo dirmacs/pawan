@@ -21,7 +21,9 @@ use ratatui::{
     Frame, Terminal,
 };
 use ratatui::style::Style;
+use regex::Regex;
 use std::io::{self, Stdout};
+use std::sync::OnceLock;
 use std::time::Instant;
 
 use tokio::sync::mpsc;
@@ -142,7 +144,6 @@ impl ExportFormat {
 pub struct ModelInfo {
     pub id: String,
     pub provider: String,
-    #[allow(dead_code)]
     pub quality_score: u8,
 }
 
@@ -273,6 +274,44 @@ fn format_tool_result(result: &serde_json::Value) -> String {
     }
 }
 
+static REASONING_STRIP: OnceLock<Regex> = OnceLock::new();
+
+/// Strip model "thinking" / reasoning tag regions from assistant text before display.
+fn strip_reasoning_tags(s: &str) -> String {
+    let re = REASONING_STRIP.get_or_init(|| {
+        Regex::new(r"(?s)<think>.*?</think>|\[/think\]")
+            .expect("static regex")
+    });
+    re.replace_all(s, "").to_string()
+}
+
+/// Active keybinding context (drives the status bar hint and modal priority).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum KeybindContext {
+    Input,
+    Normal,
+    Command,
+    Help,
+    ModelPicker,
+}
+
+/// One keybinding row for documentation / the status bar.
+pub struct KeyAction {
+    /// Which UI mode this row applies to (used for docs / key maps).
+    #[allow(dead_code)]
+    pub context: KeybindContext,
+    pub key: &'static str,
+    pub description: &'static str,
+}
+
+/// Model picker: list, selection, filter query, and visibility.
+pub struct ModelPickerState {
+    pub models: Vec<ModelInfo>,
+    pub selected: usize,
+    pub visible: bool,
+    pub query: String,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// Which panel is focused in the TUI
 ///
@@ -336,11 +375,10 @@ struct App<'a> {
     cmd_tx: mpsc::UnboundedSender<AgentCommand>,
     /// Channel to receive events from the agent task
     event_rx: mpsc::UnboundedReceiver<AgentEvent>,
-    /// Model selector modal state
-    model_selector_open: bool,
-    model_selector_query: String,
-    model_selector_selected: usize,
-    available_models: Vec<ModelInfo>,
+    /// Keybinding context (refreshed each frame from UI state)
+    current_context: KeybindContext,
+    /// Model picker modal
+    model_picker: ModelPickerState,
     /// Session browser state
     session_browser_open: bool,
     session_browser_query: String,
@@ -413,10 +451,13 @@ slash_popup_selected: 0,
             auto_approve_tools: false,
             cmd_tx,
             event_rx,
-            model_selector_open: false,
-            model_selector_query: String::new(),
-            model_selector_selected: 0,
-            available_models: Vec::new(),
+            current_context: KeybindContext::Input,
+            model_picker: ModelPickerState {
+                models: Vec::new(),
+                selected: 0,
+                visible: false,
+                query: String::new(),
+            },
             session_browser_open: false,
             session_browser_query: String::new(),
             session_browser_selected: 0,
@@ -425,6 +466,68 @@ slash_popup_selected: 0,
             history: Vec::new(),
             history_position: None,
         }
+    }
+
+    /// Derive keybinding context from modal / focus state.
+    fn determine_keybind_context(&self) -> KeybindContext {
+        if self.help_overlay {
+            KeybindContext::Help
+        } else if self.palette_open {
+            KeybindContext::Command
+        } else if self.model_picker.visible {
+            KeybindContext::ModelPicker
+        } else if self.focus == Panel::Messages {
+            KeybindContext::Normal
+        } else {
+            KeybindContext::Input
+        }
+    }
+
+    fn refresh_keybind_context(&mut self) {
+        self.current_context = self.determine_keybind_context();
+    }
+
+    fn keybind_status_hint(&self) -> String {
+        fn row(actions: &[KeyAction]) -> String {
+            actions
+                .iter()
+                .map(|a| format!("{} {}", a.key, a.description))
+                .collect::<Vec<_>>()
+                .join(" · ")
+        }
+        match self.current_context {
+            KeybindContext::Input => row(&[
+                KeyAction { context: KeybindContext::Input, key: "^Q", description: "quit" },
+                KeyAction { context: KeybindContext::Input, key: "^P/:", description: "cmd" },
+                KeyAction { context: KeybindContext::Input, key: "^M", description: "models" },
+                KeyAction { context: KeybindContext::Input, key: "F1", description: "help" },
+                KeyAction { context: KeybindContext::Input, key: "Tab", description: "msgs" },
+            ]),
+            KeybindContext::Normal => row(&[
+                KeyAction { context: KeybindContext::Normal, key: "j/k", description: "scroll" },
+                KeyAction { context: KeybindContext::Normal, key: "/", description: "search" },
+                KeyAction { context: KeybindContext::Normal, key: "i", description: "input" },
+                KeyAction { context: KeybindContext::Normal, key: "^M", description: "models" },
+            ]),
+            KeybindContext::Command => row(&[
+                KeyAction { context: KeybindContext::Command, key: "Esc", description: "close" },
+                KeyAction { context: KeybindContext::Command, key: "Enter", description: "run" },
+            ]),
+            KeybindContext::Help => row(&[KeyAction { context: KeybindContext::Help, key: "any", description: "close" }]),
+            KeybindContext::ModelPicker => row(&[
+                KeyAction { context: KeybindContext::ModelPicker, key: "Esc", description: "cancel" },
+                KeyAction { context: KeybindContext::ModelPicker, key: "Enter", description: "pick" },
+            ]),
+        }
+    }
+
+    /// Switch the active model (UI + agent task).
+    fn switch_model(&mut self, model_id: String) {
+        self.model_name = model_id.clone();
+        self.status = format!("Model → {}", model_id);
+        self.messages
+            .push(DisplayMessage::new_text(Role::System, format!("Switched to model: {}", model_id)));
+        let _ = self.cmd_tx.send(AgentCommand::SwitchModel(model_id));
     }
 
 /// Convert persisted core session messages into TUI display messages.
@@ -494,6 +597,7 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
 
     async fn main_loop(&mut self, terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
         loop {
+            self.refresh_keybind_context();
             terminal.draw(|f| self.ui(f)).map_err(PawanError::Io)?;
 
             // Non-blocking: check for agent events first
@@ -699,6 +803,17 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
                         self.palette_selected = 0;
                         return;
                     }
+                    (KeyModifiers::CONTROL, KeyCode::Char('m')) | (KeyModifiers::CONTROL, KeyCode::Char('M')) => {
+                        if self.model_picker.models.is_empty() {
+                            self.load_available_models();
+                        }
+                        self.model_picker.visible = !self.model_picker.visible;
+                        if !self.model_picker.visible {
+                            self.model_picker.query.clear();
+                            self.model_picker.selected = 0;
+                        }
+                        return;
+                    }
                     (_, KeyCode::F(1)) => {
                         self.help_overlay = !self.help_overlay;
                         return;
@@ -787,69 +902,65 @@ fn messages_from_session(messages: Vec<Message>) -> Vec<DisplayMessage> {
                 }
 
                 // Model selector modal - intercept all keys when open
-                if self.model_selector_open {
+                if self.model_picker.visible {
                     match key.code {
                         KeyCode::Esc => {
-                            self.model_selector_open = false;
-                            self.model_selector_query.clear();
-                            self.model_selector_selected = 0;
+                            self.model_picker.visible = false;
+                            self.model_picker.query.clear();
+                            self.model_picker.selected = 0;
                         }
                         KeyCode::Backspace => {
-                            self.model_selector_query.pop();
-                            self.model_selector_selected = 0;
+                            self.model_picker.query.pop();
+                            self.model_picker.selected = 0;
                         }
                         KeyCode::Char(c) => {
-                            self.model_selector_query.push(c);
-                            self.model_selector_selected = 0;
+                            self.model_picker.query.push(c);
+                            self.model_picker.selected = 0;
                         }
                         KeyCode::Up => {
                             let filtered = self.filtered_models().len();
                             if filtered > 0 {
-                                self.model_selector_selected = self.model_selector_selected.saturating_sub(1);
+                                self.model_picker.selected = self.model_picker.selected.saturating_sub(1);
                             }
                         }
                         KeyCode::Down => {
                             let filtered = self.filtered_models().len();
                             if filtered > 0 {
-                                self.model_selector_selected = (self.model_selector_selected + 1).min(filtered - 1);
+                                self.model_picker.selected = (self.model_picker.selected + 1).min(filtered - 1);
                             }
                         }
                         KeyCode::PageUp => {
                             let filtered = self.filtered_models().len();
                             if filtered > 0 {
-                                self.model_selector_selected = self.model_selector_selected.saturating_sub(10);
+                                self.model_picker.selected = self.model_picker.selected.saturating_sub(10);
                             }
                         }
                         KeyCode::PageDown => {
                             let filtered = self.filtered_models().len();
                             if filtered > 0 {
-                                self.model_selector_selected = (self.model_selector_selected + 10).min(filtered - 1);
+                                self.model_picker.selected = (self.model_picker.selected + 10).min(filtered - 1);
                             }
                         }
                         KeyCode::Home => {
-                            self.model_selector_selected = 0;
+                            self.model_picker.selected = 0;
                         }
                         KeyCode::End => {
                             let filtered = self.filtered_models().len();
                             if filtered > 0 {
-                                self.model_selector_selected = filtered - 1;
+                                self.model_picker.selected = filtered - 1;
                             }
                         }
                         KeyCode::Enter => {
-                            // Extract the selected model ID before mutating self
                             let model_id = {
                                 let models = self.filtered_models();
-                                models.get(self.model_selector_selected).map(|m| m.id.clone())
+                                models.get(self.model_picker.selected).map(|m| m.id.clone())
                             };
                             if let Some(model_id) = model_id {
-                                self.model_name = model_id.clone();
-                                self.status = format!("Model → {}", model_id);
-                                self.messages.push(DisplayMessage::new_text(Role::System, format!("Switched to model: {}", model_id)));
-                                let _ = self.cmd_tx.send(AgentCommand::SwitchModel(model_id));
+                                self.switch_model(model_id);
                             }
-                            self.model_selector_open = false;
-                            self.model_selector_query.clear();
-                            self.model_selector_selected = 0;
+                            self.model_picker.visible = false;
+                            self.model_picker.query.clear();
+                            self.model_picker.selected = 0;
                         }
                         _ => {}
                     }
@@ -1040,6 +1151,15 @@ KeyCode::Home => {
                             self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
                         }
                     }
+                } else if key.code == KeyCode::Char(':') && key.modifiers.is_empty() {
+                    let text: String = self.input.lines().join("\n");
+                    if text.trim().is_empty() {
+                        self.palette_open = true;
+                        self.palette_query.clear();
+                        self.palette_selected = 0;
+                    } else {
+                        self.input.input(Input::from(key));
+                    }
                 } else if key.code == KeyCode::Tab {
                     self.focus = Panel::Messages;
                 } else {
@@ -1108,8 +1228,8 @@ KeyCode::Home => {
                     match mouse.kind {
                         event::MouseEventKind::ScrollUp => {
                             // Handle popups first
-                            if self.model_selector_open {
-                                self.model_selector_selected = self.model_selector_selected.saturating_sub(self.config.scroll_speed);
+                            if self.model_picker.visible {
+                                self.model_picker.selected = self.model_picker.selected.saturating_sub(self.config.scroll_speed);
                             } else if self.palette_open {
                                 self.palette_selected = self.palette_selected.saturating_sub(self.config.scroll_speed);
                             } else if self.session_browser_open {
@@ -1129,10 +1249,10 @@ KeyCode::Home => {
                         }
                         event::MouseEventKind::ScrollDown => {
                             // Handle popups first
-                            if self.model_selector_open {
+                            if self.model_picker.visible {
                                 let filtered = self.filtered_models().len();
                                 if filtered > 0 {
-                                    self.model_selector_selected = (self.model_selector_selected + self.config.scroll_speed).min(filtered - 1);
+                                    self.model_picker.selected = (self.model_picker.selected + self.config.scroll_speed).min(filtered - 1);
                                 }
                             } else if self.palette_open {
                                 self.palette_selected += self.config.scroll_speed;
@@ -1211,14 +1331,11 @@ KeyCode::Home => {
                 if arg.is_empty() {
                     // Open visual model selector
                     self.load_available_models();
-                    self.model_selector_open = true;
-                    self.model_selector_query.clear();
-                    self.model_selector_selected = 0;
+                    self.model_picker.visible = true;
+                    self.model_picker.query.clear();
+                    self.model_picker.selected = 0;
                 } else {
-                    self.model_name = arg.to_string();
-                    self.status = format!("Model → {}", arg);
-                    self.messages.push(DisplayMessage::new_text(Role::System, format!("Switched to model: {}", arg)));
-                    let _ = self.cmd_tx.send(AgentCommand::SwitchModel(arg.to_string()));
+                    self.switch_model(arg.to_string());
                 }
             }
             "/tools" | "/t" => {
@@ -2015,16 +2132,16 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
 
     /// Filter available models based on search query
     fn filtered_models(&self) -> Vec<&ModelInfo> {
-        if self.available_models.is_empty() {
+        if self.model_picker.models.is_empty() {
             return Vec::new();
         }
 
-        let query = self.model_selector_query.to_lowercase();
+        let query = self.model_picker.query.to_lowercase();
         if query.is_empty() {
-            return self.available_models.iter().collect();
+            return self.model_picker.models.iter().collect();
         }
 
-        self.available_models
+        self.model_picker.models
             .iter()
             .filter(|m| {
                 m.id.to_lowercase().contains(&query) ||
@@ -2196,75 +2313,87 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             // Zyphra models (1)
             ModelInfo { id: "zyphra/zamba2-7b-instruct".to_string(), provider: "Zyphra".to_string(), quality_score: 79 },
         ];
-        self.available_models = default_models;
+        self.model_picker.models = default_models;
     }
 
-    /// Render model selector modal
+    /// Render model selector modal (50% width, centered; filter + scrollable list)
     fn render_model_selector(&self, f: &mut Frame) {
         let area = f.area();
         let models = self.filtered_models();
-        let selected = self.model_selector_selected.min(models.len().saturating_sub(1));
+        let selected = self.model_picker.selected.min(models.len().saturating_sub(1));
 
-        let w = (area.width * 70 / 100).max(50);
-        let h = (models.len() as u16 + 4).min(15);
+        let w = (area.width * 50 / 100).max(40).min(area.width.saturating_sub(4));
+        let h = (models.len() as u16 + 4).min(18).min(area.height.saturating_sub(2));
         let x = (area.width.saturating_sub(w)) / 2;
-        let y = area.height / 4;
+        let y = (area.height.saturating_sub(h)) / 2;
         let selector_area = Rect::new(x, y, w, h);
 
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Blue))
-        .title(" Select Model ")
-        .title_style(Style::default().add_modifier(Modifier::BOLD));
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Blue))
+            .title(" Model Picker (^M) ")
+            .title_style(Style::default().add_modifier(Modifier::BOLD));
         f.render_widget(ratatui::widgets::Clear, selector_area);
         f.render_widget(block.clone(), selector_area);
 
         let inner = block.inner(selector_area);
 
-        // Search input
         let search_line = Line::from(vec![
             Span::styled("> ", Style::default().fg(Color::Blue)),
-            Span::styled(&self.model_selector_query, Style::default().fg(Color::White)),
+            Span::styled(&self.model_picker.query, Style::default().fg(Color::White)),
             Span::styled("▌", Style::default().fg(Color::Blue).add_modifier(Modifier::SLOW_BLINK)),
         ]);
         f.render_widget(Paragraph::new(search_line), Rect::new(inner.x, inner.y, inner.width, 1));
 
-        // Model list with viewport scrolling
         let list_area = Rect::new(inner.x, inner.y + 1, inner.width, inner.height.saturating_sub(1));
         let list_height = list_area.height as usize;
-        
-        // Calculate scroll offset to keep selected item in view
         let offset = if selected < list_height {
             0
         } else {
             selected - list_height + 1
         };
-            let visible_items: Vec<ListItem> = models
-                .iter()
-                .skip(offset)
-                .take(list_height)
-                .enumerate()
-                .map(|(i, model)| {
-                    let actual_idx = i + offset;
-                    let is_selected = actual_idx == selected;
-                    
-                    // Style for the entire line
-                    let line_style = if is_selected {
-                        Style::default()
-                            .fg(Color::Black)
-                            .bg(Color::Blue)
-                            .add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default()
-                    };
-                    
-                    // Clean model ID only
-                    ListItem::new(Line::from(vec![
-                        Span::styled(model.id.clone(), line_style),
-                    ]))
-                })
-                .collect();
-            f.render_widget(List::new(visible_items), list_area);
+        let visible_items: Vec<ListItem> = models
+            .iter()
+            .skip(offset)
+            .take(list_height)
+            .enumerate()
+            .map(|(i, model)| {
+                let actual_idx = i + offset;
+                let is_sel = actual_idx == selected;
+                let badge = if model.provider.len() > 12 {
+                    format!("{}…", &model.provider[..11])
+                } else {
+                    model.provider.clone()
+                };
+                let line_style = if is_sel {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Blue)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default()
+                };
+                let badge_style = if is_sel {
+                    Style::default()
+                        .fg(Color::Black)
+                        .bg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Cyan)
+                };
+                let score_st = if is_sel {
+                    Style::default().fg(Color::Black).bg(Color::Blue)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!(" {} ", badge), badge_style),
+                    Span::styled(model.id.clone(), line_style),
+                    Span::styled(format!("  q{} ", model.quality_score), score_st),
+                ]))
+            })
+            .collect();
+        f.render_widget(List::new(visible_items), list_area);
     }
 
     /// Render session browser modal
@@ -2449,7 +2578,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             self.render_permission_dialog(f);
         } else if self.show_welcome {
             self.render_welcome(f);
-        } else if self.model_selector_open {
+        } else if self.model_picker.visible {
             self.render_model_selector(f);
         } else if self.session_browser_open {
             self.render_session_browser(f);
@@ -2947,7 +3076,7 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
         match block {
             ContentBlock::Text { content, streaming } => {
                 if use_markdown {
-                    for line in markdown_to_lines(content) {
+                    for line in markdown_to_lines(&strip_reasoning_tags(content)) {
                         let mut spans: Vec<Span<'static>> = vec![Span::raw("  ".to_string())];
                         spans.extend(line.spans);
                         lines.push(Line::from(spans));
@@ -3086,7 +3215,13 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
         let title = if self.processing {
             " Input (processing...) "
         } else {
-            " Input (Enter to send, /help for commands) "
+            match self.current_context {
+                KeybindContext::Input => " Input (Enter send | : or ^P command | ^M model) ",
+                KeybindContext::Normal => " Input (i focus) ",
+                KeybindContext::Command => " Input (palette open) ",
+                KeybindContext::Help => " Input (F1) ",
+                KeybindContext::ModelPicker => " Input (model picker open) ",
+            }
         };
 
         let block = Block::default()
@@ -3176,11 +3311,11 @@ let policy = RetentionPolicy { max_age_days: max_days, max_sessions, keep_tags: 
             ));
         }
 
-        spans.extend([
-            Span::raw(" | "),
-            Span::styled("Ctrl+P".to_string(), Style::default().fg(Color::Cyan)),
-            Span::styled(" palette".to_string(), Style::default().fg(Color::DarkGray)),
-        ]);
+        spans.push(Span::raw(" | "));
+        spans.push(Span::styled(
+            self.keybind_status_hint(),
+            Style::default().fg(Color::DarkGray),
+        ));
 
         let status = Paragraph::new(Line::from(spans));
 
@@ -3242,7 +3377,7 @@ async fn agent_task(
                 let _ = event_tx.send(AgentEvent::Complete(result));
             }
             AgentCommand::SwitchModel(model) => {
-                agent.switch_model(&model);
+                let _ = agent.switch_model(&model);
                 let _ = event_tx.send(AgentEvent::Complete(Ok(AgentResponse {
                     content: format!("Model switched to: {}", model),
                     tool_calls: vec![],
@@ -4371,7 +4506,7 @@ fn test_render_empty_state() {
         let mut app = test_app();
         app.handle_slash_command("/model");
         // New behavior: opens visual model selector
-        assert!(app.model_selector_open);
+        assert!(app.model_picker.visible);
         assert_eq!(app.messages.len(), 0); // no message added
     }
 
@@ -5303,10 +5438,10 @@ fn test_render_empty_state() {
     #[test]
     fn test_load_available_models_populates_list() {
         let mut app = test_app();
-        assert!(app.available_models.is_empty());
+        assert!(app.model_picker.models.is_empty());
         app.load_available_models();
-        assert!(!app.available_models.is_empty());
-        assert!(app.available_models.len() >= 4);
+        assert!(!app.model_picker.models.is_empty());
+        assert!(app.model_picker.models.len() >= 4);
     }
 
     #[test]
@@ -5320,11 +5455,11 @@ fn test_render_empty_state() {
     fn test_filtered_models_with_search() {
         let mut app = test_app();
         app.load_available_models();
-        app.model_selector_query = "nvidia".to_string();
+        app.model_picker.query = "nvidia".to_string();
         let _filtered = app.filtered_models();
-        app.model_selector_query = "anthropic".to_string();
+        app.model_picker.query = "anthropic".to_string();
         let _filtered = app.filtered_models();
-        app.model_selector_query = "nonexistent".to_string();
+        app.model_picker.query = "nonexistent".to_string();
         let filtered = app.filtered_models();
         assert!(filtered.is_empty());
     }
@@ -5333,23 +5468,23 @@ fn test_render_empty_state() {
     fn test_filtered_models_empty_query_returns_all() {
         let mut app = test_app();
         app.load_available_models();
-        app.model_selector_query.clear();
+        app.model_picker.query.clear();
         let filtered = app.filtered_models();
-        assert_eq!(filtered.len(), app.available_models.len());
+        assert_eq!(filtered.len(), app.model_picker.models.len());
     }
 
     #[test]
     fn test_model_selector_modal_state() {
         let mut app = test_app();
-        assert!(!app.model_selector_open);
+        assert!(!app.model_picker.visible);
         app.handle_slash_command("/model");
-        assert!(app.model_selector_open);
-        assert_eq!(app.model_selector_query, "");
-        assert_eq!(app.model_selector_selected, 0);
-        app.model_selector_open = false;
-        app.model_selector_query.clear();
-        app.model_selector_selected = 0;
-        assert!(!app.model_selector_open);
+        assert!(app.model_picker.visible);
+        assert_eq!(app.model_picker.query, "");
+        assert_eq!(app.model_picker.selected, 0);
+        app.model_picker.visible = false;
+        app.model_picker.query.clear();
+        app.model_picker.selected = 0;
+        assert!(!app.model_picker.visible);
     }
 
     // ===== Session Browser Tests =====
@@ -5475,7 +5610,7 @@ fn test_render_empty_state() {
     #[test]
     fn test_model_selector_modal_rendering() {
         let mut app = test_app();
-        app.model_selector_open = true;
+        app.model_picker.visible = true;
         app.load_available_models();
         let _ = app;
     }
@@ -5498,13 +5633,13 @@ fn test_render_empty_state() {
     #[test]
     fn test_keyboard_esc_closes_modals() {
         let mut app = test_app();
-        app.model_selector_open = true;
+        app.model_picker.visible = true;
         app.session_browser_open = true;
         app.help_overlay = true;
-        app.model_selector_open = false;
+        app.model_picker.visible = false;
         app.session_browser_open = false;
         app.help_overlay = false;
-        assert!(!app.model_selector_open);
+        assert!(!app.model_picker.visible);
         assert!(!app.session_browser_open);
         assert!(!app.help_overlay);
     }
@@ -5512,11 +5647,11 @@ fn test_render_empty_state() {
     #[test]
     fn test_keyboard_enter_in_model_selector() {
         let mut app = test_app();
-        app.model_selector_open = true;
+        app.model_picker.visible = true;
         app.load_available_models();
-        if !app.available_models.is_empty() {
-            app.model_selector_selected = 0;
-            let selected = app.available_models.get(app.model_selector_selected);
+        if !app.model_picker.models.is_empty() {
+            app.model_picker.selected = 0;
+            let selected = app.model_picker.models.get(app.model_picker.selected);
             let _ = selected;
         }
     }
@@ -5545,11 +5680,11 @@ fn test_render_empty_state() {
     fn test_model_selection_workflow() {
         let mut app = test_app();
         app.handle_slash_command("/model");
-        assert!(app.model_selector_open);
+        assert!(app.model_picker.visible);
         app.load_available_models();
-        if !app.available_models.is_empty() {
-            app.model_selector_selected = 0;
-            app.model_selector_open = false;
+        if !app.model_picker.models.is_empty() {
+            app.model_picker.selected = 0;
+            app.model_picker.visible = false;
         }
     }
 
@@ -5560,8 +5695,8 @@ fn test_render_empty_state() {
         assert!(app.session_browser_open);
         app.session_browser_open = false;
         app.handle_slash_command("/model");
-        assert!(app.model_selector_open);
-        app.model_selector_open = false;
+        assert!(app.model_picker.visible);
+        app.model_picker.visible = false;
         app.handle_slash_command("/new");
         assert!(app.messages.is_empty());
     }
@@ -5573,8 +5708,8 @@ fn test_render_empty_state() {
         assert!(app.session_browser_open);
         app.session_browser_open = false;
         app.handle_slash_command("/model");
-        assert!(app.model_selector_open);
-        app.model_selector_open = false;
+        assert!(app.model_picker.visible);
+        app.model_picker.visible = false;
         app.help_overlay = true;
         assert!(app.help_overlay);
     }
@@ -5597,11 +5732,11 @@ fn test_render_empty_state() {
     fn test_e2e_model_switching_workflow() {
         let mut app = test_app();
         app.handle_slash_command("/model");
-        assert!(app.model_selector_open);
+        assert!(app.model_picker.visible);
         app.load_available_models();
-        if !app.available_models.is_empty() {
-            app.model_selector_selected = 0;
-            app.model_selector_open = false;
+        if !app.model_picker.models.is_empty() {
+            app.model_picker.selected = 0;
+            app.model_picker.visible = false;
         }
         app.messages.push(DisplayMessage::new_text(Role::User, "test"));
         app.handle_slash_command("/save");
@@ -5636,8 +5771,8 @@ fn test_render_empty_state() {
     fn test_e2e_slash_command_sequence() {
         let mut app = test_app();
         app.handle_slash_command("/model");
-        assert!(app.model_selector_open);
-        app.model_selector_open = false;
+        assert!(app.model_picker.visible);
+        app.model_picker.visible = false;
         app.handle_slash_command("/sessions");
         assert!(app.session_browser_open);
         app.session_browser_open = false;
@@ -5650,17 +5785,17 @@ fn test_render_empty_state() {
     fn test_e2e_modal_state_consistency() {
         let mut app = test_app();
         app.handle_slash_command("/model");
-        assert!(app.model_selector_open);
+        assert!(app.model_picker.visible);
         assert!(!app.session_browser_open);
         assert!(!app.help_overlay);
-        app.model_selector_open = false;
+        app.model_picker.visible = false;
         app.handle_slash_command("/sessions");
-        assert!(!app.model_selector_open);
+        assert!(!app.model_picker.visible);
         assert!(app.session_browser_open);
         assert!(!app.help_overlay);
         app.session_browser_open = false;
         app.help_overlay = true;
-        assert!(!app.model_selector_open);
+        assert!(!app.model_picker.visible);
         assert!(!app.session_browser_open);
         assert!(app.help_overlay);
     }
@@ -5680,13 +5815,13 @@ fn test_render_empty_state() {
     fn test_e2e_search_and_filter_workflow() {
         let mut app = test_app();
         app.handle_slash_command("/model");
-        assert!(app.model_selector_open);
+        assert!(app.model_picker.visible);
         app.load_available_models();
-        app.model_selector_query = "test".to_string();
+        app.model_picker.query = "test".to_string();
         let filtered = app.filtered_models();
         let _ = filtered;
-        app.model_selector_query.clear();
-        app.model_selector_open = false;
+        app.model_picker.query.clear();
+        app.model_picker.visible = false;
         app.handle_slash_command("/sessions");
         assert!(app.session_browser_open);
         app.session_browser_query = "test".to_string();
@@ -5700,15 +5835,15 @@ fn test_render_empty_state() {
     fn test_e2e_keyboard_navigation_workflow() {
         let mut app = test_app();
         app.handle_slash_command("/model");
-        assert!(app.model_selector_open);
+        assert!(app.model_picker.visible);
         app.load_available_models();
-        let count = app.available_models.len();
+        let count = app.model_picker.models.len();
         if count > 0 {
-            app.model_selector_selected = 0;
-            app.model_selector_selected = (app.model_selector_selected + 1).min(count - 1);
-            app.model_selector_selected = app.model_selector_selected.saturating_sub(1);
+            app.model_picker.selected = 0;
+            app.model_picker.selected = (app.model_picker.selected + 1).min(count - 1);
+            app.model_picker.selected = app.model_picker.selected.saturating_sub(1);
         }
-        app.model_selector_open = false;
+        app.model_picker.visible = false;
         app.handle_slash_command("/sessions");
         assert!(app.session_browser_open);
         app.session_browser_selected = 0;
@@ -5732,11 +5867,11 @@ fn test_render_empty_state() {
     fn test_e2e_concurrent_modals_prevention() {
         let mut app = test_app();
         app.handle_slash_command("/model");
-        assert!(app.model_selector_open);
+        assert!(app.model_picker.visible);
         app.handle_slash_command("/sessions");
         assert!(app.session_browser_open);
         app.help_overlay = true;
-        assert!(app.model_selector_open || app.session_browser_open || app.help_overlay);
+        assert!(app.model_picker.visible || app.session_browser_open || app.help_overlay);
     }
 
     #[test]
@@ -5757,9 +5892,9 @@ fn test_render_empty_state() {
     fn test_e2e_full_user_workflow() {
         let mut app = test_app();
         app.handle_slash_command("/model");
-        assert!(app.model_selector_open);
+        assert!(app.model_picker.visible);
         app.load_available_models();
-        app.model_selector_open = false;
+        app.model_picker.visible = false;
         app.messages.push(DisplayMessage::new_text(Role::User, "Hello"));
         app.messages.push(DisplayMessage::new_text(Role::Assistant, "Hi there!"));
         app.autosave();
@@ -5790,10 +5925,10 @@ fn test_render_empty_state() {
     fn test_model_selector_navigation() {
         let mut app = test_app();
         app.load_available_models();
-        let count = app.available_models.len();
+        let count = app.model_picker.models.len();
         if count > 0 {
-            app.model_selector_selected = (app.model_selector_selected + 1).min(count - 1);
-            assert_eq!(app.model_selector_selected, 1);
+            app.model_picker.selected = (app.model_picker.selected + 1).min(count - 1);
+            assert_eq!(app.model_picker.selected, 1);
         }
     }
 }
