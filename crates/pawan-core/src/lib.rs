@@ -33,6 +33,7 @@ pub mod init;
 pub mod healing;
 pub mod skill_distillation;
 pub mod skills;
+#[cfg(feature = "tasks")]
 pub mod tasks;
 pub mod tools;
 

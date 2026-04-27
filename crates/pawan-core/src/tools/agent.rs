@@ -619,6 +619,7 @@ exit 0").unwrap();
         assert_eq!(result["stderr"], "error message");
     }
 
+    #[serial_test::serial(pawan_session_tests)]
     #[tokio::test]
     async fn test_spawn_agents_single_task() {
         let tmp = TempDir::new().unwrap();
@@ -640,6 +641,7 @@ exit 0").unwrap();
         assert_eq!(result["results"][0]["result"]["result"], "done");
     }
 
+    #[serial_test::serial(pawan_session_tests)]
     #[tokio::test]
     async fn test_spawn_agents_multiple_tasks() {
         let tmp = TempDir::new().unwrap();

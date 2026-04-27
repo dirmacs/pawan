@@ -15,12 +15,18 @@ name = "pawan"
 path = "src/lib.rs"
 
 [features]
-default = []
-# Enable the lancor LLM backend for local inference via llama.cpp.
-# Adds the `lancor` HTTP client + server orchestration crate. Tool calling
-# is NOT supported by this backend (lancor's chat client is text-only); for
-# tool-using agents against a llama.cpp server, prefer openai_compat with
-# the server's OpenAI-compatible endpoint.
+default = ["deagle", "tasks"]
+
+# deagle: embedded code-intelligence (deagle-core + deagle-parse + rayon).
+# Adds tree-sitter parsers for 9 languages; ~30-50 MB binary overhead.
+# Disable with `default-features = false` for lean builds (pawan-web, tests).
+deagle = ["dep:deagle-core", "dep:deagle-parse", "dep:rayon"]
+
+# tasks: SQLite-backed beads task tracker (rusqlite bundled).
+# Disable to skip the C build of SQLite.
+tasks = ["dep:rusqlite"]
+
+# lancor: llama.cpp local inference backend (optional).
 lancor = ["dep:lancor"]
 
 [dependencies]
@@ -57,7 +63,7 @@ rand = "0.8"
 git2 = "0.20"
 
 # Beads-style task tracking (SQLite-backed)
-rusqlite = { version = "0.34", features = ["bundled"] }
+rusqlite = { optional = true, version = "0.34", features = ["bundled"] }
 
 # Deagle code intelligence — embedded directly so pawan no longer
 # requires the `deagle` binary on PATH. Adds tree-sitter parsers for
@@ -65,11 +71,11 @@ rusqlite = { version = "0.34", features = ["bundled"] }
 # `pattern` feature enables ast-grep structural search; `text-search`
 # enables FTS5 keyword indexing via the grep-* crates.
 # 0.1.5 adds tree-sitter-ruby for Ruby/Rake/gemspec files.
-deagle-core = "0.1.5"
-deagle-parse = { version = "0.1.5", features = ["pattern", "text-search"] }
+deagle-core = { version = "0.1.5", optional = true }
+deagle-parse = { optional = true, version = "0.1.5", features = ["pattern", "text-search"] }
 
 # Parallel walking for the embedded deagle_map implementation
-rayon = "1.10"
+rayon = { version = "1.10", optional = true }
 
 # Secure password input
 rpassword = "7.3"
