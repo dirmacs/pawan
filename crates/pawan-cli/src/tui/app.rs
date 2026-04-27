@@ -83,6 +83,8 @@ pub(crate) struct App<'a> {
     pub(crate) activity_panel: super::activity_panel::ActivityPanel,
     /// Sub-agent task queue display
     pub(crate) queue_panel: super::queue_panel::QueuePanel,
+    /// Top-of-screen status strip with flash-on-event support
+    pub(crate) status_bar: super::status_bar::StatusBar,
     /// Toggle activity side panel
     pub(crate) show_activity_panel: bool,
     /// Permission dialog state — when Some, the agent is waiting for y/n
@@ -283,6 +285,7 @@ impl<'a> App<'a> {
             accent_transition: super::theme::ColorTransition::new(super::theme::current().accent),
             activity_panel: super::activity_panel::ActivityPanel::new(),
             queue_panel: super::queue_panel::QueuePanel::new(),
+            status_bar: super::status_bar::StatusBar::new(),
             show_activity_panel: false,
             permission_dialog: None,
             auto_approve_tools: false,
@@ -331,119 +334,6 @@ impl<'a> App<'a> {
             self.fuzzy_search = None;
         } else {
             self.fuzzy_search = Some(FuzzySearchState::new(default_command_item_lines()));
-        }
-    }
-
-    pub(crate) fn keybind_status_hint(&self) -> String {
-        if self.is_slash_popup_active() {
-            let text: String = self.input.lines().join("\n");
-            let mut q = text.trim().to_lowercase();
-            if q.starts_with(':') {
-                if q == ":" {
-                    q = "/".to_string();
-                } else {
-                    q = format!("/{}", &q[1..]);
-                }
-            }
-            if let Some(cmd) = self.slash_registry.get(&q) {
-                return format!("cmd {} — {}", cmd.name, cmd.description);
-            }
-            let matches = self.slash_registry.complete(&q);
-            if matches.len() == 1 {
-                let c = matches[0];
-                return format!("cmd {} — {}", c.name, c.description);
-            }
-            if matches.is_empty() {
-                return "cmd: (no matches) — keep typing or Esc".to_string();
-            }
-            return format!("cmd: {} matches — ↑↓ pick", matches.len());
-        }
-        fn row(actions: &[KeyAction]) -> String {
-            actions
-                .iter()
-                .map(|a| format!("{} {}", a.key, a.description))
-                .collect::<Vec<_>>()
-                .join(" · ")
-        }
-        match self.current_context {
-            KeybindContext::Input => row(&[
-                KeyAction {
-                    context: KeybindContext::Input,
-                    key: "^Q",
-                    description: "quit",
-                },
-                KeyAction {
-                    context: KeybindContext::Input,
-                    key: "^P^F/:",
-                    description: "search",
-                },
-                KeyAction {
-                    context: KeybindContext::Input,
-                    key: "^M",
-                    description: "models",
-                },
-                KeyAction {
-                    context: KeybindContext::Input,
-                    key: "F1",
-                    description: "help",
-                },
-                KeyAction {
-                    context: KeybindContext::Input,
-                    key: "Tab",
-                    description: "msgs",
-                },
-            ]),
-            KeybindContext::Normal => row(&[
-                KeyAction {
-                    context: KeybindContext::Normal,
-                    key: "j/k",
-                    description: "scroll",
-                },
-                KeyAction {
-                    context: KeybindContext::Normal,
-                    key: "/",
-                    description: "search",
-                },
-                KeyAction {
-                    context: KeybindContext::Normal,
-                    key: "i",
-                    description: "input",
-                },
-                KeyAction {
-                    context: KeybindContext::Normal,
-                    key: "^M",
-                    description: "models",
-                },
-            ]),
-            KeybindContext::Command => row(&[
-                KeyAction {
-                    context: KeybindContext::Command,
-                    key: "Esc",
-                    description: "close",
-                },
-                KeyAction {
-                    context: KeybindContext::Command,
-                    key: "Enter",
-                    description: "run",
-                },
-            ]),
-            KeybindContext::Help => row(&[KeyAction {
-                context: KeybindContext::Help,
-                key: "any",
-                description: "close",
-            }]),
-            KeybindContext::ModelPicker => row(&[
-                KeyAction {
-                    context: KeybindContext::ModelPicker,
-                    key: "Esc",
-                    description: "cancel",
-                },
-                KeyAction {
-                    context: KeybindContext::ModelPicker,
-                    key: "Enter",
-                    description: "pick",
-                },
-            ]),
         }
     }
 

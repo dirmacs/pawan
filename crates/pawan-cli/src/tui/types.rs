@@ -296,15 +296,6 @@ pub enum KeybindContext {
     ModelPicker,
 }
 
-/// One keybinding row for documentation / the status bar.
-pub struct KeyAction {
-    /// Which UI mode this row applies to (used for docs / key maps).
-    #[allow(dead_code)]
-    pub context: KeybindContext,
-    pub key: &'static str,
-    pub description: &'static str,
-}
-
 /// Model picker: list, selection, filter query, and visibility.
 pub struct ModelPickerState {
     pub models: Vec<ModelInfo>,
