@@ -718,11 +718,7 @@ impl<'a> App<'a> {
         };
 
         let scroll_indicator = if total_lines > visible_height {
-            let pct = if max_offset > 0 {
-                scroll_offset * 100 / max_offset
-            } else {
-                100
-            };
+            let pct = (scroll_offset * 100).checked_div(max_offset).unwrap_or(100);
             format!(" [{}%]", pct)
         } else {
             String::new()
