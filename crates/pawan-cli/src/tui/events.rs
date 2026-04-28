@@ -422,33 +422,11 @@ impl<'a> App<'a> {
                                     let items = self.slash_items();
                                     if let Some((cmd, _)) = items.get(self.slash_popup_selected) {
                                         let cmd = cmd.to_string();
-                                        // Replace input with selected command and add trailing space to exit slash mode
                                         self.input = TextArea::default();
                                         self.input.set_cursor_line_style(Style::default());
                                         self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
-                                        self.input.insert_str(&cmd);
-                                        self.input.insert_str(" "); // add space to deactivate slash popup
                                         self.slash_popup_selected = 0;
-                                        // If it's a simple command (no args needed), submit immediately
-                                        let simple = [
-                                            "/help",
-                                            "/tools",
-                                            "/heal",
-                                            "/clear",
-                                            "/quit",
-                                            "/exit",
-                                            "/?",
-                                            "/model",
-                                            "/sessions",
-                                            "/save",
-                                            "/new",
-                                            "/export",
-                                            "/diff",
-                                            "/import",
-                                        ];
-                                        if simple.contains(&cmd.as_str()) {
-                                            self.submit_input();
-                                        }
+                                        self.handle_slash_command(&cmd);
                                     }
                                 }
                                 _ => {

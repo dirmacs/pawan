@@ -36,7 +36,9 @@ pub struct QueuePanel {
 
 impl QueuePanel {
     pub fn new() -> Self {
-        Self { entries: Vec::new() }
+        Self {
+            entries: Vec::new(),
+        }
     }
 
     pub fn set_entries(&mut self, entries: Vec<QueueEntry>) {
@@ -86,7 +88,8 @@ impl QueuePanel {
 
             let used = line_used_width(cur);
 
-            let needs_wrap = !cur.is_empty() && used.saturating_add(1).saturating_add(piece.len()) > budget;
+            let needs_wrap =
+                !cur.is_empty() && used.saturating_add(1).saturating_add(piece.len()) > budget;
             if needs_wrap {
                 if lines.len() >= max_lines {
                     break;
@@ -104,10 +107,7 @@ impl QueuePanel {
                 break;
             }
             let text = row.join(" ");
-            let line = Line::from(Span::styled(
-                text,
-                Style::default().fg(Color::Gray),
-            ));
+            let line = Line::from(Span::styled(text, Style::default().fg(Color::Gray)));
             let row_area = Rect::new(area.x, y, area.width, 1);
             frame.render_widget(Paragraph::new(line), row_area);
             y = y.saturating_add(1);
@@ -119,7 +119,10 @@ fn line_used_width(cur: &[String]) -> usize {
     if cur.is_empty() {
         return 0;
     }
-    cur.iter().map(|s| s.len().saturating_add(1)).sum::<usize>().saturating_sub(1)
+    cur.iter()
+        .map(|s| s.len().saturating_add(1))
+        .sum::<usize>()
+        .saturating_sub(1)
 }
 
 fn format_piece(entry: &QueueEntry, spinner: char) -> String {

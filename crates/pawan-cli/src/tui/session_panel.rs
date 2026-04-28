@@ -147,7 +147,7 @@ impl<'a> App<'a> {
                         ),
                         style.add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(format!(" [{}]", session.model), style.fg(Color::DarkGray)),
+                    Span::styled(format!(" [{}]", session.model), style.fg(Color::Gray)),
                 ]))
             })
             .collect();

@@ -27,7 +27,7 @@ impl Scrollbar {
             visible_items: visible,
             scroll_offset: offset,
             thumb_color: Color::Cyan,
-            track_color: Color::DarkGray,
+            track_color: Color::Gray,
         }
     }
 
@@ -47,9 +47,7 @@ impl Widget for Scrollbar {
             return;
         }
 
-        let col = area
-            .x
-            .saturating_add(area.width.saturating_sub(1));
+        let col = area.x.saturating_add(area.width.saturating_sub(1));
         let area_height = area.height as usize;
         if area_height == 0 {
             return;
