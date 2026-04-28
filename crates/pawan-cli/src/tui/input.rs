@@ -46,11 +46,7 @@ impl<'a> App<'a> {
         }
 
         // Reset input
-        self.input = TextArea::default();
-        self.input.set_cursor_line_style(Style::default());
-        self.input.set_placeholder_text(
-            "Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)",
-        );
+        self.reset_input();
 
         let trimmed = content.trim();
 

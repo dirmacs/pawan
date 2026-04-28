@@ -76,10 +76,7 @@ impl<'a> App<'a> {
                 match (key.modifiers, key.code) {
                     (KeyModifiers::CONTROL, KeyCode::Char('c')) => {
                         // Always clear the input
-                        let mut new_input = TextArea::default();
-                        new_input.set_cursor_line_style(Style::default());
-                        new_input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
-                        self.input = new_input;
+                        self.reset_input();
                         self.history_position = None; // Reset history position
                         self.status = "Input cleared".to_string();
                         return;
@@ -372,9 +369,7 @@ impl<'a> App<'a> {
                             match key.code {
                                 KeyCode::Esc => {
                                     // Close popup, clear input
-                                    self.input = TextArea::default();
-                                    self.input.set_cursor_line_style(Style::default());
-                                    self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
+                                    self.reset_input();
                                     self.slash_popup_selected = 0;
                                 }
                                 KeyCode::Up => {
@@ -422,9 +417,7 @@ impl<'a> App<'a> {
                                     let items = self.slash_items();
                                     if let Some((cmd, _)) = items.get(self.slash_popup_selected) {
                                         let cmd = cmd.to_string();
-                                        self.input = TextArea::default();
-                                        self.input.set_cursor_line_style(Style::default());
-                                        self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
+                                        self.reset_input();
                                         self.slash_popup_selected = 0;
                                         self.handle_slash_command(&cmd);
                                     }
@@ -447,9 +440,7 @@ impl<'a> App<'a> {
                                 };
                                 if let Some(pos) = new_pos {
                                     self.history_position = new_pos;
-                                    self.input = TextArea::default();
-                                    self.input.set_cursor_line_style(Style::default());
-                                    self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
+                                    self.reset_input();
                                     self.input.insert_str(&self.history[pos]);
                                 }
                             }
@@ -459,16 +450,12 @@ impl<'a> App<'a> {
                                 if pos + 1 < self.history.len() {
                                     // Move to next history item
                                     self.history_position = Some(pos + 1);
-                                    self.input = TextArea::default();
-                                    self.input.set_cursor_line_style(Style::default());
-                                    self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
+                                    self.reset_input();
                                     self.input.insert_str(&self.history[pos + 1]);
                                 } else {
                                     // Exit history mode, clear input
                                     self.history_position = None;
-                                    self.input = TextArea::default();
-                                    self.input.set_cursor_line_style(Style::default());
-                                    self.input.set_placeholder_text("Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)");
+                                    self.reset_input();
                                 }
                             }
                         } else if key.code == KeyCode::Char(':') && key.modifiers.is_empty() {

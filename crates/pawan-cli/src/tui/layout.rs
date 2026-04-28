@@ -8,7 +8,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
 /// Height of the bottom status strip (model, mode, tokens).
 pub const STATUS_BAR_HEIGHT: u16 = 1;
-/// Default height reserved for the input widget (borderless, 1-line min + 2 padding).
+/// Default height reserved for the input widget (separator + 1-line min + padding).
 pub const INPUT_BASE_HEIGHT: u16 = 3;
 /// Height of a single queue row.
 pub const QUEUE_ITEM_HEIGHT: u16 = 1;
