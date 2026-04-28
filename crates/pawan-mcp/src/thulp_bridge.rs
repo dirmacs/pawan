@@ -1,13 +1,12 @@
 //! Bridge thulp-mcp tools into pawan's `Tool` trait.
 //!
-//! Phase 11 (#20): Parallel implementation alongside [`crate::McpToolBridge`]
-//! (which wraps rmcp). thulp-mcp uses `rs-utcp` under the hood, providing an
-//! alternate transport stack. Both bridges expose the same pawan `Tool` trait
-//! surface so the registry / agent loop sees no difference between them.
+//! Current MCP bridge implementation backed by `thulp-mcp` / `rs-utcp`.
+//! It exposes MCP server tools through the same pawan `Tool` trait surface used
+//! by native tools, so the registry and agent loop can dispatch them uniformly.
 //!
-//! Once thulp-mcp reaches feature parity with rmcp (resources, prompts,
-//! server-side, child-process transport), the rmcp bridge will be removed
-//! and this becomes the sole MCP client integration.
+//! The bridge keeps namespacing, fallback descriptions, schema conversion, and
+//! text/result formatting as pure helpers so they can be unit tested without a
+//! live MCP peer.
 //!
 //! Construction takes a [`thulp_core::ToolDefinition`] — exactly the form
 //! returned by [`thulp_mcp::McpClient::list_tools`]. After Phase 4 (#13)
@@ -100,7 +99,7 @@ impl Tool for ThulpMcpBridge {
 }
 
 // Namespace an MCP tool under its server so tools from different servers
-// don't collide. Same scheme as the rmcp bridge for cross-bridge consistency.
+// don't collide. Keep the stable `mcp_<server>_<tool>` naming scheme.
 fn namespaced_name(server_name: &str, mcp_tool_name: &str) -> String {
     format!("mcp_{}_{}", server_name, mcp_tool_name)
 }

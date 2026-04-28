@@ -6,7 +6,7 @@ Pawan is model-agnostic — it works with any OpenAI-compatible API. We've triag
 
 ## Triage Results (updated 2026-04-12)
 
-Tested across 1000+ cumulative tool calls, 16 data structure builds, and 372 tests across the workspace. 12 NIM models benchmarked via latency (nimakai) and real-world dogfooding (pawan task).
+Tested across 1000+ cumulative tool calls, 16 data structure builds, and 1200+ passing automated tests across the workspace. 12 NIM models benchmarked via latency (nimakai) and real-world dogfooding (pawan task).
 
 ### Tier 1 — Production Ready
 
@@ -108,8 +108,8 @@ Updated 2026-04-12:
 - **12 NIM models** benchmarked via nimakai latency + real-world pawan task dogfooding
 - **Fastest task completion**: Qwen3.5 122B (13.6s for healing module review)
 - **Highest SWE-bench**: MiniMax M2.5 (80.2%)
-- - **16 data structures** in grind workspace
-- **208 TUI + CLI tests** passing, zero clippy warnings
+- **16 data structures** in grind workspace
+- **220 TUI + CLI tests** passing, with 185 focused TUI tests covering key events, rendering, slash commands, sessions, and regressions
 - **34 tools** in 3 tiers (Core/Standard/Extended) with auto-install via mise
 - **Multi-model thinking support**: Qwen (`enable_thinking`), Gemma (`enable_thinking`), GLM (`enable_thinking` + `clear_thinking`), Mistral Small 4 (`reasoning_effort`), DeepSeek (`thinking`)
 - **Token budget tracking**: thinking vs action token split visible in TUI and CLI

@@ -73,14 +73,14 @@ pawan
 pawan explain src/main.rs
 ```
 
-## What's New in v0.5.4
+## What's New in v0.5.5
 
-### TUI Polish
+### TUI Reliability & Polish
 
-- **Framed full-width chat** — activity panel remains removed, tool activity stays inline, and the main shell has an outer gutter/boundary again
-- **Bottom status bar** — mode badge, thinking label, git branch, model name, token usage bar, iteration, timestamp
-- **Readable dark mode** — timestamps, tool metadata, secondary labels, scroll indicators, and status details use theme tokens instead of dark-on-dark gray
-- **Slash picker fix** — selecting `/m`, `/theme`, and other slash commands with Enter dispatches them directly
+- **Slash command submission** — `/theme <name>` and other argument-bearing slash commands now submit on Enter instead of being intercepted by the inline picker
+- **Readable input placeholder** — placeholder styling is theme-aware at startup, after resets, and after theme switches
+- **Polished bottom status bar** — model, tokens, context percentage/bar, iteration, and timestamp are visually separated
+- **Expanded TUI tests** — key-event regressions and Ratatui TestBackend assertions cover `/theme`, placeholder styling, and status formatting
 
 ## Configuration
 

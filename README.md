@@ -57,14 +57,14 @@ The core claim:
 
 The short version: **pawan is the vibe-coding runtime for people whose production language already fights bad code for them.** If you're using Rust in anger, that's the feature you want.
 
-## What's New in v0.5.4
+## What's New in v0.5.5
 
-### TUI polish — framed shell, readable colors, reliable slash picker
-- Framed main TUI shell restored with an outer gutter, keeping the full-width chat layout without edge-to-edge visual bleed
-- Dark-mode contrast fixed — timestamps, tool metadata, status details, scroll indicators, and secondary labels use readable theme tokens instead of dark-on-dark gray
-- Input separator now shows `Input` / `Input: processing` while preserving the accent-colored command line feel
-- Inline slash picker now dispatches selected commands directly; `/m` opens the model picker and `/theme` shows theme usage when selected
-- Bottom status bar still shows mode badge, thinking label, git branch, model name, token bar, iteration, and timestamp
+### TUI reliability — /theme, input contrast, status polish
+- `/theme nord`, `/theme onedark`, `/theme gruvbox`, and other argument-bearing slash commands now submit correctly when pressing Enter
+- Inline slash picker now stays command-only and no longer swallows typed slash commands once arguments are present
+- Input placeholder text uses the active theme's readable muted color at startup, after Ctrl+C/reset, and after `/theme` switches
+- Bottom status bar now separates model, token count, context percentage/bar, iteration, and timestamp with clear spacing
+- Added targeted Ratatui/TestBackend and key-event regressions for `/theme`, placeholder styling, and status bar formatting
 
 ### Session & Memory
 - SQLite session store in WAL mode with FTS5 and JSON migration
@@ -85,7 +85,7 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 - `--output-format` with `text`, `json`, `stream-json`
 - `--continue` / `--session <id>` / `--list-sessions` session management
 - Fuzzy search modal (`Ctrl+P`), model picker modal (`Ctrl+M`), keybind contexts
-- Slash commands: `/model`, `/session`, `/clear`, `/retry`, `/compact`, `/help`
+- Slash commands: `/model`, `/theme`, `/session`, `/clear`, `/retry`, `/compact`, `/help`
 
 ## Install
 
@@ -186,16 +186,16 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.5.4)
+## TUI (v0.5.5)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets
 - **F1 help overlay** — keyboard shortcuts reference, organized by category
-- **Framed full-width chat** — tool activity shown inline in chat stream, no side activity panel, restored outer gutter and main shell
-- **Bottom status bar** — mode badge, thinking label, git branch, model name, token usage, timestamp
+- **Framed full-width chat** — tool activity stays inline in the chat stream with the restored outer gutter and main shell
+- **Bottom status bar** — mode badge, thinking label, git branch, model name, token usage, context percentage/bar, iteration, and timestamp with visible separators
 - **Readable dark-mode palette** — timestamps, tool metadata, status details, and secondary labels use accessible theme tokens
-- **Inline input separator** — accent-colored separator with `Input` / `Input: processing`, dynamic resizing
-- **Slash commands** — `/model`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`, `/sessions`, `/save`, `/load`, `/resume`, `/new`, `/fork`, `/dump`, `/share`, `/diff`, `/models`, `/tag`, `/compact`
+- **Inline input separator** — accent-colored separator with `Input` / `Input: processing`, dynamic resizing, and readable themed placeholder text
+- **Slash commands** — `/model`, `/theme`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`, `/sessions`, `/save`, `/load`, `/resume`, `/new`, `/fork`, `/dump`, `/share`, `/diff`, `/models`, `/tag`, `/compact`
 - **Session tags UI** — visual green tags in status bar, add/remove/clear via `/tag` command
 - **Fuzzy session search** — fuzzy matching indicator `[FUZZY]` when enabled in session browser
 - **NVIDIA NIM catalog** — `/models` command to browse available NIM models
@@ -210,7 +210,7 @@ pawan/
 - **Model selector** — interactive model selection with search and filtering
 - **Session browser** — browse, load, and manage saved sessions with fuzzy search
 - **Auto-save** — automatic session saving at configurable intervals
-- **Comprehensive testing** — full CLI/TUI test suite passing before release
+- **Comprehensive testing** — full workspace tests plus 185 TUI tests / 220 CLI+TUI tests passing before release
 
 ### Intelligence (2026-04-08)
 

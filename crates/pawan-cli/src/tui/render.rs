@@ -315,7 +315,7 @@ impl<'a> App<'a> {
     pub(crate) fn is_slash_popup_active(&self) -> bool {
         let text: String = self.input.lines().join("\n");
         let trimmed = text.trim();
-        trimmed.starts_with('/') || (trimmed.starts_with(':') && !trimmed.contains(' '))
+        (trimmed.starts_with('/') || trimmed.starts_with(':')) && !trimmed.contains(' ')
     }
 
     /// Get filtered slash command items based on current input.
@@ -881,7 +881,7 @@ impl<'a> App<'a> {
     pub(crate) fn render_input(&mut self, f: &mut Frame, area: Rect) {
         let accent_color = self.accent_transition.resolve();
 
-        // Borderless input with top separator line
+        // Input separator carries focus/processing state without boxing the textarea.
         let sep_style = if self.focus == Panel::Input {
             Style::default().fg(accent_color)
         } else {
@@ -1204,6 +1204,7 @@ mod tests {
     use pawan::config::TuiConfig;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
+    use std::sync::{Mutex, OnceLock};
     use tokio::sync::mpsc;
 
     use crossterm::event::{Event, KeyCode, KeyModifiers};
@@ -1233,6 +1234,15 @@ mod tests {
         app
     }
 
+    fn theme_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn reset_theme_for_test() {
+        super::super::theme::set_theme("dracula").unwrap();
+    }
+
     // ===== Rendering tests using TestBackend =====
 
     #[test]
@@ -1255,6 +1265,61 @@ mod tests {
             "Messages panel title should render"
         );
         assert!(content.contains("Input"), "Input panel title should render");
+    }
+
+    #[test]
+    fn test_input_placeholder_uses_theme_muted_style_after_reset() {
+        let _guard = theme_lock().lock().unwrap();
+        reset_theme_for_test();
+        let mut app = test_app();
+        let theme = super::super::theme::current();
+        let placeholder = app
+            .input
+            .placeholder_style()
+            .expect("placeholder should be enabled");
+        assert_eq!(placeholder.fg, Some(theme.muted));
+
+        app.input.insert_str("hello");
+        app.submit_input();
+        let placeholder = app
+            .input
+            .placeholder_style()
+            .expect("placeholder should remain enabled after reset");
+        assert_eq!(placeholder.fg, Some(theme.muted));
+    }
+
+    #[test]
+    fn test_status_bar_separates_model_tokens_context_and_clock() {
+        let mut app = test_app();
+        app.total_tokens = 3_800;
+        app.context_estimate = 3_840;
+
+        let backend = TestBackend::new(120, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("test-model"));
+        assert!(content.contains("3.8k tok"));
+        assert!(content.contains("ctx 3% "));
+        assert!(
+            content.contains("  |  "),
+            "status bar should visibly separate right-side fields"
+        );
+    }
+
+    #[test]
+    fn test_status_bar_separates_iteration_when_present() {
+        let mut app = test_app();
+        app.total_tokens = 12;
+        app.iteration_count = 2;
+
+        let backend = TestBackend::new(120, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("  |  iter 2  |  "));
     }
 
     #[test]
@@ -2238,6 +2303,131 @@ mod tests {
         app.handle_slash_command("/model mistral-small-4");
         assert_eq!(app.model_name, "mistral-small-4");
         assert!(app.messages[0].text_content().contains("mistral-small-4"));
+    }
+
+    #[test]
+    fn test_enter_submits_slash_command_with_arguments() {
+        let _guard = theme_lock().lock().unwrap();
+        reset_theme_for_test();
+        let mut app = test_app();
+        app.input.insert_str("/theme nord");
+
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+
+        assert_eq!(app.current_theme, "nord");
+        assert_eq!(super::super::theme::current().name, "nord");
+        assert!(
+            app.input.lines().iter().all(|line| line.is_empty()),
+            "input should reset after submitting a slash command"
+        );
+
+        app.handle_slash_command("/theme dracula");
+    }
+
+    #[test]
+    fn test_enter_submits_theme_variants_with_arguments() {
+        let _guard = theme_lock().lock().unwrap();
+        reset_theme_for_test();
+        for name in ["onedark", "gruvbox"] {
+            let mut app = test_app();
+            app.input.insert_str(&format!("/theme {name}"));
+            app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+                KeyCode::Enter,
+                KeyModifiers::NONE,
+            )));
+            assert_eq!(app.current_theme, name);
+            assert_eq!(super::super::theme::current().name, name);
+        }
+        reset_theme_for_test();
+    }
+
+    #[test]
+    fn test_slash_theme_without_args_lists_available_themes() {
+        let _guard = theme_lock().lock().unwrap();
+        reset_theme_for_test();
+        let mut app = test_app();
+        app.handle_slash_command("/theme");
+
+        assert_eq!(app.status, "Theme list shown");
+        assert_eq!(app.messages.len(), 1);
+        let msg = app.messages[0].text_content();
+        assert!(msg.contains("Available themes:"));
+        assert!(msg.contains("nord"));
+        assert!(msg.contains("onedark"));
+        assert!(msg.contains("gruvbox"));
+    }
+
+    #[test]
+    fn test_slash_theme_invalid_name_reports_available_themes() {
+        let _guard = theme_lock().lock().unwrap();
+        reset_theme_for_test();
+        let mut app = test_app();
+        app.handle_slash_command("/theme missing-theme");
+
+        assert!(app.status.contains("Unknown theme 'missing-theme'"));
+        assert!(app.status.contains("dracula"));
+    }
+
+    #[test]
+    fn test_slash_theme_restyles_existing_input() {
+        let _guard = theme_lock().lock().unwrap();
+        reset_theme_for_test();
+        let mut app = test_app();
+        app.input.insert_str("draft");
+        app.handle_slash_command("/theme onedark");
+
+        let theme = super::super::theme::current();
+        assert_eq!(app.input.style().fg, Some(theme.foreground));
+        assert_eq!(app.input.placeholder_style().unwrap().fg, Some(theme.muted));
+        assert_eq!(app.input.lines().join("\n"), "draft");
+        reset_theme_for_test();
+    }
+
+    #[test]
+    fn test_enter_on_exact_slash_command_uses_popup_selection() {
+        let _guard = theme_lock().lock().unwrap();
+        reset_theme_for_test();
+        let mut app = test_app();
+        app.input.insert_str("/theme");
+
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+
+        assert_eq!(app.status, "Theme list shown");
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.messages[0].text_content().contains("Available themes:"));
+    }
+
+    #[test]
+    fn test_ctrl_c_reset_keeps_placeholder_readable() {
+        let _guard = theme_lock().lock().unwrap();
+        reset_theme_for_test();
+        let mut app = test_app();
+        app.input.insert_str("draft");
+        app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
+            KeyCode::Char('c'),
+            KeyModifiers::CONTROL,
+        )));
+
+        let theme = super::super::theme::current();
+        assert_eq!(app.input.placeholder_style().unwrap().fg, Some(theme.muted));
+        assert!(app.input.lines().iter().all(|line| line.is_empty()));
+    }
+
+    #[test]
+    fn test_inline_slash_popup_closes_when_command_has_arguments() {
+        let mut app = test_app();
+        app.input.insert_str("/theme nord");
+
+        assert!(
+            !app.is_slash_popup_active(),
+            "slash popup should not intercept Enter once arguments are present"
+        );
     }
 
     #[test]
