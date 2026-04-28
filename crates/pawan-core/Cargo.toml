@@ -69,7 +69,7 @@ regex = "1.12"
 rand = "0.8"
 
 # Git-backed sessions (pure Rust — gix, no C) (conversation trees)
-gix = { version = "0.82", default-features = false, features = ["sha1", "tree-editor"], optional = true }
+gix = { version = "0.83", default-features = false, features = ["sha1", "tree-editor"], optional = true }
 
 # Beads-style task tracking (SQLite-backed)
 rusqlite = { optional = true, version = "0.34", features = ["bundled"] }
