@@ -1,3 +1,11 @@
+## [0.5.4] - 2026-04-28
+
+### Fixed
+- TUI visual containment restored: main interface now renders inside a framed shell with an outer gutter instead of running edge-to-edge.
+- Dark-mode readability improved: secondary text, timestamps, tool metadata, status bar details, and scroll indicators now use readable theme tokens instead of low-contrast dark gray.
+- Inline slash command picker fixed: selecting commands such as `/m` and `/theme` with Enter now dispatches the selected command directly.
+- `/theme` with no arguments now prints available themes and usage in the transcript.
+
 ## [0.5.3] - 2026-04-28
 
 ### Changed

@@ -57,15 +57,14 @@ The core claim:
 
 The short version: **pawan is the vibe-coding runtime for people whose production language already fights bad code for them.** If you're using Rust in anger, that's the feature you want.
 
-## What's New in v0.5.3
+## What's New in v0.5.4
 
-### TUI redesign — full-width chat, bottom status bar, borderless aesthetic
-- Activity panel removed — full-width chat, tool activity shown inline in chat stream
-- Status bar moved to bottom — mode badge, thinking label, git branch, model name, token bar, iteration, timestamp
-- Borderless input — accent-colored top separator, dynamic resizing 3-10 lines
-- Borderless messages — subtle scroll % overlay, search hint overlay
-- `ColorTransition::set()` animates accent color on `/theme` switch
-- `StatusBar` component: rich bottom strip with flash-on-event for UI events
+### TUI polish — framed shell, readable colors, reliable slash picker
+- Framed main TUI shell restored with an outer gutter, keeping the full-width chat layout without edge-to-edge visual bleed
+- Dark-mode contrast fixed — timestamps, tool metadata, status details, scroll indicators, and secondary labels use readable theme tokens instead of dark-on-dark gray
+- Input separator now shows `Input` / `Input: processing` while preserving the accent-colored command line feel
+- Inline slash picker now dispatches selected commands directly; `/m` opens the model picker and `/theme` shows theme usage when selected
+- Bottom status bar still shows mode badge, thinking label, git branch, model name, token bar, iteration, and timestamp
 
 ### Session & Memory
 - SQLite session store in WAL mode with FTS5 and JSON migration
@@ -174,7 +173,7 @@ pawan/
     pawan-core/    # library — agent engine, 34 tools, config, healing
     pawan-cli/     # binary — CLI + ratatui TUI + AI workflows
     pawan-web/     # HTTP API — Axum SSE server (port 3300)
-    pawan-mcp/     # MCP client (rmcp 0.12, stdio transport)
+    pawan-mcp/     # MCP client (thulp-mcp, stdio transport)
     pawan-aegis/   # aegis config resolution
   grind/           # data structure benchmark workspace
 ```
@@ -187,21 +186,21 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.5.3)
+## TUI (v0.5.4)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets
 - **F1 help overlay** — keyboard shortcuts reference, organized by category
-- **Full-width chat** — tool activity shown inline in chat stream, no side activity panel
+- **Framed full-width chat** — tool activity shown inline in chat stream, no side activity panel, restored outer gutter and main shell
 - **Bottom status bar** — mode badge, thinking label, git branch, model name, token usage, timestamp
-- **Borderless input** — accent-colored top separator, dynamic resizing
-- **Borderless messages** — subtle scroll % overlay, search hint overlay
+- **Readable dark-mode palette** — timestamps, tool metadata, status details, and secondary labels use accessible theme tokens
+- **Inline input separator** — accent-colored separator with `Input` / `Input: processing`, dynamic resizing
 - **Slash commands** — `/model`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`, `/sessions`, `/save`, `/load`, `/resume`, `/new`, `/fork`, `/dump`, `/share`, `/diff`, `/models`, `/tag`, `/compact`
 - **Session tags UI** — visual green tags in status bar, add/remove/clear via `/tag` command
 - **Fuzzy session search** — fuzzy matching indicator `[FUZZY]` when enabled in session browser
 - **NVIDIA NIM catalog** — `/models` command to browse available NIM models
 - **Message timestamps** — relative time (now, 5s, 2m, 1h) on each message
-- **Scroll position** — `[2/5]` indicator in messages title bar
+- **Scroll position** — bottom-right `[NN%]` indicator when content overflows
 - **Session stats** — tool calls, files edited, message count in status bar
 - **Tool call approval** — three options: `y` (yes), `n` (no), `a` (allow all). Selecting `a` auto-approves all subsequent tool calls in the session
 - **Conversation export** — `/export [path]` saves to markdown with tool call details
@@ -211,7 +210,8 @@ pawan/
 - **Model selector** — interactive model selection with search and filtering
 - **Session browser** — browse, load, and manage saved sessions with fuzzy search
 - **Auto-save** — automatic session saving at configurable intervals
-- **Comprehensive testing** — 722 library tests + 59 integration tests passing
+- **Comprehensive testing** — full CLI/TUI test suite passing before release
+
 ### Intelligence (2026-04-08)
 
 **Qwen3.5 122B A10B** — primary model. 383ms latency, 13.6s task completion, solid tool calling. MiniMax M2.5 (SWE 80.2%) as cloud fallback. 12 NIM models benchmarked.

@@ -107,11 +107,11 @@ so turn lifecycle is fast even when MCP is off.
          ▼                ▼                   ▼                   ▼            ▼
     ReadFileTool    BashTool (validated)  RipgrepTool          DeagleTool  McpToolBridge
                     (read-only cache,     (native CLI       (embedded lib, (namespaced,
-                     compound check)       via mise)         no subprocess)  rmcp peer)
+                     compound check)       via mise)         no subprocess) thulp-mcp)
 ```
 
 Every pawan tool implements the same `Tool` trait. External MCP tools are
-wrapped in `McpToolBridge` which delegates to an rmcp `Peer<RoleClient>` —
+wrapped in `McpToolBridge` which delegates to the thulp-MCP client bridge —
 pure helpers (`namespaced_name`, `description_or_default`, `schema_as_value`,
 `extract_text_content`, `format_search_results`, `format_text_results`) are
 extracted so the namespacing, fallback, and result-shaping logic can be unit
