@@ -6,14 +6,14 @@
 //! events stream back to the UI via mpsc channel.
 
 mod fuzzy_search;
-mod theme;
 mod splash;
+mod theme;
 
-mod layout;
 mod highlight;
+mod layout;
 
-pub mod status_bar;
 pub mod scrollbar;
+pub mod status_bar;
 // activity_panel removed — tool activity shown inline in chat
 pub mod queue_panel;
 pub mod tool_display;

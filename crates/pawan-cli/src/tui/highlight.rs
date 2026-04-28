@@ -76,13 +76,7 @@ fn resolve_theme(theme_name: &str) -> Arc<Theme> {
         }
     }
 
-    Arc::new(
-        ts.themes
-            .values()
-            .next()
-            .cloned()
-            .unwrap_or_default(),
-    )
+    Arc::new(ts.themes.values().next().cloned().unwrap_or_default())
 }
 
 fn syntect_to_rat_color(color: syntect::highlighting::Color) -> Color {

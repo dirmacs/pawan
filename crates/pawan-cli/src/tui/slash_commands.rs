@@ -976,7 +976,13 @@ impl<'a> App<'a> {
                 let args = arg.trim();
                 if args.is_empty() {
                     let themes = super::theme::available_themes();
-                    self.status = format!("Available: {}", themes.join(", "));
+                    let msg = format!(
+                        "Available themes: {}\nUsage: /theme <name>",
+                        themes.join(", ")
+                    );
+                    self.status = "Theme list shown".to_string();
+                    self.messages
+                        .push(DisplayMessage::new_text(Role::System, msg));
                 } else {
                     match super::theme::set_theme(args) {
                         Ok(_) => {

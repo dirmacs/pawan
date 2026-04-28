@@ -144,7 +144,7 @@ impl<'a> App<'a> {
                 let score_st = if is_sel {
                     Style::default().fg(Color::Black).bg(Color::Blue)
                 } else {
-                    Style::default().fg(Color::DarkGray)
+                    Style::default().fg(theme_current().muted)
                 };
                 ListItem::new(Line::from(vec![
                     Span::styled(format!(" {} ", badge), badge_style),
@@ -176,10 +176,34 @@ impl<'a> App<'a> {
             area,
         );
 
-        let queue_h = self.queue_panel.height_hint();
-        let layout = super::layout::compute_layout(area, queue_h, input_height);
+        let shell_area = if area.width > 4 && area.height > 4 {
+            Rect::new(
+                area.x + 1,
+                area.y + 1,
+                area.width.saturating_sub(2),
+                area.height.saturating_sub(2),
+            )
+        } else {
+            area
+        };
 
-        // Messages: full width, borderless
+        let shell = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border))
+            .title(" pawan · Messages ")
+            .title_style(
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .style(Style::default().bg(theme.surface));
+        let content_area = shell.inner(shell_area);
+        f.render_widget(shell, shell_area);
+
+        let queue_h = self.queue_panel.height_hint();
+        let layout = super::layout::compute_layout(content_area, queue_h, input_height);
+
+        // Messages stay full-width inside the restored main shell.
         self.render_messages(f, layout.msg_area);
 
         // Queue panel (compact, only when tasks are running)
@@ -189,15 +213,13 @@ impl<'a> App<'a> {
         self.render_input(f, layout.input_area);
 
         // Slash popup above input
-        if self.is_slash_popup_active()
-            && !self.help_overlay
-            && self.fuzzy_search.is_none()
-        {
+        if self.is_slash_popup_active() && !self.help_overlay && self.fuzzy_search.is_none() {
             self.render_slash_popup(f, layout.input_area);
         }
 
         // Status bar at the bottom
-        self.status_bar.view(f, layout.status_area, &self.status_bar_context());
+        self.status_bar
+            .view(f, layout.status_area, &self.status_bar_context());
 
         // Overlays (modals take precedence)
         if self.permission_dialog.is_some() {
@@ -240,7 +262,7 @@ impl<'a> App<'a> {
                 Span::raw(&dialog.tool_name),
             ]),
             Line::from(vec![
-                Span::styled("Args: ", Style::default().fg(Color::DarkGray)),
+                Span::styled("Args: ", Style::default().fg(theme_current().muted)),
                 Span::raw(if dialog.args_summary.len() > 45 {
                     format!("{}...", &dialog.args_summary[..42])
                 } else {
@@ -375,7 +397,7 @@ impl<'a> App<'a> {
                         if actual_idx == selected {
                             Style::default().fg(Color::Black).bg(Color::Cyan)
                         } else {
-                            Style::default().fg(Color::DarkGray)
+                            Style::default().fg(theme_current().muted)
                         },
                     ),
                 ]))
@@ -551,6 +573,7 @@ impl<'a> App<'a> {
     }
 
     pub(crate) fn render_messages(&self, f: &mut Frame, area: Rect) {
+        let theme = theme_current();
         let mut lines: Vec<Line<'static>> = Vec::new();
         let now = std::time::Instant::now();
 
@@ -590,7 +613,6 @@ impl<'a> App<'a> {
             }
         }
 
-        // Borderless: no block borders, full content area
         let total_lines = lines.len();
         let visible_height = area.height as usize;
         let max_offset = total_lines.saturating_sub(visible_height);
@@ -603,7 +625,7 @@ impl<'a> App<'a> {
         // Subtle scroll indicator: bottom-right percentage
         let scroll_pct = if total_lines > visible_height {
             let pct = (scroll_offset * 100).checked_div(max_offset).unwrap_or(100);
-            format!(" {}%", pct)
+            format!("[{}%]", pct)
         } else {
             String::new()
         };
@@ -618,6 +640,7 @@ impl<'a> App<'a> {
         };
 
         let paragraph = Paragraph::new(lines)
+            .style(Style::default().fg(theme.foreground).bg(theme.surface))
             .scroll((scroll_offset as u16, 0));
         f.render_widget(paragraph, area);
 
@@ -642,7 +665,7 @@ impl<'a> App<'a> {
             );
             let pct_line = Line::from(vec![Span::styled(
                 scroll_pct,
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.muted),
             )]);
             f.render_widget(Paragraph::new(pct_line), pct_area);
         }
@@ -656,6 +679,7 @@ impl<'a> App<'a> {
         now: std::time::Instant,
         lines: &mut Vec<Line<'static>>,
     ) {
+        let theme = theme_current();
         let (prefix, style) = match msg.role {
             Role::User => (
                 "You",
@@ -686,10 +710,7 @@ impl<'a> App<'a> {
 
         lines.push(Line::from(vec![
             Span::styled(format!("{}: ", prefix), style),
-            Span::styled(
-                format!("({})", time_str),
-                Style::default().fg(Color::DarkGray),
-            ),
+            Span::styled(format!("({})", time_str), Style::default().fg(theme.muted)),
         ]));
 
         // Use cached block lines if available; otherwise render fresh
@@ -709,6 +730,7 @@ impl<'a> App<'a> {
         use_markdown: bool,
         lines: &mut Vec<Line<'static>>,
     ) {
+        let theme = theme_current();
         match block {
             ContentBlock::Text { content, streaming } => {
                 if use_markdown {
@@ -766,12 +788,12 @@ impl<'a> App<'a> {
                     if !args_summary.is_empty() {
                         spans.push(Span::styled(
                             format!("({})", args_summary),
-                            Style::default().fg(Color::DarkGray),
+                            Style::default().fg(theme.muted),
                         ));
                     }
                     spans.push(Span::styled(
                         format!(" {}ms", record.duration_ms),
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(theme.muted),
                     ));
                     lines.push(Line::from(spans));
 
@@ -780,7 +802,7 @@ impl<'a> App<'a> {
                         for result_line in result_str.lines().take(20) {
                             lines.push(Line::from(Span::styled(
                                 format!("    {}", result_line),
-                                Style::default().fg(Color::DarkGray),
+                                Style::default().fg(theme.muted),
                             )));
                         }
                         let total = result_str.lines().count();
@@ -788,7 +810,7 @@ impl<'a> App<'a> {
                             lines.push(Line::from(Span::styled(
                                 format!("    ... ({} more lines)", total - 20),
                                 Style::default()
-                                    .fg(Color::DarkGray)
+                                    .fg(theme.muted)
                                     .add_modifier(Modifier::ITALIC),
                             )));
                         }
@@ -797,9 +819,7 @@ impl<'a> App<'a> {
                         if !preview.is_empty() {
                             lines.push(Line::from(Span::styled(
                                 format!("    {}", preview),
-                                Style::default()
-                                    .fg(Color::DarkGray)
-                                    .add_modifier(Modifier::DIM),
+                                Style::default().fg(theme.muted).add_modifier(Modifier::DIM),
                             )));
                         }
                     }
@@ -865,15 +885,23 @@ impl<'a> App<'a> {
         let sep_style = if self.focus == Panel::Input {
             Style::default().fg(accent_color)
         } else {
-            Style::default().fg(Color::DarkGray)
+            Style::default().fg(theme_current().muted)
         };
 
-        // Draw a subtle top separator
+        // Draw a subtle top separator with the input state embedded.
         let sep_area = Rect::new(area.x, area.y, area.width, 1);
-        let sep_line = Line::from(Span::styled(
-            "\u{2500}".repeat(area.width as usize),
-            sep_style,
-        ));
+        let label = if self.processing {
+            " Input: processing "
+        } else {
+            " Input "
+        };
+        let sep_width = area.width as usize;
+        let label_width = label.chars().count();
+        let right_rule = sep_width.saturating_sub(label_width);
+        let sep_line = Line::from(vec![
+            Span::styled(label.to_string(), sep_style),
+            Span::styled("\u{2500}".repeat(right_rule), sep_style),
+        ]);
         f.render_widget(Paragraph::new(sep_line), sep_area);
 
         // Input area below the separator
@@ -1209,7 +1237,7 @@ mod tests {
 
     #[test]
     fn test_render_empty_state() {
-        let app = test_app();
+        let mut app = test_app();
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
         terminal.draw(|f| app.ui(f)).unwrap();
@@ -1325,7 +1353,10 @@ mod tests {
         terminal.draw(|f| app.ui(f)).unwrap();
 
         let content = buffer_to_string(terminal.backend().buffer());
-        assert!(content.contains("1.5k tok"), "Should show total token count");
+        assert!(
+            content.contains("1.5k tok"),
+            "Should show total token count"
+        );
     }
 
     #[test]
@@ -1596,7 +1627,10 @@ mod tests {
 
         let content = buffer_to_string(terminal.backend().buffer());
         // StatusBar shows model name and renders without crashing
-        assert!(content.contains("test-model"), "Should render with model name");
+        assert!(
+            content.contains("test-model"),
+            "Should render with model name"
+        );
     }
 
     #[test]
@@ -2088,7 +2122,10 @@ mod tests {
 
         let content = buffer_to_string(terminal.backend().buffer());
         // StatusBar uses red mode_style for error status — check model name still renders
-        assert!(content.contains("test-model"), "Should render model name even on error");
+        assert!(
+            content.contains("test-model"),
+            "Should render model name even on error"
+        );
     }
 
     #[test]
@@ -2449,7 +2486,10 @@ mod tests {
             .style
             .add_modifier
             .contains(Modifier::UNDERLINED));
-        assert_eq!(lines[0].spans[0].style.fg, Some(super::theme::current().accent));
+        assert_eq!(
+            lines[0].spans[0].style.fg,
+            Some(super::theme::current().accent)
+        );
     }
 
     #[test]
@@ -2461,7 +2501,10 @@ mod tests {
             .style
             .add_modifier
             .contains(Modifier::BOLD));
-        assert_eq!(lines[0].spans[0].style.fg, Some(super::theme::current().accent_dim));
+        assert_eq!(
+            lines[0].spans[0].style.fg,
+            Some(super::theme::current().accent_dim)
+        );
     }
 
     #[test]
@@ -2496,7 +2539,11 @@ mod tests {
         // First line is separator with language
         assert!(lines[0].spans[0].content.contains("rust"));
         // Middle line is syntax-highlighted code
-        let joined: String = lines[1].spans.iter().map(|sp| sp.content.to_string()).collect();
+        let joined: String = lines[1]
+            .spans
+            .iter()
+            .map(|sp| sp.content.to_string())
+            .collect();
         assert!(joined.contains("let x"));
         // Last line is closing separator
         assert!(lines[2].spans[0].content.contains('─'));
@@ -2525,7 +2572,10 @@ mod tests {
         let lines = markdown_to_lines("---");
         assert_eq!(lines.len(), 1);
         assert!(lines[0].spans[0].content.contains('─'));
-        assert_eq!(lines[0].spans[0].style.fg, Some(super::theme::current().muted));
+        assert_eq!(
+            lines[0].spans[0].style.fg,
+            Some(super::theme::current().muted)
+        );
     }
 
     #[test]
@@ -2534,7 +2584,10 @@ mod tests {
         assert_eq!(lines.len(), 1);
         assert!(lines[0].spans.len() >= 2);
         // First span is the muted list marker
-        assert_eq!(lines[0].spans[0].style.fg, Some(super::theme::current().muted));
+        assert_eq!(
+            lines[0].spans[0].style.fg,
+            Some(super::theme::current().muted)
+        );
     }
 
     #[test]
@@ -2617,7 +2670,7 @@ mod tests {
     fn test_welcome_shown_on_fresh_app() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
-        let mut app = App::new(
+        let app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
@@ -2688,9 +2741,7 @@ mod tests {
         assert!(
             buf.content.iter().any(|cell| {
                 let sym = cell.symbol();
-                sym != " "
-                    && sym != "⠀"
-                    && sym.chars().any(|c| !c.is_whitespace())
+                sym != " " && sym != "⠀" && sym.chars().any(|c| !c.is_whitespace())
             }),
             "Welcome screen should paint non-whitespace cells, got sample:\n{}",
             &text[..300.min(text.len())]

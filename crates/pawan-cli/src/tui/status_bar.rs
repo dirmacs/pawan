@@ -7,7 +7,9 @@
 use std::time::{Duration, Instant};
 
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
+
+use super::theme;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
@@ -42,6 +44,8 @@ impl StatusBar {
             return;
         }
 
+        let theme = theme::current();
+
         // Flash messages take over the entire bar
         let flash_active = match (self.flash_message.as_ref(), self.flash_until) {
             (Some(msg), Some(until)) if Instant::now() < until => Some(msg.as_str()),
@@ -52,7 +56,7 @@ impl StatusBar {
             let line = Line::from(vec![Span::styled(
                 msg,
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(theme.warning)
                     .add_modifier(Modifier::BOLD),
             )]);
             let p = Paragraph::new(line).centered();
@@ -72,7 +76,7 @@ impl StatusBar {
         if let Some(t) = &ctx.thinking_label {
             left_spans.push(Span::styled(
                 format!(" {t}"),
-                Style::default().fg(Color::Yellow),
+                Style::default().fg(theme.warning),
             ));
         }
 
@@ -81,17 +85,14 @@ impl StatusBar {
             if !b.is_empty() {
                 left_spans.push(Span::styled(
                     format!(" ⎇{b}"),
-                    Style::default().fg(Color::Magenta),
+                    Style::default().fg(theme.accent_dim),
                 ));
             }
         }
 
         // Right side: model + token context bar + iteration + timestamp
         let mut right_spans: Vec<Span> = Vec::new();
-        right_spans.push(Span::styled(
-            model,
-            Style::default().fg(Color::Cyan),
-        ));
+        right_spans.push(Span::styled(model, Style::default().fg(theme.accent)));
 
         let tok = format_tokens(ctx.total_tokens);
         let pct = (ctx.context_pct.clamp(0.0, 1.0) * 100.0).round() as u32;
@@ -101,28 +102,25 @@ impl StatusBar {
         right_spans.push(Span::raw("  "));
         right_spans.push(Span::styled(
             format!("{tok} {pct}%{bar}"),
-            Style::default().fg(Color::Gray),
+            Style::default().fg(theme.foreground),
         ));
 
         if ctx.iteration > 0 {
             right_spans.push(Span::styled(
                 format!("  iter {}", ctx.iteration),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(theme.muted),
             ));
         }
 
         right_spans.push(Span::styled(
             format!("  {} ", ctx.timestamp),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(theme.muted),
         ));
 
         // Split layout: left gets Min, right gets exact width
         let right_width: u16 = right_spans.iter().map(|s| s.width() as u16).sum();
-        let [left_area, right_area] = Layout::horizontal([
-            Constraint::Min(0),
-            Constraint::Length(right_width),
-        ])
-        .areas(area);
+        let [left_area, right_area] =
+            Layout::horizontal([Constraint::Min(0), Constraint::Length(right_width)]).areas(area);
 
         frame.render_widget(Paragraph::new(Line::from(left_spans)), left_area);
         frame.render_widget(
