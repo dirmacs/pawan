@@ -14,7 +14,7 @@ mod highlight;
 
 pub mod status_bar;
 pub mod scrollbar;
-pub mod activity_panel;
+// activity_panel removed — tool activity shown inline in chat
 pub mod queue_panel;
 pub mod tool_display;
 
