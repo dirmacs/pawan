@@ -79,14 +79,10 @@ pub(crate) struct App<'a> {
     pub(crate) current_theme: String,
     /// Accent color transition animation
     pub(crate) accent_transition: super::theme::ColorTransition,
-    /// Activity feed for recent tool calls
-    pub(crate) activity_panel: super::activity_panel::ActivityPanel,
     /// Sub-agent task queue display
     pub(crate) queue_panel: super::queue_panel::QueuePanel,
-    /// Top-of-screen status strip with flash-on-event support
+    /// Bottom status strip with flash-on-event support
     pub(crate) status_bar: super::status_bar::StatusBar,
-    /// Toggle activity side panel
-    pub(crate) show_activity_panel: bool,
     /// Permission dialog state — when Some, the agent is waiting for y/n
     pub(crate) permission_dialog: Option<PermissionDialog>,
     /// Auto-approve all tool calls for this session (set when user selects "yes to all")
@@ -283,10 +279,8 @@ impl<'a> App<'a> {
             welcome_splash: super::splash::Splash::new(true),
             current_theme: "dracula".to_string(),
             accent_transition: super::theme::ColorTransition::new(super::theme::current().accent),
-            activity_panel: super::activity_panel::ActivityPanel::new(),
             queue_panel: super::queue_panel::QueuePanel::new(),
             status_bar: super::status_bar::StatusBar::new(),
-            show_activity_panel: false,
             permission_dialog: None,
             auto_approve_tools: false,
             cmd_tx,

@@ -1,89 +1,58 @@
 //! Terminal layout helpers for the interactive UI.
 //!
-//! Regions follow a top status bar, a flexible message area, an optional
-//! activity column, and a bottom stack for the task queue plus input.
+//! Layout: full-width chat on top, queue + input in the middle, status bar at
+//! the bottom. No side activity panel — tool activity is shown inline in the
+//! chat stream, matching the maki-ui design language.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
-/// Height of the top status strip (model, mode, tokens).
+/// Height of the bottom status strip (model, mode, tokens).
 pub const STATUS_BAR_HEIGHT: u16 = 1;
-/// Default height reserved for the multiline input widget (including borders).
+/// Default height reserved for the input widget (borderless, 1-line min + 2 padding).
 pub const INPUT_BASE_HEIGHT: u16 = 3;
 /// Height of a single queue row.
 pub const QUEUE_ITEM_HEIGHT: u16 = 1;
-/// Minimum width for the optional activity column.
-pub const ACTIVITY_PANEL_MIN_WIDTH: u16 = 30;
-/// Preferred default width for the activity column when laying out manually.
-pub const ACTIVITY_PANEL_DEFAULT_WIDTH: u16 = 40;
 
 /// Primary layout regions for the main chat view.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ViewLayout {
-    /// Top strip — model, mode, tokens.
-    pub status_area: Rect,
-    /// Main transcript / message list.
+    /// Main transcript / message list (full width).
     pub msg_area: Rect,
     /// Sub-agent task queue (may be zero-height).
     pub queue_area: Rect,
-    /// Bottom text input.
+    /// Text input area.
     pub input_area: Rect,
-    /// Optional tool-activity column (zero `Rect` when disabled).
-    pub activity_area: Rect,
+    /// Bottom status strip — model, mode, tokens, clock.
+    pub status_area: Rect,
 }
 
-/// Compute the main five-region layout for the terminal.
+/// Compute the four-region layout for the terminal.
 ///
-/// Vertical stack:
-/// - `Constraint::Length(1)` status bar
-/// - `Constraint::Min(1)` messages (optionally split with activity)
-/// - `Constraint::Length(queue_height + input_height)` for queue + input
-///
-/// When `show_activity` is true, the middle band is split **70 / 30** between
-/// messages (left) and activity (right).
+/// Vertical stack (bottom to top gravity):
+/// - `Constraint::Min(1)` messages (full width)
+/// - `Constraint::Length(queue_height)` task queue
+/// - `Constraint::Length(input_height)` input
+/// - `Constraint::Length(1)` status bar at bottom
 pub fn compute_layout(
     full_area: Rect,
     queue_height: u16,
     input_height: u16,
-    show_activity: bool,
 ) -> ViewLayout {
-    let bottom_h = queue_height.saturating_add(input_height);
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(STATUS_BAR_HEIGHT),
-            Constraint::Min(1),
-            Constraint::Length(bottom_h),
+            Constraint::Min(1),         // messages
+            Constraint::Length(queue_height), // queue
+            Constraint::Length(input_height), // input
+            Constraint::Length(STATUS_BAR_HEIGHT), // status bar
         ])
         .split(full_area);
 
-    let status_area = vertical[0];
-    let middle = vertical[1];
-    let bottom = vertical[2];
-
-    let (msg_area, activity_area) = if show_activity {
-        let cols = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
-            .split(middle);
-        (cols[0], cols[1])
-    } else {
-        (middle, Rect::default())
-    };
-
-    let bottom_split = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(queue_height),
-            Constraint::Length(input_height),
-        ])
-        .split(bottom);
-
     ViewLayout {
-        status_area,
-        msg_area,
-        queue_area: bottom_split[0],
-        input_area: bottom_split[1],
-        activity_area,
+        msg_area: vertical[0],
+        queue_area: vertical[1],
+        input_area: vertical[2],
+        status_area: vertical[3],
     }
 }
 
@@ -144,16 +113,23 @@ mod tests {
     #[test]
     fn compute_layout_splits_vertically() {
         let area = Rect::new(0, 0, 100, 30);
-        let layout = compute_layout(area, 2, 3, false);
+        let layout = compute_layout(area, 2, 3);
         assert_eq!(layout.status_area.height, 1);
         assert_eq!(layout.queue_area.height, 2);
         assert_eq!(layout.input_area.height, 3);
-        assert_eq!(layout.activity_area, Rect::default());
-        let used = layout.status_area.height
-            + layout.msg_area.height
+        let used = layout.msg_area.height
             + layout.queue_area.height
-            + layout.input_area.height;
+            + layout.input_area.height
+            + layout.status_area.height;
         assert_eq!(used, area.height);
+    }
+
+    #[test]
+    fn compute_layout_no_queue() {
+        let area = Rect::new(0, 0, 80, 24);
+        let layout = compute_layout(area, 0, 3);
+        assert_eq!(layout.queue_area.height, 0);
+        assert_eq!(layout.msg_area.height, 20);
     }
 
     #[test]
