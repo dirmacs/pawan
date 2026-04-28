@@ -73,27 +73,14 @@ pawan
 pawan explain src/main.rs
 ```
 
-## What's New in v0.4.1
+## What's New in v0.5.3
 
-### New TUI Features
+### TUI Redesign
 
-- **Session tags** — Add visual green tags to sessions with `/tag add <name>`, manage via `/tag` command
-- **Fuzzy session search** — Browse sessions with fuzzy matching, indicated by `[FUZZY]` in the UI
-- **NVIDIA NIM catalog** — Browse available NIM models with `/models` command
-- **Enhanced `/diff`** — Show git diff with `--cached` flag for staged changes, colorized output
-- **Improved session loading** — `/load` and `/resume` now open the session browser when called without arguments
-- **Enhanced scrolling** — PageUp/PageDown/Home/End keys and mouse wheel support in all popups (command palette, slash menu, session browser)
-
-### Security & Credentials
-
-- **Secure credential storage** — API keys stored in OS-native credential store (Keychain/Credential Manager/libsecret)
-- **Interactive key entry** — Prompts for API key when not found in env or secure store (input hidden)
-- **Automatic fallback** — Checks env var → secure store → interactive prompt
-
-### Test Stability
-
-- All 722 library tests and 59 integration tests now pass consistently
-- Test isolation improvements prevent race conditions in parallel execution
+- **Full-width chat** — activity panel removed, tool activity shown inline in chat stream
+- **Bottom status bar** — mode badge, thinking label, git branch, model name, token usage bar, iteration, timestamp
+- **Borderless aesthetic** — input and message areas without borders, subtle scroll % overlay
+- **gix 0.83** — upgraded from 0.82 (yanked) to resolve dependency issues
 
 ## Configuration
 

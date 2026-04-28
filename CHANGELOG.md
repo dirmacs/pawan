@@ -1,3 +1,17 @@
+## [0.5.3] - 2026-04-28
+
+### Changed
+- TUI redesign: activity panel removed, full-width chat with inline tool activity
+- Status bar moved to bottom with mode badge, thinking label, git branch, model name, token bar, iteration, timestamp
+- Borderless input and message areas with subtle scroll % and search hint overlays
+- Dead code removed: `activity_panel.rs`, `show_activity_panel` field, `render_activity()`, `render_messages_with_activity()`
+- Duplicate SVGs removed from `docs/img/` (identical copies of `docs/static/`)
+
+### Fixed
+- Stale version references updated across all README and docs files (v0.5.0 → v0.5.3)
+- `pawan-web` health response version updated from 0.4.8 to 0.5.3
+- `pawan-aegis` default model updated to `qwen/qwen3.5-122b-a10b`
+
 ## [0.5.2] - 2026-04-28
 
 ### Fixed

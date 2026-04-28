@@ -8,7 +8,7 @@ title = "Commands"
 
 Default TUI mode with ratatui-powered interface.
 
-Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, split layout with activity panel, streaming markdown with interleaved tool call display, inline slash command popup, vim-like navigation (`j/k`, `g/G`, `Ctrl+U/D`, `PageUp/PageDown`, `/search`, `n/N`), mouse wheel scroll support, expand/collapse tool results (`e`), message timestamps, scroll position indicator, session tags (green), fuzzy session search (`[FUZZY]` indicator), session stats, conversation export.
+Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, full-width chat with inline tool activity, streaming markdown with borderless aesthetic, bottom status bar, inline slash command popup, vim-like navigation (`j/k`, `g/G`, `Ctrl+U/D`, `PageUp/PageDown`, `/search`, `n/N`), mouse wheel scroll support, expand/collapse tool results (`e`), message timestamps, scroll position indicator, session tags (green), fuzzy session search (`[FUZZY]` indicator), session stats, conversation export.
 
 ### TUI Slash Commands
 
