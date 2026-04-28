@@ -1,3 +1,8 @@
+## [0.5.2] - 2026-04-28
+
+### Fixed
+- gix: upgraded from 0.82 to 0.83 to resolve yanked dependency (gix-actor also updated to 0.41)
+
 ## [0.5.1] - 2026-04-27
 
 ### Fixed
