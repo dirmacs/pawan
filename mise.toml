@@ -1,5 +1,4 @@
 # mise.toml — pawan project tasks and tool management
-# Run with: mise run <task> or pawan's mise tool
 
 [tools]
 "ast-grep" = "latest"
@@ -11,10 +10,10 @@
 description = "Run all pawan tests"
 run = "cargo test -p pawan-core --lib --tests && cargo test -p pawan -- tui"
 
+
 [tasks.grind-test]
 description = "Run all grind workspace tests"
 run = "cd grind && cargo test"
-
 [tasks.check]
 description = "Cargo check all crates"
 run = "cargo check --workspace"
@@ -26,18 +25,3 @@ run = "cargo build"
 [tasks.loc]
 description = "Lines of code per directory"
 run = "find . -name '*.rs' -not -path '*/target/*' | xargs wc -l | sort -rn | head -20"
-
-[tasks.hustle]
-description = "Find test coverage gaps"
-run = """
-echo "=== Source vs Test line counts ==="
-for dir in grind/*/; do
-  name=$(basename "$dir")
-  src_lines=$(wc -l < "$dir/src/lib.rs" 2>/dev/null || echo 0)
-  test_lines=$(grep -c '#\\[test\\]' "$dir/src/lib.rs" 2>/dev/null || echo 0)
-  echo "$name: ${src_lines} lines, ${test_lines} tests"
-done
-echo "=== pawan-core ==="
-find crates/pawan-core/src -name '*.rs' | xargs wc -l | tail -1
-echo "Tests:" $(grep -r '#\\[test\\]' crates/pawan-core/src/ | wc -l)
-"""

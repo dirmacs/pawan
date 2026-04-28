@@ -4,15 +4,15 @@ members = ["crates/*"]
 resolver = "2"
 
 [workspace.package]
-version = "0.5.2"
+version = "0.5.3"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/dirmacs/pawan"
 authors = ["Dirmacs <build@dirmacs.com>"]
 [workspace.dependencies]
 # Internal crates
-pawan-core = { version = "0.5.2", path = "crates/pawan-core" }
-pawan-mcp = { version = "0.5.2", path = "crates/pawan-mcp" }
+pawan-core = { version = "0.5.3", path = "crates/pawan-core" }
+pawan-mcp = { version = "0.5.3", path = "crates/pawan-mcp" }
 # Thulp — DRY: reuse tool types + skill file parsing instead of duplicating
 # 0.3.2+ required for ToolDefinition::to_mcp_input_schema()
 thulp-core = "0.3.2"

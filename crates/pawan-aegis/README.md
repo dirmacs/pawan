@@ -102,7 +102,7 @@ auto_commit = false
 ## Smart Defaults
 
 - **Provider**: Defaults to `nvidia` (omitted from generated TOML if default)
-- **Model**: Falls back to `mistralai/devstral-2-123b-instruct-2512` if not specified
+- **Model**: Falls back to `qwen/qwen3.5-122b-a10b` if not specified
 - **MCP enabled**: Defaults to `true`
 - **Empty sections**: Omitted from generated TOML
 
