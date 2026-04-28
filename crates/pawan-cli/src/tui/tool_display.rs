@@ -47,7 +47,7 @@ impl ToolDisplay {
             ),
             Span::styled(
                 format!("({status_word}, {} ms) ", self.duration_ms),
-                Style::default().fg(Color::DarkGray),
+                Style::default().fg(Color::Gray),
             ),
         ]);
 

@@ -193,11 +193,11 @@ impl Splash {
             std::array::from_fn(|i| &col_data[w + (i * 2 + 1) * w..w + (i * 2 + 2) * w]);
 
         let col_start = vx.partition_point(|&v| v > vignette_inv);
-        let col_end = w
-            - vx.iter()
-                .rev()
-                .position(|&v| v <= vignette_inv)
-                .unwrap_or(0);
+        let col_end = w - vx
+            .iter()
+            .rev()
+            .position(|&v| v <= vignette_inv)
+            .unwrap_or(0);
         if col_start >= col_end {
             return;
         }
@@ -276,7 +276,11 @@ impl Splash {
         let (ac_r, ac_g, ac_b) = extract_rgb(accent, (100, 140, 255));
         let (bg_r, bg_g, bg_b) = extract_rgb(bg, (15, 15, 25));
 
-        let logo_w = LOGO_LINES.iter().map(|l| l.chars().count()).max().unwrap_or(0) as u16;
+        let logo_w = LOGO_LINES
+            .iter()
+            .map(|l| l.chars().count())
+            .max()
+            .unwrap_or(0) as u16;
         let logo_x = area.x + (area.width.saturating_sub(logo_w)) / 2;
         let alpha = 0.85 * ease_out_cubic(((t - LOGO_DELAY) / LOGO_RAMP).clamp(0.0, 1.0)) * fade;
         let style = Style::new()

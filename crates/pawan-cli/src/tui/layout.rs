@@ -33,17 +33,13 @@ pub struct ViewLayout {
 /// - `Constraint::Length(queue_height)` task queue
 /// - `Constraint::Length(input_height)` input
 /// - `Constraint::Length(1)` status bar at bottom
-pub fn compute_layout(
-    full_area: Rect,
-    queue_height: u16,
-    input_height: u16,
-) -> ViewLayout {
+pub fn compute_layout(full_area: Rect, queue_height: u16, input_height: u16) -> ViewLayout {
     let vertical = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(1),         // messages
-            Constraint::Length(queue_height), // queue
-            Constraint::Length(input_height), // input
+            Constraint::Min(1),                    // messages
+            Constraint::Length(queue_height),      // queue
+            Constraint::Length(input_height),      // input
             Constraint::Length(STATUS_BAR_HEIGHT), // status bar
         ])
         .split(full_area);
