@@ -30,6 +30,9 @@ use tokio::sync::mpsc;
 use super::fuzzy_search::{command_prefix, default_command_item_lines, FuzzySearchState};
 use super::types::*;
 
+const INPUT_PLACEHOLDER: &str =
+    "Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)";
+
 pub(crate) struct App<'a> {
     pub(crate) config: TuiConfig,
     pub(crate) model_name: String,
@@ -233,17 +236,35 @@ pub(crate) struct PermissionDialog {
 }
 
 impl<'a> App<'a> {
+    pub(crate) fn new_input() -> TextArea<'a> {
+        let theme = super::theme::current();
+        let mut input = TextArea::default();
+        input.set_cursor_line_style(Style::default());
+        input.set_style(Style::default().fg(theme.foreground).bg(theme.surface));
+        input.set_placeholder_text(INPUT_PLACEHOLDER);
+        input.set_placeholder_style(Style::default().fg(theme.muted).bg(theme.surface));
+        input
+    }
+
+    pub(crate) fn reset_input(&mut self) {
+        self.input = Self::new_input();
+    }
+
+    pub(crate) fn restyle_input(&mut self) {
+        let theme = super::theme::current();
+        self.input
+            .set_style(Style::default().fg(theme.foreground).bg(theme.surface));
+        self.input
+            .set_placeholder_style(Style::default().fg(theme.muted).bg(theme.surface));
+    }
+
     pub fn new(
         config: TuiConfig,
         model_name: String,
         cmd_tx: mpsc::UnboundedSender<AgentCommand>,
         event_rx: mpsc::UnboundedReceiver<AgentEvent>,
     ) -> Self {
-        let mut input = TextArea::default();
-        input.set_cursor_line_style(Style::default());
-        input.set_placeholder_text(
-            "Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)",
-        );
+        let input = Self::new_input();
 
         Self {
             config,

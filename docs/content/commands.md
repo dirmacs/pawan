@@ -8,7 +8,7 @@ title = "Commands"
 
 Default TUI mode with ratatui-powered interface.
 
-Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, framed full-width chat with inline tool activity, streaming markdown, readable dark-mode theme tokens, bottom status bar, inline slash command popup, vim-like navigation (`j/k`, `g/G`, `Ctrl+U/D`, `PageUp/PageDown`, `/search`, `n/N`), mouse wheel scroll support, expand/collapse tool results (`e`), message timestamps, scroll position indicator, session tags (green), fuzzy session search (`[FUZZY]` indicator), session stats, conversation export.
+Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, framed full-width chat with inline tool activity, streaming markdown, readable dark-mode theme tokens, bottom status bar with separated model/token/context/clock fields, readable themed input placeholder, inline slash command popup that submits argument-bearing commands correctly, vim-like navigation (`j/k`, `g/G`, `Ctrl+U/D`, `PageUp/PageDown`, `/search`, `n/N`), mouse wheel scroll support, expand/collapse tool results (`e`), message timestamps, scroll position indicator, session tags (green), fuzzy session search (`[FUZZY]` indicator), session stats, conversation export.
 
 ### TUI Slash Commands
 
@@ -16,6 +16,7 @@ Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, framed fu
 |---------|-----------|-------------|
 | `/model [name]` | `/m` | Show or switch LLM model |
 | `/models` | | Browse NVIDIA NIM model catalog |
+| `/theme [name]` | | List available themes or switch theme (e.g., `/theme nord`) |
 | `/search <query>` | `/s` | Web search via Daedra MCP |
 | `/ss <query>` | | Search saved sessions by content |
 | `/prune [args]` | | Prune old sessions (e.g., 30d, 100s) |

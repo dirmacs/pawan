@@ -1,10 +1,10 @@
-# pawan-core v0.5.4
+# pawan-core v0.5.5
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
 
-## What's New in v0.5.4
+## What's New in v0.5.5
 
-- **Release alignment** — workspace crates now publish together at `0.5.4` with the TUI contrast and slash-picker fixes in the CLI
+- **Release alignment** — workspace crates now publish together at `0.5.5`; the CLI includes the `/theme` Enter fix, readable placeholder styling, status bar spacing, and expanded TUI regression tests
 
 ## What's New in v0.5.0
 

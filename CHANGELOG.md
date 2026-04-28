@@ -1,3 +1,13 @@
+## [0.5.5] - 2026-04-28
+
+### Fixed
+- `/theme <name>` now submits correctly from the TUI input when pressing Enter; the inline slash picker no longer intercepts commands once arguments are present.
+- Input placeholder text now uses the active theme's readable muted color on startup, after resets, and after theme switches.
+- Bottom status bar polish: model, token count, context percentage/bar, iteration, and timestamp now have visible separators and spacing.
+
+### Tests
+- Added TUI regression coverage for typed slash-command submission, `/theme` variants, theme help/error paths, textarea placeholder styling, and status bar spacing.
+
 ## [0.5.4] - 2026-04-28
 
 ### Fixed

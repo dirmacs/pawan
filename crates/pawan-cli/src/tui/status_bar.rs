@@ -92,6 +92,7 @@ impl StatusBar {
 
         // Right side: model + token context bar + iteration + timestamp
         let mut right_spans: Vec<Span> = Vec::new();
+        let sep = Span::styled("  |  ", Style::default().fg(theme.muted));
         right_spans.push(Span::styled(model, Style::default().fg(theme.accent)));
 
         let tok = format_tokens(ctx.total_tokens);
@@ -99,21 +100,26 @@ impl StatusBar {
         let bar_w = if area.width >= 80 { 10u16 } else { 6u16 };
         let bar = context_bar(ctx.context_pct, bar_w);
 
-        right_spans.push(Span::raw("  "));
+        right_spans.push(sep.clone());
+        right_spans.push(Span::styled(tok, Style::default().fg(theme.foreground)));
+        right_spans.push(sep.clone());
         right_spans.push(Span::styled(
-            format!("{tok} {pct}%{bar}"),
+            format!("ctx {pct}% "),
             Style::default().fg(theme.foreground),
         ));
+        right_spans.push(Span::styled(bar, Style::default().fg(theme.accent_dim)));
 
         if ctx.iteration > 0 {
+            right_spans.push(sep.clone());
             right_spans.push(Span::styled(
-                format!("  iter {}", ctx.iteration),
+                format!("iter {}", ctx.iteration),
                 Style::default().fg(theme.muted),
             ));
         }
 
+        right_spans.push(sep);
         right_spans.push(Span::styled(
-            format!("  {} ", ctx.timestamp),
+            format!("{} ", ctx.timestamp),
             Style::default().fg(theme.muted),
         ));
 
