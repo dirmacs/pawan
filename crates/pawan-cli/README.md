@@ -1,10 +1,16 @@
-# pawan v0.5.0
+# pawan v0.5.3
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 34 tools, and cross-session memory.
 
+## What's New in v0.5.3
+
+- **TUI redesign** — activity panel removed; full-width chat; bottom status bar; borderless input/messages
+- **Dead code cleanup** — removed legacy activity panel module and its config flag
+- **Dependency upgrade** — `gix` upgraded from 0.82 to 0.83 (yanked dep fix)
+
 ## What's New in v0.5.0
 
-- **TUI overhaul** — 12 ratatui components: theme, splash, highlight, layout, status_bar, scrollbar, activity_panel, queue_panel, tool_display, render, app, slash_commands
+- **TUI overhaul** — 11 ratatui components: theme, splash, highlight, layout, status_bar, scrollbar, queue_panel, tool_display, render, app, slash_commands
 - **Animated theme transitions** — `ColorTransition::set()` animates accent color on `/theme` switch; `⚡` indicator during transition
 - **StatusBar component** — mode badge (INPUT/NORMAL/CMD/HELP/MODEL), context bar, flash-on-event for UI events, iteration counter, timestamp
 - **Session store** — SQLite in WAL mode with FTS5 and JSON migration; JSONL session branching (parent_id, depth cap 5)

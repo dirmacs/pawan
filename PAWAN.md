@@ -1,6 +1,6 @@
 # Pawan Project Context
 
-Rust workspace with five crates:
+Rust 5-crate workspace:
 - `pawan-core`: Library (agent engine, tools, config, healing). Lib name is `pawan`.
 - `pawan-mcp`: MCP client integration (rmcp 0.12, stdio transport).
 - `pawan-web`: HTTP API server (Axum + SSE streaming, port 3300).

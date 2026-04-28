@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/img/pawan-logo.svg" width="128" alt="pawan">
+  <img src="docs/static/pawan-logo.svg" width="128" alt="pawan">
 </p>
 
 <h1 align="center">पवन — pawan</h1>
@@ -57,13 +57,15 @@ The core claim:
 
 The short version: **pawan is the vibe-coding runtime for people whose production language already fights bad code for them.** If you're using Rust in anger, that's the feature you want.
 
-## What's New in v0.5.0
+## What's New in v0.5.3
 
-### TUI overhaul — 12 new components, animated theme transitions
-- Complete ratatui refactor: `theme`, `splash`, `highlight`, `layout`, `status_bar`, `scrollbar`, `activity_panel`, `queue_panel`, `tool_display`, `render`, `app`, `slash_commands`
-- `ColorTransition::set()` animates accent color on `/theme` switch (focus borders + input title bar)
-- `⚡` animation indicator in input area title bar while transition is in progress
-- `StatusBar` component: rich status strip with mode badge (INPUT/NORMAL/CMD/HELP/MODEL), context bar, iteration counter, flash-on-event for UI events
+### TUI redesign — full-width chat, bottom status bar, borderless aesthetic
+- Activity panel removed — full-width chat, tool activity shown inline in chat stream
+- Status bar moved to bottom — mode badge, thinking label, git branch, model name, token bar, iteration, timestamp
+- Borderless input — accent-colored top separator, dynamic resizing 3-10 lines
+- Borderless messages — subtle scroll % overlay, search hint overlay
+- `ColorTransition::set()` animates accent color on `/theme` switch
+- `StatusBar` component: rich bottom strip with flash-on-event for UI events
 
 ### Session & Memory
 - SQLite session store in WAL mode with FTS5 and JSON migration
@@ -174,7 +176,6 @@ pawan/
     pawan-web/     # HTTP API — Axum SSE server (port 3300)
     pawan-mcp/     # MCP client (rmcp 0.12, stdio transport)
     pawan-aegis/   # aegis config resolution
-  grind/           # autonomous data structure workspace
 ```
 
 ### Safety & intelligence features
@@ -185,12 +186,15 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.5.0)
+## TUI (v0.5.3)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets
 - **F1 help overlay** — keyboard shortcuts reference, organized by category
-- **Split layout** — activity panel slides in during processing (72/28 split)
+- **Full-width chat** — tool activity shown inline in chat stream, no side activity panel
+- **Bottom status bar** — mode badge, thinking label, git branch, model name, token usage, timestamp
+- **Borderless input** — accent-colored top separator, dynamic resizing
+- **Borderless messages** — subtle scroll % overlay, search hint overlay
 - **Slash commands** — `/model`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`, `/sessions`, `/save`, `/load`, `/resume`, `/new`, `/fork`, `/dump`, `/share`, `/diff`, `/models`, `/tag`, `/compact`
 - **Session tags UI** — visual green tags in status bar, add/remove/clear via `/tag` command
 - **Fuzzy session search** — fuzzy matching indicator `[FUZZY]` when enabled in session browser
@@ -272,51 +276,6 @@ Zero-cost local inference with cloud reliability as a safety net.
 | Mistral Small 4 119B | 341ms | error | Eruka context injection triggers 400. |
 
 Full triage: [dirmacs.github.io/pawan/triage/](https://dirmacs.github.io/pawan/triage/)
-
-## What's New in v0.4.13
-
-### Build & Performance
-
-- **Pure-Rust git engine** — replaced `libgit2` (C library, ~40s cold compile) with `gix` 0.82 (gitoxide). No C toolchain dependency. Same public `GitSessionStore` API; 789 tests pass unchanged.
-- **mold linker** — switched to mold 2.30 for all dev/test builds; significantly faster linking on Linux.
-- **`split-debuginfo = unpacked`** — dev and test profiles keep debug info in `.dwo` files, reducing linker pressure.
-- **Feature-gated heavy deps** — `deagle`, `tasks`, `git-sessions`, `lancor` are now optional features; default still includes all of them. Cuts cold build time when building without code-intelligence or task-persistence layers.
-- **Workspace dep deduplication** — `which`, `dirs`, `dotenvy`, `tempfile` promoted to `[workspace.dependencies]`; eliminates version drift across crates.
-
-### Modularization
-
-- **`coordinator/types.rs` extracted** — `ToolCallingConfig`, `FinishReason`, `ConversationMessage`, `CoordinatorResult` live in their own file; `coordinator/mod.rs` reduced from 796 → 459 lines.
-- **`tools/git.rs` → `tools/git/`** — split into `status.rs`, `diff.rs`, `staging.rs`, `log.rs`, `branch.rs` submodules.
-- **`tools/native.rs` split** — `RipgrepTool`, `FdTool`, `SdTool`, `ErdTool` → `tools/native_search.rs`; `MiseTool` → `tools/mise.rs`; `LspTool` → `tools/lsp_tool.rs`. `native.rs` is now a 12-line re-export shim.
-
-### Type Deduplication
-
-- **`MessageRole` removed** — was identical to `agent::Role`; coordinator now uses `Role` directly.
-- **`to_definition()` alias removed** — forwarding alias to `thulp_definition()`; all callers updated.
-- **`FinishReason` canonical** — has `Display + PartialEq + Eq`; `events.rs` re-exports from coordinator.
-
-
-
-### New TUI Features
-
-- **Session tags UI** — Visual green tags in status bar, manage via `/tag` command
-- **Fuzzy session search** — Fuzzy matching with `[FUZZY]` indicator in session browser
-- **NVIDIA NIM catalog** — `/models` command to browse available NIM models
-- **Enhanced `/diff`** — `--cached` flag support and colorized diff output
-- **Improved `/load` and `/resume`** — Opens session browser when called without arguments
-- **Enhanced scrolling** — PageUp/PageDown/Home/End keys and mouse wheel support in all popups (command palette, slash menu, session browser)
-
-### Security & Credentials
-
-- **Secure credential storage** — API keys stored in OS-native credential store (Keychain/Credential Manager/libsecret)
-- **Interactive key entry** — Prompts for API key when not found in env or secure store (input hidden)
-- **Automatic fallback** — Checks env var → secure store → interactive prompt
-
-### Test Improvements
-
-- **Test isolation** — All 789 library tests and 59 integration tests now pass consistently
-- **Serial test execution** — Tests modifying environment state run serially to prevent race conditions
-- **79 TUI tests** — Comprehensive coverage of all TUI functionality
 
 ## Ecosystem
 

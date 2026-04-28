@@ -108,8 +108,8 @@ Updated 2026-04-12:
 - **12 NIM models** benchmarked via nimakai latency + real-world pawan task dogfooding
 - **Fastest task completion**: Qwen3.5 122B (13.6s for healing module review)
 - **Highest SWE-bench**: MiniMax M2.5 (80.2%)
-- **16 data structures** in grind workspace
-- **643+ workspace tests** passing, zero clippy warnings
+- - **16 data structures** in grind workspace
+- **208 TUI + CLI tests** passing, zero clippy warnings
 - **34 tools** in 3 tiers (Core/Standard/Extended) with auto-install via mise
 - **Multi-model thinking support**: Qwen (`enable_thinking`), Gemma (`enable_thinking`), GLM (`enable_thinking` + `clear_thinking`), Mistral Small 4 (`reasoning_effort`), DeepSeek (`thinking`)
 - **Token budget tracking**: thinking vs action token split visible in TUI and CLI

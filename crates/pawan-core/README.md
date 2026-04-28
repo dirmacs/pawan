@@ -1,6 +1,10 @@
-# pawan-core v0.5.0
+# pawan-core v0.5.3
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
+
+## What's New in v0.5.3
+
+- **Dependency upgrade** — `gix` upgraded from 0.82 to 0.83 (yanked dep fix)
 
 ## What's New in v0.5.0
 

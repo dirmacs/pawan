@@ -1,4 +1,5 @@
 /target
+
 *.swp
 .idea/
 .vscode/
@@ -22,7 +23,6 @@ lcov.info
 *.gcda
 *.gcno
 
-# Export artifacts from /export slash command
 # Local config — contains API keys and workspace secrets
 pawan.toml
 
