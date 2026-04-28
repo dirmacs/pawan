@@ -1,10 +1,12 @@
-//! Top-of-screen status strip (model, mode, tokens, git branch, clock).
-
-#![allow(dead_code)] // integrated by upcoming shell layout wiring
+//! Bottom status strip (mode, thinking, model, tokens, clock).
+//!
+//! Layout: left side shows mode + thinking label + git branch;
+//! right side shows model name, token usage bar, iteration, and timestamp.
+//! Inspired by maki-ui's left/right split status bar.
 
 use std::time::{Duration, Instant};
 
-use ratatui::layout::Rect;
+use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
@@ -40,6 +42,7 @@ impl StatusBar {
             return;
         }
 
+        // Flash messages take over the entire bar
         let flash_active = match (self.flash_message.as_ref(), self.flash_until) {
             (Some(msg), Some(until)) if Instant::now() < until => Some(msg.as_str()),
             _ => None,
@@ -59,88 +62,74 @@ impl StatusBar {
 
         let narrow = area.width < 60;
         let model = abbrev_model(&ctx.model_name, narrow);
-        let model_icon = "◉";
 
-        let mode_label = format!(" {} ", ctx.mode);
-        let mode_badge = Span::styled(
-            mode_label,
-            ctx
-                .mode_style
-                .add_modifier(Modifier::BOLD),
-        );
+        // Left side: mode badge + thinking label + branch
+        let mut left_spans: Vec<Span> = vec![Span::styled(
+            format!(" {} ", ctx.mode),
+            ctx.mode_style.add_modifier(Modifier::BOLD),
+        )];
 
-        let thinking = ctx
-            .thinking_label
-            .as_ref()
-            .map(|t| {
-                Span::styled(
-                    format!(" {t} "),
-                    Style::default().fg(Color::Yellow),
-                )
-            });
+        if let Some(t) = &ctx.thinking_label {
+            left_spans.push(Span::styled(
+                format!(" {t}"),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
+
+        if let Some(b) = &ctx.branch {
+            let b = b.trim();
+            if !b.is_empty() {
+                left_spans.push(Span::styled(
+                    format!(" ⎇{b}"),
+                    Style::default().fg(Color::Magenta),
+                ));
+            }
+        }
+
+        // Right side: model + token context bar + iteration + timestamp
+        let mut right_spans: Vec<Span> = Vec::new();
+        right_spans.push(Span::styled(
+            model,
+            Style::default().fg(Color::Cyan),
+        ));
 
         let tok = format_tokens(ctx.total_tokens);
         let pct = (ctx.context_pct.clamp(0.0, 1.0) * 100.0).round() as u32;
         let bar_w = if area.width >= 80 { 10u16 } else { 6u16 };
         let bar = context_bar(ctx.context_pct, bar_w);
-        let token_summary = format!("{tok} | {pct}% {bar}");
 
-        let iter_txt = format!("iter {}", ctx.iteration);
-
-        let branch_txt = ctx.branch.as_ref().and_then(|b| {
-            let b = b.trim();
-            if b.is_empty() {
-                None
-            } else {
-                Some(format!("⎇ {b}"))
-            }
-        });
-
-        let mut spans: Vec<Span> = vec![
-            Span::styled(
-                format!("{model_icon} {model}"),
-                Style::default().fg(Color::Cyan),
-            ),
-            sep(),
-            mode_badge,
-        ];
-
-        if let Some(span) = thinking {
-            spans.push(span);
-        }
-
-        spans.push(sep());
-        spans.push(Span::styled(
-            token_summary,
+        right_spans.push(Span::raw("  "));
+        right_spans.push(Span::styled(
+            format!("{tok} {pct}%{bar}"),
             Style::default().fg(Color::Gray),
         ));
-        spans.push(sep());
-        spans.push(Span::styled(
-            iter_txt,
-            Style::default().fg(Color::DarkGray),
-        ));
 
-        if let Some(b) = branch_txt {
-            spans.push(sep());
-            spans.push(Span::styled(b, Style::default().fg(Color::Magenta)));
+        if ctx.iteration > 0 {
+            right_spans.push(Span::styled(
+                format!("  iter {}", ctx.iteration),
+                Style::default().fg(Color::DarkGray),
+            ));
         }
 
-        spans.push(sep());
-        spans.push(Span::styled(
-            ctx.timestamp.clone(),
+        right_spans.push(Span::styled(
+            format!("  {} ", ctx.timestamp),
             Style::default().fg(Color::DarkGray),
         ));
 
-        let mut line = Line::from(spans);
-        line = truncate_line(line, area.width as usize);
+        // Split layout: left gets Min, right gets exact width
+        let right_width: u16 = right_spans.iter().map(|s| s.width() as u16).sum();
+        let [left_area, right_area] = Layout::horizontal([
+            Constraint::Min(0),
+            Constraint::Length(right_width),
+        ])
+        .areas(area);
 
-        let row = Rect::new(area.x, area.y, area.width, 1.min(area.height));
-        frame.render_widget(Paragraph::new(line), row);
+        frame.render_widget(Paragraph::new(Line::from(left_spans)), left_area);
+        frame.render_widget(
+            Paragraph::new(Line::from(right_spans)).alignment(Alignment::Right),
+            right_area,
+        );
     }
-}
-
-fn sep() -> Span<'static> {
-    Span::styled(" │ ", Style::default().fg(Color::DarkGray))
 }
 
 fn abbrev_model(name: &str, narrow: bool) -> String {
@@ -179,37 +168,6 @@ fn context_bar(pct: f32, width: u16) -> String {
     out
 }
 
-fn truncate_line(line: Line<'_>, max_width: usize) -> Line<'_> {
-    let w = line.width();
-    if w <= max_width {
-        return line;
-    }
-    let mut out: Vec<Span> = Vec::new();
-    let mut used = 0usize;
-    for sp in line.spans {
-        let sw = sp.width();
-        if used + sw <= max_width.saturating_sub(1) {
-            used += sw;
-            out.push(sp);
-        } else {
-            let budget = max_width.saturating_sub(used).saturating_sub(1);
-            if budget == 0 {
-                break;
-            }
-            let mut content = sp.content.to_string();
-            while content.chars().count() > budget && !content.is_empty() {
-                content.pop();
-            }
-            if !content.is_empty() {
-                out.push(Span::styled(content, sp.style));
-            }
-            out.push(Span::styled("…", Style::default()));
-            break;
-        }
-    }
-    Line::from(out)
-}
-
 /// Data supplied by the host each frame for the status strip.
 #[derive(Debug, Clone)]
 pub struct StatusBarContext {
@@ -229,4 +187,3 @@ impl Default for StatusBar {
         Self::new()
     }
 }
-

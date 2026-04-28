@@ -158,7 +158,7 @@ impl<'a> App<'a> {
 }
 
 impl<'a> App<'a> {
-    pub(crate) fn ui(&self, f: &mut Frame) {
+    pub(crate) fn ui(&mut self, f: &mut Frame) {
         if self.show_welcome {
             self.render_welcome(f);
             return;
@@ -167,114 +167,39 @@ impl<'a> App<'a> {
         let area = f.area();
         let input_lines = self.input.lines().len();
         let input_height = (input_lines + 2).clamp(3, 10) as u16;
-        let small = area.width < 40 || area.height < 8;
+        let theme = super::theme::current();
 
-        if small {
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .margin(1)
-                .constraints([
-                    Constraint::Min(3),
-                    Constraint::Length(input_height),
-                    Constraint::Length(1),
-                ])
-                .split(area);
+        // Full background fill
+        f.render_widget(ratatui::widgets::Clear, area);
+        f.render_widget(
+            Paragraph::new("").style(Style::default().bg(theme.background)),
+            area,
+        );
 
-            if self.processing {
-                let horiz = Layout::default()
-                    .direction(Direction::Horizontal)
-                    .constraints([Constraint::Percentage(72), Constraint::Percentage(28)])
-                    .split(chunks[0]);
-                self.render_messages(f, horiz[0]);
-                self.render_activity(f, horiz[1]);
-            } else {
-                self.render_messages(f, chunks[0]);
-            }
-            self.render_input(f, chunks[1]);
-            self.status_bar.view(f, chunks[2], &self.status_bar_context());
+        let queue_h = self.queue_panel.height_hint();
+        let layout = super::layout::compute_layout(area, queue_h, input_height);
 
-            if self.is_slash_popup_active()
-                && !self.help_overlay
-                && self.fuzzy_search.is_none()
-            {
-                self.render_slash_popup(f, chunks[1]);
-            }
-        } else {
-            let theme = super::theme::current();
-            let queue_h = self.queue_panel.height_hint();
-            let show_activity = self.show_activity_panel || self.processing;
-            let layout = super::layout::compute_layout(area, queue_h, input_height, show_activity);
+        // Messages: full width, borderless
+        self.render_messages(f, layout.msg_area);
 
-            f.render_widget(ratatui::widgets::Clear, area);
-            f.render_widget(
-                Paragraph::new("").style(Style::default().bg(theme.background)),
-                area,
-            );
+        // Queue panel (compact, only when tasks are running)
+        self.queue_panel.view(f, layout.queue_area);
 
-            let mode_str: &'static str = if self.processing { "streaming" } else { "idle" };
-            let mode_style = if self.processing {
-                Style::default().fg(Color::Cyan)
-            } else {
-                Style::default().fg(Color::DarkGray)
-            };
-            let context_pct = if self.context_estimate > 0 {
-                (self.total_tokens as f32 / (self.context_estimate as f32 * 1000.0)).clamp(0.0, 1.0)
-            } else {
-                0.0
-            };
-            let status_ctx = super::status_bar::StatusBarContext {
-                model_name: self.model_name.clone(),
-                mode: mode_str,
-                mode_style,
-                total_tokens: self.total_tokens,
-                context_pct,
-                iteration: self.iteration_count,
-                branch: None,
-                timestamp: Local::now().format("%H:%M").to_string(),
-                thinking_label: None,
-            };
-            super::status_bar::StatusBar::new().view(f, layout.status_area, &status_ctx);
+        // Input area
+        self.render_input(f, layout.input_area);
 
-            let mut msg_rect = layout.msg_area;
-            let legacy_bar = if msg_rect.height > 1 {
-                let bar = Rect::new(
-                    msg_rect.x,
-                    msg_rect.y + msg_rect.height - 1,
-                    msg_rect.width,
-                    1,
-                );
-                msg_rect.height = msg_rect.height.saturating_sub(1);
-                Some(bar)
-            } else {
-                None
-            };
-
-            if layout.activity_area.width > 0 {
-                self.render_messages_with_activity(f, msg_rect, layout.activity_area);
-            } else {
-                self.render_messages(f, msg_rect);
-            }
-
-            if let Some(bar) = legacy_bar {
-                self.status_bar.view(f, bar, &self.status_bar_context());
-            }
-
-            self.queue_panel.view(f, layout.queue_area);
-            self.render_input(f, layout.input_area);
-
-            if self.is_slash_popup_active()
-                && !self.help_overlay
-                && self.fuzzy_search.is_none()
-            {
-                self.render_slash_popup(f, layout.input_area);
-            }
-
-            // accent_transition.resolve() returns the in-flight animated accent color
-            // Track animation state: used to show transition indicator in UI chrome
-            let animating = self.accent_transition.is_animating();
-            let _ = animating;
+        // Slash popup above input
+        if self.is_slash_popup_active()
+            && !self.help_overlay
+            && self.fuzzy_search.is_none()
+        {
+            self.render_slash_popup(f, layout.input_area);
         }
 
+        // Status bar at the bottom
+        self.status_bar.view(f, layout.status_area, &self.status_bar_context());
+
+        // Overlays (modals take precedence)
         if self.permission_dialog.is_some() {
             self.render_permission_dialog(f);
         } else if self.model_picker.visible {
@@ -625,58 +550,6 @@ impl<'a> App<'a> {
         f.render_widget(List::new(visible_items), list_area);
     }
 
-    pub(crate) fn render_activity(&self, f: &mut Frame, area: Rect) {
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Magenta))
-            .title(" Activity ");
-        let mut items: Vec<ListItem> = Vec::new();
-        for msg in self.messages.iter().rev().take(5) {
-            for tc in msg.tool_records() {
-                let icon = if tc.success { "✓" } else { "✗" };
-                let color = if tc.success { Color::Green } else { Color::Red };
-                items.push(ListItem::new(Line::from(vec![
-                    Span::styled(format!(" {} ", icon), Style::default().fg(color)),
-                    Span::styled(tc.name.clone(), Style::default().fg(Color::White)),
-                    Span::styled(
-                        format!(" {}ms", tc.duration_ms),
-                        Style::default().fg(Color::DarkGray),
-                    ),
-                ])));
-            }
-        }
-        // Show running tools from streaming state
-        if let Some(ref state) = self.streaming {
-            for block in &state.blocks {
-                if let ContentBlock::ToolCall { name, state, .. } = block {
-                    if matches!(state.as_ref(), ToolBlockState::Running) {
-                        items.push(ListItem::new(Line::from(vec![
-                            Span::styled(" ⚙ ", Style::default().fg(Color::Yellow)),
-                            Span::styled(
-                                name.clone(),
-                                Style::default()
-                                    .fg(Color::Yellow)
-                                    .add_modifier(Modifier::BOLD),
-                            ),
-                        ])));
-                    }
-                }
-            }
-        }
-        if items.is_empty() {
-            items.push(ListItem::new(Span::styled(
-                " Waiting...",
-                Style::default().fg(Color::DarkGray),
-            )));
-        }
-        f.render_widget(List::new(items).block(block), area);
-    }
-
-    fn render_messages_with_activity(&self, f: &mut Frame, msg_area: Rect, activity_area: Rect) {
-        self.render_messages(f, msg_area);
-        self.activity_panel.view(f, activity_area);
-    }
-
     pub(crate) fn render_messages(&self, f: &mut Frame, area: Rect) {
         let mut lines: Vec<Line<'static>> = Vec::new();
         let now = std::time::Instant::now();
@@ -717,15 +590,9 @@ impl<'a> App<'a> {
             }
         }
 
-        let accent_color = self.accent_transition.resolve();
-        let border_style = if self.focus == Panel::Messages {
-            Style::default().fg(accent_color)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-
+        // Borderless: no block borders, full content area
         let total_lines = lines.len();
-        let visible_height = area.height.saturating_sub(2) as usize; // minus borders
+        let visible_height = area.height as usize;
         let max_offset = total_lines.saturating_sub(visible_height);
         let scroll_offset = if self.scroll == usize::MAX {
             max_offset // auto-scroll to bottom
@@ -733,33 +600,52 @@ impl<'a> App<'a> {
             self.scroll.min(max_offset)
         };
 
-        let scroll_indicator = if total_lines > visible_height {
+        // Subtle scroll indicator: bottom-right percentage
+        let scroll_pct = if total_lines > visible_height {
             let pct = (scroll_offset * 100).checked_div(max_offset).unwrap_or(100);
-            format!(" [{}%]", pct)
+            format!(" {}%", pct)
         } else {
             String::new()
         };
 
-        let title = if self.search_mode {
-            format!(" Search: {}▌ ", self.search_query)
+        // Search indicator: subtle top overlay
+        let search_hint = if self.search_mode {
+            format!(" Search: {}\u{258c}", self.search_query)
         } else if !self.search_query.is_empty() {
-            format!(
-                " Messages{} [/{}] (n/N next/prev) ",
-                scroll_indicator, self.search_query
-            )
+            format!(" [/{}] n/N", self.search_query)
         } else {
-            format!(" Messages{} (Tab, j/k, /, g/G, e) ", scroll_indicator)
+            String::new()
         };
 
-        let messages_block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(border_style)
-            .title(title);
-
         let paragraph = Paragraph::new(lines)
-            .block(messages_block)
             .scroll((scroll_offset as u16, 0));
         f.render_widget(paragraph, area);
+
+        // Render search hint as a subtle top overlay
+        if !search_hint.is_empty() {
+            let hint_line = Line::from(vec![Span::styled(
+                search_hint,
+                Style::default().fg(Color::Yellow),
+            )]);
+            let hint_area = Rect::new(area.x, area.y, area.width.min(40), 1);
+            f.render_widget(Paragraph::new(hint_line), hint_area);
+        }
+
+        // Render scroll % as a subtle bottom-right overlay
+        if !scroll_pct.is_empty() {
+            let pct_w = scroll_pct.len() as u16 + 1;
+            let pct_area = Rect::new(
+                area.x + area.width.saturating_sub(pct_w),
+                area.y + area.height.saturating_sub(1),
+                pct_w,
+                1,
+            );
+            let pct_line = Line::from(vec![Span::styled(
+                scroll_pct,
+                Style::default().fg(Color::DarkGray),
+            )]);
+            f.render_widget(Paragraph::new(pct_line), pct_area);
+        }
     }
 
     /// Render a single DisplayMessage into Lines.
@@ -972,39 +858,35 @@ impl<'a> App<'a> {
         }
     }
 
-    pub(crate) fn render_input(&self, f: &mut Frame, area: Rect) {
+    pub(crate) fn render_input(&mut self, f: &mut Frame, area: Rect) {
         let accent_color = self.accent_transition.resolve();
-        let animating = self.accent_transition.is_animating();
-        let border_style = if self.focus == Panel::Input {
+
+        // Borderless input with top separator line
+        let sep_style = if self.focus == Panel::Input {
             Style::default().fg(accent_color)
         } else {
             Style::default().fg(Color::DarkGray)
         };
 
-        let anim_indicator = if animating { " ⚡" } else { "" };
-        let title = if self.processing {
-            format!(" Input (processing...){} ", anim_indicator)
-        } else {
-            let base = match self.current_context {
-                KeybindContext::Input => "Input (Enter send | : or ^P command | ^M model)",
-                KeybindContext::Normal => "Input (i focus)",
-                KeybindContext::Command => "Input (fuzzy search open)",
-                KeybindContext::Help => "Input (F1)",
-                KeybindContext::ModelPicker => "Input (model picker open)",
-            };
-            format!(" {} {}", base, anim_indicator)
-        };
+        // Draw a subtle top separator
+        let sep_area = Rect::new(area.x, area.y, area.width, 1);
+        let sep_line = Line::from(Span::styled(
+            "\u{2500}".repeat(area.width as usize),
+            sep_style,
+        ));
+        f.render_widget(Paragraph::new(sep_line), sep_area);
 
-        let block = Block::default()
-            .borders(Borders::ALL)
-            .border_style(border_style)
-            .title(title);
+        // Input area below the separator
+        let input_area = Rect::new(
+            area.x,
+            area.y + 1,
+            area.width,
+            area.height.saturating_sub(1),
+        );
 
-        let inner = block.inner(area);
-        f.render_widget(block, area);
-        f.render_widget(&self.input, inner);
+        // Render textarea with chevron prefix
+        f.render_widget(&self.input, input_area);
     }
-
     /// Build the StatusBarContext each frame so the status strip can flash on events.
     pub(crate) fn status_bar_context(&self) -> StatusBarContext {
         use super::types::KeybindContext;
@@ -2735,7 +2617,7 @@ mod tests {
     fn test_welcome_shown_on_fresh_app() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
-        let app = App::new(
+        let mut app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
@@ -2787,7 +2669,7 @@ mod tests {
     fn test_welcome_renders() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
-        let app = App::new(
+        let mut app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
