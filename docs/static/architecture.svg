@@ -58,7 +58,7 @@
   <!-- Optional crates -->
   <rect x="560" y="210" width="200" height="56" rx="6" fill="#238636" fill-opacity="0.1" stroke="#238636" stroke-width="1" stroke-dasharray="4" />
   <text x="660" y="233" text-anchor="middle" font-family="monospace" font-size="12" fill="#3fb950">pawan-mcp</text>
-  <text x="660" y="253" text-anchor="middle" font-family="monospace" font-size="10" fill="#8b949e">(MCP client, rmcp)</text>
+  <text x="660" y="253" text-anchor="middle" font-family="monospace" font-size="10" fill="#8b949e">(MCP client, thulp-mcp)</text>
 
   <rect x="560" y="280" width="200" height="56" rx="6" fill="#238636" fill-opacity="0.1" stroke="#238636" stroke-width="1" stroke-dasharray="4" />
   <text x="660" y="303" text-anchor="middle" font-family="monospace" font-size="12" fill="#3fb950">pawan-aegis</text>

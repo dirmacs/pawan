@@ -14,7 +14,7 @@ cargo fmt --check
 ## Architecture
 
 - `pawan-core`: Agent engine, tools, config, healing. Zero dirmacs deps. Lib name is `pawan`.
-- `pawan-mcp`: MCP client integration (rmcp, stdio transport).
+- `pawan-mcp`: MCP client integration (thulp-mcp, stdio transport).
 - `pawan-web`: HTTP API server (Axum + SSE, port 3300).
 - `pawan-aegis`: Aegis config resolution.
 - `pawan-cli`: CLI binary + ratatui TUI. Depends on pawan-core.

@@ -4,7 +4,7 @@ MCP (Model Context Protocol) client integration for Pawan. Connects to MCP serve
 
 ## Features
 
-- **rmcp 0.12** — Rust MCP client implementation
+- **thulp-mcp** — Rust MCP client implementation and stdio transport
 - **Tool bridging** — MCP server tools appear as native Pawan tools
 - **Multi-server** — Connect to multiple MCP servers simultaneously
 - **Stdio transport** — Launch MCP servers as child processes
