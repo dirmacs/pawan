@@ -73,14 +73,14 @@ pawan
 pawan explain src/main.rs
 ```
 
-## What's New in v0.5.3
+## What's New in v0.5.4
 
-### TUI Redesign
+### TUI Polish
 
-- **Full-width chat** — activity panel removed, tool activity shown inline in chat stream
+- **Framed full-width chat** — activity panel remains removed, tool activity stays inline, and the main shell has an outer gutter/boundary again
 - **Bottom status bar** — mode badge, thinking label, git branch, model name, token usage bar, iteration, timestamp
-- **Borderless aesthetic** — input and message areas without borders, subtle scroll % overlay
-- **gix 0.83** — upgraded from 0.82 (yanked) to resolve dependency issues
+- **Readable dark mode** — timestamps, tool metadata, secondary labels, scroll indicators, and status details use theme tokens instead of dark-on-dark gray
+- **Slash picker fix** — selecting `/m`, `/theme`, and other slash commands with Enter dispatches them directly
 
 ## Configuration
 
