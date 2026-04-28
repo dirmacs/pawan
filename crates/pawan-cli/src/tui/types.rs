@@ -57,7 +57,7 @@ pub(crate) enum AgentCommand {
 
 /// A single content block within a message, preserving event ordering.
 #[derive(Clone, Debug)]
-pub(crate) enum ContentBlock {
+pub enum ContentBlock {
     /// Text emitted by the model. May be built incrementally during streaming.
     Text { content: String, streaming: bool },
     /// A tool call with optional result. Transitions: Running -> Done.
@@ -71,7 +71,7 @@ pub(crate) enum ContentBlock {
 /// State of a tool call block.
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
-pub(crate) enum ToolBlockState {
+pub enum ToolBlockState {
     Running,
     Done {
         record: ToolCallRecord,
@@ -227,7 +227,7 @@ impl DisplayMessage {
 }
 
 /// Summarize JSON arguments to a compact display string.
-pub(crate) fn summarize_args(args: &serde_json::Value) -> String {
+pub fn summarize_args(args: &serde_json::Value) -> String {
     match args {
         serde_json::Value::Object(map) => map
             .iter()
@@ -249,7 +249,7 @@ pub(crate) fn summarize_args(args: &serde_json::Value) -> String {
 }
 
 /// One-line preview of a tool result for collapsed view.
-pub(crate) fn one_line_preview(result: &serde_json::Value, max_len: usize) -> String {
+pub fn one_line_preview(result: &serde_json::Value, max_len: usize) -> String {
     let s = match result {
         serde_json::Value::String(s) => s.clone(),
         serde_json::Value::Object(map) => {
@@ -270,7 +270,7 @@ pub(crate) fn one_line_preview(result: &serde_json::Value, max_len: usize) -> St
 }
 
 /// Format tool result for expanded display.
-pub(crate) fn format_tool_result(result: &serde_json::Value) -> String {
+pub fn format_tool_result(result: &serde_json::Value) -> String {
     match result {
         serde_json::Value::String(s) => s.clone(),
         v => serde_json::to_string_pretty(v).unwrap_or_default(),
@@ -280,7 +280,7 @@ pub(crate) fn format_tool_result(result: &serde_json::Value) -> String {
 static REASONING_STRIP: OnceLock<Regex> = OnceLock::new();
 
 /// Strip model "thinking" / reasoning tag regions from assistant text before display.
-pub(crate) fn strip_reasoning_tags(s: &str) -> String {
+pub fn strip_reasoning_tags(s: &str) -> String {
     let re = REASONING_STRIP
         .get_or_init(|| Regex::new(r"(?s)<think>.*?</think>|\[/think\]").expect("static regex"));
     re.replace_all(s, "").to_string()

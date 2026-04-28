@@ -24,7 +24,7 @@ mod input;
 mod render;
 mod session_panel;
 mod slash_commands;
-mod types;
+pub mod types;
 
 pub(crate) use slash_commands::default_slash_fuzzy_lines;
 
