@@ -10,6 +10,10 @@ keywords = ["cli", "coding", "agent", "ai", "self-healing"]
 categories = ["command-line-utilities", "development-tools"]
 readme = "README.md"
 
+[lib]
+name = "pawan_cli_lib"
+path = "src/lib.rs"
+
 [[bin]]
 name = "pawan"
 path = "src/main.rs"

@@ -668,4 +668,686 @@ mod tests {
         let result = compact_messages(messages, &strategy);
         assert!(result.messages.iter().any(|m| m.content == "Fix the error"));
     }
+
+    #[test]
+    fn test_compact_messages_empty_input() {
+        let result = compact_messages(vec![], &CompactionStrategy::default());
+        assert_eq!(result.original_count, 0);
+        assert_eq!(result.compacted_count, 0);
+        assert_eq!(result.tokens_saved, 0);
+        assert!(result.messages.is_empty());
+    }
+
+    #[test]
+    fn test_compact_messages_deduplication() {
+        // Two identical messages should result in only one kept
+        let messages = vec![
+            Message {
+                role: Role::User,
+                content: "Same content".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+            Message {
+                role: Role::Assistant,
+                content: "Same content".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+        ];
+
+        let strategy = CompactionStrategy {
+            keep_recent: 10,
+            keep_keywords: vec![],
+            keep_tool_results: false,
+            keep_system: false,
+        };
+        let result = compact_messages(messages, &strategy);
+
+        // Both have same content, so only one should appear (dedup)
+        let matching = result
+            .messages
+            .iter()
+            .filter(|m| m.content == "Same content")
+            .count();
+        assert_eq!(matching, 1, "Duplicate content should be deduplicated");
+    }
+
+    #[test]
+    fn test_compact_messages_preserves_order() {
+        let messages = vec![
+            Message {
+                role: Role::System,
+                content: "System".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+            Message {
+                role: Role::User,
+                content: "User-1".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+            Message {
+                role: Role::Assistant,
+                content: "Assistant-1".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+            Message {
+                role: Role::User,
+                content: "User-2".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+        ];
+
+        let strategy = CompactionStrategy {
+            keep_recent: 10,
+            keep_keywords: vec![],
+            keep_tool_results: false,
+            keep_system: false,
+        };
+        let result = compact_messages(messages, &strategy);
+
+        // Should preserve original order: System, User-1, Assistant-1, User-2
+        let contents: Vec<_> = result.messages.iter().map(|m| m.content.clone()).collect();
+        assert_eq!(contents, vec!["System", "User-1", "Assistant-1", "User-2"]);
+    }
+
+    #[test]
+    fn test_compact_messages_tool_results() {
+        use crate::agent::{ToolCallRequest, ToolResultMessage};
+
+        let messages = vec![
+            Message {
+                role: Role::Assistant,
+                content: "Running tool".to_string(),
+                tool_calls: vec![ToolCallRequest {
+                    id: "1".to_string(),
+                    name: "read_file".to_string(),
+                    arguments: serde_json::json!({}),
+                }],
+                tool_result: Some(ToolResultMessage {
+                    tool_call_id: "1".to_string(),
+                    content: serde_json::json!("file content here"),
+                    success: true,
+                }),
+            },
+            Message {
+                role: Role::User,
+                content: "Just a message".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+        ];
+
+        let strategy = CompactionStrategy {
+            keep_recent: 1,
+            keep_keywords: vec![],
+            keep_tool_results: true,
+            keep_system: false,
+        };
+        let result = compact_messages(messages, &strategy);
+
+        // Tool result message should be kept
+        assert!(result.messages.iter().any(|m| m.tool_result.is_some()));
+    }
+
+    #[test]
+    fn test_compact_messages_all_system() {
+        let messages = vec![
+            Message {
+                role: Role::System,
+                content: "System 1".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+            Message {
+                role: Role::System,
+                content: "System 2".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+        ];
+
+        let strategy = CompactionStrategy {
+            keep_recent: 0,
+            keep_keywords: vec![],
+            keep_tool_results: false,
+            keep_system: true,
+        };
+        let result = compact_messages(messages, &strategy);
+
+        assert_eq!(result.compacted_count, 2);
+        assert!(result.messages.iter().all(|m| m.role == Role::System));
+    }
+
+    #[test]
+    fn test_compact_messages_keyword_case_insensitive() {
+        let messages = vec![
+            Message {
+                role: Role::User,
+                content: "Found the ERROR in the code".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+            Message {
+                role: Role::User,
+                content: "Normal text".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+        ];
+
+        let strategy = CompactionStrategy {
+            keep_keywords: vec!["error".to_string()],
+            keep_recent: 0,
+            keep_tool_results: false,
+            keep_system: false,
+        };
+        let result = compact_messages(messages, &strategy);
+
+        assert!(result.messages.iter().any(|m| m.content.contains("ERROR")));
+    }
+
+    #[test]
+    fn test_compact_messages_recent_boundary() {
+        // Test when keep_recent exactly equals message count
+        let messages: Vec<_> = (0..10)
+            .map(|i| Message {
+                role: Role::User,
+                content: format!("Message {}", i),
+                tool_calls: vec![],
+                tool_result: None,
+            })
+            .collect();
+
+        let strategy = CompactionStrategy {
+            keep_recent: 10,
+            keep_keywords: vec![],
+            keep_tool_results: false,
+            keep_system: false,
+        };
+        let result = compact_messages(messages, &strategy);
+
+        // All 10 messages kept since keep_recent == 10
+        assert_eq!(result.compacted_count, 10);
+    }
+
+    #[test]
+    fn test_estimate_tokens_saved_no_reduction() {
+        assert_eq!(estimate_tokens_saved(5, 5), 0);
+    }
+
+    #[test]
+    fn test_estimate_tokens_saved_reduction() {
+        // 4 tokens per message
+        assert_eq!(estimate_tokens_saved(10, 4), 24); // (10-4)*4
+    }
+
+    #[test]
+    fn test_parse_compaction_summary_user_intent() {
+        let summary = r#"
+# Conversation Summary
+
+## User Intent
+Build a new feature for the app
+
+## Key Decisions
+- Use Axum for the web server
+- Store sessions in JSON files
+
+## Code Changes
+None
+
+## Errors and Solutions
+None
+
+## Debugging Steps
+None
+
+## Warnings and Notes
+None
+
+## Current State
+Feature is partially implemented
+
+## Next Steps
+1. Write tests
+2. Deploy
+"#;
+        let parsed = parse_compaction_summary(summary).unwrap();
+
+        assert_eq!(parsed.user_intent, "Build a new feature for the app");
+        assert_eq!(parsed.key_decisions.len(), 2);
+        assert_eq!(parsed.key_decisions[0], "Use Axum for the web server");
+        assert!(parsed.code_changes.is_empty());
+        assert!(parsed.errors_and_solutions.is_empty());
+        assert_eq!(parsed.current_state, "Feature is partially implemented");
+        assert_eq!(parsed.next_steps.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_compaction_summary_code_changes() {
+        let summary = r#"
+## Code Changes
+
+### File: src/main.rs
+- **Change**: Added health endpoint
+- **Rationale**: Needed for Kubernetes probes
+- **Impact**: /health now returns 200
+
+### File: src/lib.rs
+- **Change**: Added session storage
+- **Rationale**: Sessions were lost on restart
+- **Impact**: Sessions persist across restarts
+
+## User Intent
+None
+
+## Key Decisions
+None
+
+## Errors and Solutions
+None
+
+## Debugging Steps
+None
+
+## Warnings and Notes
+None
+
+## Current State
+None
+
+## Next Steps
+None
+"#;
+        let parsed = parse_compaction_summary(summary).unwrap();
+
+        assert_eq!(parsed.code_changes.len(), 2);
+        assert_eq!(parsed.code_changes[0].file, "src/main.rs");
+        assert_eq!(parsed.code_changes[0].change, "Added health endpoint");
+        assert_eq!(parsed.code_changes[0].rationale, "Needed for Kubernetes probes");
+        assert_eq!(parsed.code_changes[0].impact, "/health now returns 200");
+        assert_eq!(parsed.code_changes[1].file, "src/lib.rs");
+    }
+
+    #[test]
+    fn test_parse_compaction_summary_errors_and_solutions() {
+        let summary = r#"
+## Errors and Solutions
+
+### Error: Rust compiler error E0432
+- **Location**: src/main.rs:10
+- **Solution**: Added missing import
+- **Prevention**: Run cargo check before committing
+
+## User Intent
+None
+
+## Key Decisions
+None
+
+## Code Changes
+None
+
+## Debugging Steps
+None
+
+## Warnings and Notes
+None
+
+## Current State
+None
+
+## Next Steps
+None
+"#;
+        let parsed = parse_compaction_summary(summary).unwrap();
+
+        assert_eq!(parsed.errors_and_solutions.len(), 1);
+        assert_eq!(parsed.errors_and_solutions[0].error, "Rust compiler error E0432");
+        assert_eq!(parsed.errors_and_solutions[0].location, "src/main.rs:10");
+        assert_eq!(parsed.errors_and_solutions[0].solution, "Added missing import");
+        assert_eq!(
+            parsed.errors_and_solutions[0].prevention,
+            "Run cargo check before committing"
+        );
+    }
+
+    #[test]
+    fn test_parse_compaction_summary_debugging_steps() {
+        let summary = r#"
+## Debugging Steps
+1. Set breakpoints in the handler
+2. Run cargo test
+3. Check logs for errors
+
+## User Intent
+None
+
+## Key Decisions
+None
+
+## Code Changes
+None
+
+## Errors and Solutions
+None
+
+## Warnings and Notes
+None
+
+## Current State
+None
+
+## Next Steps
+None
+"#;
+        let parsed = parse_compaction_summary(summary).unwrap();
+
+        assert_eq!(parsed.debugging_steps.len(), 3);
+        assert_eq!(parsed.debugging_steps[0], "Set breakpoints in the handler");
+        assert_eq!(parsed.debugging_steps[1], "Run cargo test");
+        assert_eq!(parsed.debugging_steps[2], "Check logs for errors");
+    }
+
+    #[test]
+    fn test_parse_compaction_summary_warnings_and_notes() {
+        let summary = r#"
+## Warnings and Notes
+- The config file uses TOML format
+- Sessions expire after 24 hours
+
+## User Intent
+None
+
+## Key Decisions
+None
+
+## Code Changes
+None
+
+## Errors and Solutions
+None
+
+## Debugging Steps
+None
+
+## Current State
+None
+
+## Next Steps
+None
+"#;
+        let parsed = parse_compaction_summary(summary).unwrap();
+
+        assert_eq!(parsed.warnings_and_notes.len(), 2);
+        assert_eq!(parsed.warnings_and_notes[0], "The config file uses TOML format");
+    }
+
+    #[test]
+    fn test_parse_compaction_summary_empty_input() {
+        let result = parse_compaction_summary("");
+        assert!(result.is_ok());
+        let parsed = result.unwrap();
+        assert_eq!(parsed.user_intent, "");
+        assert!(parsed.key_decisions.is_empty());
+        assert!(parsed.code_changes.is_empty());
+    }
+
+    #[test]
+    fn test_parse_compaction_summary_partial_content() {
+        // Only User Intent filled in
+        let summary = r#"
+## User Intent
+Just this
+
+## Key Decisions
+None
+
+## Code Changes
+None
+
+## Errors and Solutions
+None
+
+## Debugging Steps
+None
+
+## Warnings and Notes
+None
+
+## Current State
+None
+
+## Next Steps
+None
+"#;
+        let parsed = parse_compaction_summary(summary).unwrap();
+        assert_eq!(parsed.user_intent, "Just this");
+    }
+
+    #[test]
+    fn test_parse_compaction_summary_code_change_missing_fields() {
+        // Code change with only file, no bullet fields
+        let summary = r#"
+## Code Changes
+
+### File: src/main.rs
+
+Some free-form text that is not a bullet
+
+## User Intent
+None
+
+## Key Decisions
+None
+
+## Errors and Solutions
+None
+
+## Debugging Steps
+None
+
+## Warnings and Notes
+None
+
+## Current State
+None
+
+## Next Steps
+None
+"#;
+        let parsed = parse_compaction_summary(summary).unwrap();
+
+        // Code change with file but no bullet fields should be added (file is non-empty)
+        assert_eq!(parsed.code_changes.len(), 1);
+        assert_eq!(parsed.code_changes[0].file, "src/main.rs");
+        assert_eq!(parsed.code_changes[0].change, "");
+        assert_eq!(parsed.code_changes[0].rationale, "");
+        assert_eq!(parsed.code_changes[0].impact, "");
+    }
+
+    #[test]
+    fn test_parse_compaction_summary_truly_empty_file() {
+        // Section header with no actual file name should not create a code change
+        let summary = r#"
+## Code Changes
+
+### File:
+- **Change**: Should not appear
+
+## User Intent
+None
+
+## Key Decisions
+None
+
+## Errors and Solutions
+None
+
+## Debugging Steps
+None
+
+## Warnings and Notes
+None
+
+## Current State
+None
+
+## Next Steps
+None
+"#;
+        let parsed = parse_compaction_summary(summary).unwrap();
+
+        // Empty file name should prevent addition
+        assert!(parsed.code_changes.is_empty());
+    }
+
+    #[test]
+    fn test_parse_compaction_summary_no_header_prefix() {
+        // Content without ## prefix should be ignored
+        let summary = "This is just free-form text without section headers.";
+        let parsed = parse_compaction_summary(summary).unwrap();
+        assert_eq!(parsed.user_intent, "");
+    }
+
+    #[test]
+    fn test_summary_to_message_basic() {
+        let summary = ParsedCompactionSummary {
+            user_intent: "Build a feature".to_string(),
+            key_decisions: vec!["Use Rust".to_string()],
+            code_changes: vec![],
+            errors_and_solutions: vec![],
+            debugging_steps: vec![],
+            warnings_and_notes: vec![],
+            current_state: "In progress".to_string(),
+            next_steps: vec![],
+        };
+
+        let msg = summary_to_message(&summary);
+        assert_eq!(msg.role, Role::System);
+        assert!(msg.content.contains("## User Intent"));
+        assert!(msg.content.contains("Build a feature"));
+        assert!(msg.content.contains("## Key Decisions"));
+        assert!(msg.content.contains("Use Rust"));
+        assert!(msg.content.contains("## Current State"));
+        assert!(msg.content.contains("In progress"));
+        assert!(msg.tool_calls.is_empty());
+        assert!(msg.tool_result.is_none());
+    }
+
+    #[test]
+    fn test_summary_to_message_full_structure() {
+        use super::{CodeChange, ErrorSolution};
+
+        let summary = ParsedCompactionSummary {
+            user_intent: "Fix the bug".to_string(),
+            key_decisions: vec!["Decision 1".to_string(), "Decision 2".to_string()],
+            code_changes: vec![CodeChange {
+                file: "src/main.rs".to_string(),
+                change: "Added check".to_string(),
+                rationale: "To prevent crash".to_string(),
+                impact: "Crash fixed".to_string(),
+            }],
+            errors_and_solutions: vec![ErrorSolution {
+                error: "Panic at line 10".to_string(),
+                location: "src/main.rs:10".to_string(),
+                solution: "Added null check".to_string(),
+                prevention: "Use Option types".to_string(),
+            }],
+            debugging_steps: vec!["Step 1".to_string(), "Step 2".to_string()],
+            warnings_and_notes: vec!["Note: runs on Linux only".to_string()],
+            current_state: "Fixed".to_string(),
+            next_steps: vec!["Deploy".to_string()],
+        };
+
+        let msg = summary_to_message(&summary);
+
+        assert!(msg.content.contains("### File: src/main.rs"));
+        assert!(msg.content.contains("- **Change**: Added check"));
+        assert!(msg.content.contains("- **Rationale**: To prevent crash"));
+        assert!(msg.content.contains("### Error: Panic at line 10"));
+        assert!(msg.content.contains("- **Solution**: Added null check"));
+        assert!(msg.content.contains("1. Step 1"));
+        assert!(msg.content.contains("1. Deploy"));
+        assert!(msg.content.contains("Note: runs on Linux only"));
+    }
+
+    #[test]
+    fn test_summary_to_message_empty_sections_omitted() {
+        let summary = ParsedCompactionSummary {
+            user_intent: "Just this".to_string(),
+            key_decisions: vec![],
+            code_changes: vec![],
+            errors_and_solutions: vec![],
+            debugging_steps: vec![],
+            warnings_and_notes: vec![],
+            current_state: "".to_string(),
+            next_steps: vec![],
+        };
+
+        let msg = summary_to_message(&summary);
+
+        // Empty sections should be omitted (no ## Code Changes, etc.)
+        assert!(msg.content.contains("## User Intent"));
+        assert!(msg.content.contains("Just this"));
+        assert!(!msg.content.contains("## Key Decisions"));
+        assert!(!msg.content.contains("## Code Changes"));
+        assert!(!msg.content.contains("## Next Steps"));
+    }
+
+    #[test]
+    fn test_compaction_strategy_custom_values() {
+        let strategy = CompactionStrategy {
+            keep_recent: 5,
+            keep_keywords: vec!["critical".to_string(), "urgent".to_string()],
+            keep_tool_results: false,
+            keep_system: false,
+        };
+
+        assert_eq!(strategy.keep_recent, 5);
+        assert_eq!(strategy.keep_keywords.len(), 2);
+        assert!(!strategy.keep_tool_results);
+        assert!(!strategy.keep_system);
+    }
+
+    #[test]
+    fn test_compact_messages_keywords_with_tool_calls() {
+        // Tool calls without results should NOT be kept by keep_tool_results
+        let messages = vec![
+            Message {
+                role: Role::Assistant,
+                content: "Calling read_file".to_string(),
+                tool_calls: vec![crate::agent::ToolCallRequest {
+                    id: "1".to_string(),
+                    name: "read_file".to_string(),
+                    arguments: serde_json::json!({}),
+                }],
+                tool_result: None, // No result yet
+            },
+            Message {
+                role: Role::User,
+                content: "Fix the bug".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            },
+        ];
+
+        let strategy = CompactionStrategy {
+            keep_recent: 0,
+            keep_keywords: vec!["bug".to_string()],
+            keep_tool_results: true,
+            keep_system: false,
+        };
+        let result = compact_messages(messages, &strategy);
+
+        // "Fix the bug" keyword message should be kept
+        assert!(result.messages.iter().any(|m| m.content == "Fix the bug"));
+        // Tool call without result should NOT be kept by keep_tool_results
+        // (it only keeps messages that BOTH have tool_calls AND tool_result)
+    }
 }
