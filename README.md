@@ -176,6 +176,7 @@ pawan/
     pawan-web/     # HTTP API — Axum SSE server (port 3300)
     pawan-mcp/     # MCP client (rmcp 0.12, stdio transport)
     pawan-aegis/   # aegis config resolution
+  grind/           # data structure benchmark workspace
 ```
 
 ### Safety & intelligence features
