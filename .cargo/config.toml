@@ -4,9 +4,12 @@
 # Release profile (in Cargo.toml) keeps lto=true / codegen-units=1 for size/perf.
 
 [build]
-# Use mold — 5-10x faster than GNU ld for large Rust workspaces.
-# Falls back to ld if mold is absent (CI will still work).
-rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+# Use mold for native x86_64 dev builds — 5-10x faster than GNU ld.
+# CI sets RUSTFLAGS/CARGO_TARGET_*_LINKER env vars to override per-target.
+# Currently CI uses gcc for x86_64 Linux (avoids mold/ld issue on GitHub runners).
+# For aarch64 cross-compilation, CI sets CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER.
+# Only enable mold rustflags when not overridden by CARGO_TARGET_*_LINKER or RUSTFLAGS.
+# Note: cargo applies config rustflags AFTER env RUSTFLAGS, so CI env vars take precedence.
 
 # Compile to a ramdisk or fast temp dir if available; otherwise
 # the default target/ is fine. Comment-in to override:
