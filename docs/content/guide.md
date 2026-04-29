@@ -81,7 +81,7 @@ pawan explain src/main.rs
 - **Readable input placeholder** — placeholder styling is theme-aware at startup, after resets, and after theme switches
 - **Polished bottom status bar** — model, tokens, context percentage/bar, iteration, and timestamp are visually separated
 - **Expanded TUI tests** — key-event regressions and Ratatui TestBackend assertions cover `/theme`, placeholder styling, and status formatting
-- **Test suite expansion** — 45 new tests added (29 compaction, 16 eruka bridge, 53 TUI types); 988+ total tests passing with 74.58% line / 74.80% region coverage (cargo-llvm-cov baseline)
+- **Test suite expansion** — 98 new tests added (29 compaction, 16 eruka bridge, 53 TUI types); 988+ total tests passing with 74.58% line / 74.80% region coverage (cargo-llvm-cov baseline)
 
 ## Configuration
 

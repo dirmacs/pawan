@@ -15,6 +15,14 @@ This crate provides integration between Pawan and the [Aegis](https://github.com
 - **Healing Configuration** — Supports auto-healing settings (fix_errors, fix_warnings, fix_tests, auto_commit)
 - **Smart Defaults** — Uses sensible defaults and omits unnecessary fields
 
+## Installation
+
+Add the library from crates.io:
+
+```bash
+cargo add pawan-aegis
+```
+
 ## Usage
 
 ### Basic Usage

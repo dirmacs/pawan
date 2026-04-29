@@ -19,14 +19,16 @@ HTTP API server for Pawan — Axum + SSE streaming for real-time agent interacti
 
 ## Installation
 
-Build from source:
+Install from crates.io:
 
 ```bash
-cd /opt/pawan
+cargo install pawan-web
+
+# Or build from source
+git clone https://github.com/dirmacs/pawan && cd pawan
 cargo build --release --bin pawan-web
 ```
-
-The binary will be available at `target/release/pawan-web`.
+The source-built binary will be available at `target/release/pawan-web`.
 
 ## Usage
 
