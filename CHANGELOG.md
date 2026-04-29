@@ -1,3 +1,12 @@
+## [0.5.6] - 2026-04-28
+
+### Tests
+- Added 45 new tests: 29 compaction tests (edge cases, strategies, keywords, summary parsing), 16 eruka bridge tests (serde, JSON parsing, disabled client paths), 53 TUI types tests (format parsing, strip_reasoning_tags, ContentBlock, ToolBlockState)
+- Total: 988+ tests passing, 74.58% line / 74.80% region / 77.34% function coverage (cargo-llvm-cov baseline)
+- Fixed `strip_reasoning_tags` test to use correct `` tag format (was incorrectly using `<reasoning>`)
+- Added `lib.rs` section to pawan-cli for integration test access; exposed `ContentBlock`, `ToolBlockState`, and helper functions as `pub` (not `pub(crate)`)
+- Fixed eruka string literal encoding in test file: binary `"` characters now written correctly via Python script (bash heredoc HTML entities were producing literal `&quot;` bytes)
+
 ## [0.5.5] - 2026-04-28
 
 ### Fixed
