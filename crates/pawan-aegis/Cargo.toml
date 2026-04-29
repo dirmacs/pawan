@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 description = "Pawan-Aegis integration — generate pawan.toml from aegis manifests"
-publish = false
+publish = true
 keywords = ["aegis", "config", "ai", "agent"]
 
 [dependencies]
