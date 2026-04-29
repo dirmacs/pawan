@@ -1,13 +1,14 @@
-# pawan v0.5.5
+# pawan v0.5.6
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 34 tools, and cross-session memory.
 
-## What's New in v0.5.5
+## What's New in v0.5.6
 
 - **Slash command reliability** — `/theme <name>` and other argument-bearing slash commands submit correctly when pressing Enter
 - **Readable input placeholder** — textarea placeholder and reset paths use active theme colors instead of low-contrast defaults
 - **Status bar polish** — model, tokens, context percentage/bar, iteration, and clock are separated and spaced clearly
 - **Regression coverage** — added key-event and Ratatui TestBackend tests for `/theme`, placeholder styling, and status formatting
+- **Test suite expansion** — 53 new TUI types tests covering format parsing, strip_reasoning_tags, ContentBlock, ToolBlockState; 988+ total workspace tests with 74.58% line coverage
 
 ## What's New in v0.5.0
 
