@@ -57,7 +57,7 @@ The core claim:
 
 The short version: **pawan is the vibe-coding runtime for people whose production language already fights bad code for them.** If you're using Rust in anger, that's the feature you want.
 
-## What's New in v0.5.5
+## What's New in v0.5.6
 
 ### TUI reliability — /theme, input contrast, status polish
 - `/theme nord`, `/theme onedark`, `/theme gruvbox`, and other argument-bearing slash commands now submit correctly when pressing Enter
@@ -186,7 +186,7 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.5.5)
+## TUI (v0.5.6)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets
@@ -210,7 +210,7 @@ pawan/
 - **Model selector** — interactive model selection with search and filtering
 - **Session browser** — browse, load, and manage saved sessions with fuzzy search
 - **Auto-save** — automatic session saving at configurable intervals
-- **Comprehensive testing** — full workspace tests plus 185 TUI tests / 220 CLI+TUI tests passing before release
+- **Comprehensive testing** — full workspace tests plus 988+ tests passing with 74.58% line / 74.80% region / 77.34% function coverage (cargo-llvm-cov baseline)
 
 ### Intelligence (2026-04-08)
 
