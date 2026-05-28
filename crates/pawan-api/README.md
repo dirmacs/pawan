@@ -467,7 +467,7 @@ Error responses include descriptive messages:
 ### Running in Development
 
 ```bash
-cd ~/pawan
+cd pawan
 cargo run --bin pawan-api
 
 # With custom workspace

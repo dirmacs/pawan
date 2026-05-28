@@ -760,7 +760,7 @@ mod tests {
         // .git anywhere in path should be blocked — would corrupt repo state
         let cases = [
             "/home/user/repo/.git/HEAD",
-            "~/pawan/.git/config",
+            "/opt/app/.git/config",
             ".git/index",
             "./.git/hooks/pre-commit",
             "/tmp/foo/.git/something",
@@ -826,7 +826,7 @@ mod tests {
         let allowed = [
             "/home/user/ws/src/main.rs",
             "/tmp/scratch/notes.md",
-            "~/pawan/README.md",
+            "/opt/app/README.md",
             "/var/tmp/output.txt",
             "./relative/path/file.txt",
         ];
@@ -930,7 +930,7 @@ mod tests {
         // `/etc/` prefix blocks writes to /etc. But a path like
         // "/home/user/etc/config" should NOT be blocked — /etc/ is the
         // start-of-string match, not a substring.
-        let allowed = ["/home/user/etc/config.toml", "~/pawan/etc/overrides.yml"];
+        let allowed = ["/home/user/etc/config.toml", "/opt/app/etc/overrides.yml"];
         for p in allowed {
             let result = validate_file_write(Path::new(p));
             assert!(

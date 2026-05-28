@@ -83,7 +83,7 @@ We switched from llama.cpp GGUF to `mlx_lm.server` (Apple Silicon native) for lo
 | **Memory** | Unified memory — efficient | Separate GPU/CPU split |
 | **API** | OpenAI-compatible, localhost:8080 | OpenAI-compatible, localhost:8080 |
 
-**Setup:** `uv tool install mlx-lm`, then `mlx_lm.server --model mlx-community/Qwen3.5-9B-4bit`. Persisted via launchd plist on Mac, exposed to server via SSH tunnel.
+**Setup:** `uv tool install mlx-lm`, then `mlx_lm.server --model mlx-community/Qwen3.5-9B-4bit`. Persisted via launchd plist on Mac, exposed to a remote host via SSH tunnel.
 
 ### What MLX handles well
 
