@@ -1650,8 +1650,8 @@ model = "qwen3-coder:30b"
     #[test]
     fn test_load_ares_toml_without_pawan_section_returns_defaults() {
         // ares.toml with no [pawan] section must fall back to defaults,
-        // not error out. This is the common case on server where ares runs
-        // alongside pawan but pawan has its own config elsewhere.
+        // not error out. This is a common setup where pawan reads an
+        // ares.toml that contains no pawan-specific section.
         let tmp = tempfile::TempDir::new().expect("tempdir");
         let path = tmp.path().join("ares.toml");
         std::fs::write(
