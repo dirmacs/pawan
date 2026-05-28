@@ -172,7 +172,7 @@ pawan/
   crates/
     pawan-core/    # library — agent engine, 34 tools, config, healing
     pawan-cli/     # binary — CLI + ratatui TUI + AI workflows
-    pawan-web/     # HTTP API — Axum SSE server (port 3300)
+    pawan-api/     # HTTP API — Axum SSE server (port 3300)
     pawan-mcp/     # MCP client (thulp-mcp, stdio transport)
     pawan-aegis/   # aegis config resolution
   grind/           # data structure benchmark workspace

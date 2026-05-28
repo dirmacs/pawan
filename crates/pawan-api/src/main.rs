@@ -316,7 +316,7 @@ async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "pawan_web=info,tower_http=info".into()),
+                .unwrap_or_else(|_| "pawan_api=info,tower_http=info".into()),
         )
         .init();
 
@@ -360,7 +360,7 @@ async fn main() {
         .layer(TraceLayer::new_for_http())
         .with_state(state);
 
-    let port = std::env::var("PAWAN_WEB_PORT")
+    let port = std::env::var("PAWAN_API_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(3300u16);
@@ -369,7 +369,7 @@ async fn main() {
         .await
         .expect("failed to bind");
 
-    tracing::info!("pawan-web listening on port {}", port);
+    tracing::info!("pawan-api listening on port {}", port);
 
     axum::serve(listener, app).await.expect("server error");
 }

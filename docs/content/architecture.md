@@ -30,7 +30,7 @@ surfaces a diagnostic that the LLM reads and fixes on the next turn.
             └───────────────────────────────────────────────────┘
 ```
 
-After `execute_with_all_callbacks` returns, the CLI (or pawan-web) calls
+After `execute_with_all_callbacks` returns, the CLI (or pawan-api) calls
 `agent.archive_to_eruka()` as a separate step on save. Archival is not
 inside the hot loop so that individual turns stay fast even when Eruka
 is up.

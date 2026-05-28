@@ -16,7 +16,7 @@ jobs:
         run: |
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           df -h /
-      - name: Deploy pawan-web
+      - name: Deploy pawan-api
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -25,7 +25,7 @@ jobs:
           script: |
             cd ~/pawan
             git pull origin main
-            cargo build --release -p pawan-web
-            systemctl restart pawan-web
+            cargo build --release -p pawan-api
+            systemctl restart pawan-api
             sleep 3
             curl -sf http://localhost:3300/api/health | grep -q ok
