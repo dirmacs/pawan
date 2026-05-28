@@ -1,6 +1,6 @@
 # Pawan
 
-Rust 5-crate workspace: `pawan-core` (library), `pawan-mcp`, `pawan-web`, `pawan-aegis`, `pawan-cli` (binary with TUI).
+Rust 5-crate workspace: `pawan-core` (library), `pawan-mcp`, `pawan-api`, `pawan-aegis`, `pawan-cli` (binary with TUI).
 
 ## Build & Test
 
@@ -15,7 +15,7 @@ cargo fmt --check
 
 - `pawan-core`: Agent engine, tools, config, healing. Zero dirmacs deps. Lib name is `pawan`.
 - `pawan-mcp`: MCP client integration (thulp-mcp, stdio transport).
-- `pawan-web`: HTTP API server (Axum + SSE, port 3300).
+- `pawan-api`: HTTP API server (Axum + SSE, port 3300).
 - `pawan-aegis`: Aegis config resolution.
 - `pawan-cli`: CLI binary + ratatui TUI. Depends on pawan-core.
 

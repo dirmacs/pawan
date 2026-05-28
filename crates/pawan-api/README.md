@@ -1,10 +1,10 @@
-# pawan-web
+# pawan-api
 
 HTTP API server for Pawan — Axum + SSE streaming for real-time agent interactions.
 
 ## Overview
 
-`pawan-web` provides a RESTful HTTP API and Server-Sent Events (SSE) streaming interface for the Pawan coding agent. It enables web applications and other services to interact with Pawan's AI-powered coding capabilities through standard HTTP protocols.
+`pawan-api` provides a RESTful HTTP API and Server-Sent Events (SSE) streaming interface for the Pawan coding agent. It enables web applications and other services to interact with Pawan's AI-powered coding capabilities through standard HTTP protocols.
 
 ## Features
 
@@ -22,13 +22,13 @@ HTTP API server for Pawan — Axum + SSE streaming for real-time agent interacti
 Install from crates.io:
 
 ```bash
-cargo install pawan-web
+cargo install pawan-api
 
 # Or build from source
 git clone https://github.com/dirmacs/pawan && cd pawan
-cargo build --release --bin pawan-web
+cargo build --release --bin pawan-api
 ```
-The source-built binary will be available at `target/release/pawan-web`.
+The source-built binary will be available at `target/release/pawan-api`.
 
 ## Usage
 
@@ -36,13 +36,13 @@ The source-built binary will be available at `target/release/pawan-web`.
 
 ```bash
 # Start with default configuration
-pawan-web
+pawan-api
 
 # Start with custom workspace
-pawan-web --workspace /path/to/project
+pawan-api --workspace /path/to/project
 
 # Start with custom config
-pawan-web --config /path/to/pawan.toml
+pawan-api --config /path/to/pawan.toml
 ```
 
 The server starts on port 3300 by default.
@@ -468,20 +468,20 @@ Error responses include descriptive messages:
 
 ```bash
 cd ~/pawan
-cargo run --bin pawan-web
+cargo run --bin pawan-api
 
 # With custom workspace
-cargo run --bin pawan-web -- --workspace /path/to/project
+cargo run --bin pawan-api -- --workspace /path/to/project
 ```
 
 ### Testing
 
 ```bash
 # Run web server tests
-cargo test --bin pawan-web
+cargo test --bin pawan-api
 
 # Run with logging
-RUST_LOG=debug cargo run --bin pawan-web
+RUST_LOG=debug cargo run --bin pawan-api
 ```
 
 ## Performance Considerations

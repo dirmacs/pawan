@@ -5361,6 +5361,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "pawan-api"
+version = "0.5.6"
+dependencies = [
+ "axum 0.8.9",
+ "axum-extra",
+ "chrono",
+ "dirs 6.0.0",
+ "dotenvy",
+ "futures",
+ "hostname",
+ "http-body-util",
+ "pawan-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "toml 1.1.2+spec-1.1.0",
+ "tower 0.5.3",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "uuid",
+]
+
+[[package]]
 name = "pawan-core"
 version = "0.5.6"
 dependencies = [
@@ -5420,32 +5446,6 @@ dependencies = [
  "tokio",
  "toon-format",
  "tracing",
-]
-
-[[package]]
-name = "pawan-web"
-version = "0.5.6"
-dependencies = [
- "axum 0.8.9",
- "axum-extra",
- "chrono",
- "dirs 6.0.0",
- "dotenvy",
- "futures",
- "hostname",
- "http-body-util",
- "pawan-core",
- "serde",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-stream",
- "toml 1.1.2+spec-1.1.0",
- "tower 0.5.3",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "uuid",
 ]
 
 [[package]]

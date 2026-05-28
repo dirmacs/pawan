@@ -137,7 +137,7 @@ jobs:
           cargo publish -p pawan-mcp
           sleep 30
           cargo publish -p pawan-aegis
-          cargo publish -p pawan-web
+          cargo publish -p pawan-api
           sleep 90
           cargo publish -p pawan
 

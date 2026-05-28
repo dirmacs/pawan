@@ -19,7 +19,7 @@ default = ["deagle", "tasks", "git-sessions"]
 
 # deagle: embedded code-intelligence (deagle-core + deagle-parse + rayon).
 # Adds tree-sitter parsers for 9 languages; ~30-50 MB binary overhead.
-# Disable with `default-features = false` for lean builds (pawan-web, tests).
+# Disable with `default-features = false` for lean builds (pawan-api, tests).
 deagle = ["dep:deagle-core", "dep:deagle-parse", "dep:rayon"]
 
 # tasks: SQLite-backed beads task tracker (rusqlite bundled).
