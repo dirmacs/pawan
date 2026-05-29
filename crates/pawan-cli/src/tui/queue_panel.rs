@@ -76,7 +76,7 @@ impl QueuePanel {
             .collect();
 
         let mut lines: Vec<Vec<String>> = vec![Vec::new()];
-        let max_lines = (area.height as usize).min(3).max(1);
+        let max_lines = (area.height as usize).clamp(1, 3);
         let budget = area.width as usize;
 
         for piece in pieces {
