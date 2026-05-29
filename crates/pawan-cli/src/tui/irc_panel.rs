@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn poll_irc_inbox_surfaces_formatted_line() {
         let hub = IrcHub::new();
-        let mut worker = hub.join("worker");
+        let worker = hub.join("worker");
         let (mut app, _cmd_rx) = test_app_with_hub(&hub);
 
         worker.send("main", "ping").expect("deliver");
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn poll_irc_inbox_drains_multiple_messages() {
         let hub = IrcHub::new();
-        let mut worker = hub.join("worker");
+        let worker = hub.join("worker");
         let (mut app, _cmd_rx) = test_app_with_hub(&hub);
 
         worker.send("main", "one").expect("deliver");
