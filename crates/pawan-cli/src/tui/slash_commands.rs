@@ -1007,6 +1007,40 @@ impl<'a> App<'a> {
                 }
             }
 
+            "/loop" => {
+                self.loop_mode = !self.loop_mode;
+                self.status = if self.loop_mode {
+                    "LOOP mode on — agent will auto-continue".to_string()
+                } else {
+                    "LOOP mode off".to_string()
+                };
+            }
+            "/goal" => {
+                if arg.is_empty() {
+                    self.goal_mode = !self.goal_mode;
+                    self.status = if self.goal_mode {
+                        "GOAL mode on".to_string()
+                    } else {
+                        "GOAL mode off".to_string()
+                    };
+                } else {
+                    self.goal_mode = true;
+                    self.status = format!("GOAL: {}", arg);
+                }
+            }
+            "/orchestrate" => {
+                if arg.is_empty() {
+                    self.status = "Usage: /orchestrate <task description>".to_string();
+                } else {
+                    self.status = format!("Orchestrating: {}", arg);
+                    // Stub — will dispatch to subagent coordinator when available
+                    self.messages.push(DisplayMessage::new_text(
+                        Role::System,
+                        format!("Orchestration requested: {}", arg),
+                    ));
+                }
+            }
+
             _ => {
                 debug_assert!(
                     false,

@@ -59,6 +59,8 @@ pub(crate) struct App<'a> {
     pub(crate) show_welcome: bool,
     /// Goal mode — when active, agent works toward a user-specified objective
     pub(crate) goal_mode: bool,
+    /// Loop mode — when active, agent auto-continues after each response
+    pub(crate) loop_mode: bool,
     /// Receiver for live model catalog (oneshot from spawned fetch)
     pub(crate) model_fetch_rx: Option<tokio::sync::oneshot::Receiver<Vec<ModelInfo>>>,
     /// Centralized theme system (ArcSwap-backed, thread-safe)
@@ -211,6 +213,7 @@ const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/?", "Show help (shorthand)"),
     ("/goal", "Set a goal for the agent to work toward"),
     ("/orchestrate", "Orchestrate subagents for a task"),
+    ("/loop", "Toggle auto-continue loop mode"),
 ];
 
 /// State for an active permission prompt dialog

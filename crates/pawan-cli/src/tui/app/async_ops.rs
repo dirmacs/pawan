@@ -185,6 +185,14 @@ impl<'a> App<'a> {
                                     + self.total_completion_tokens)
                                     as usize;
                                 self.status = format!("Done ({} iterations)", resp.iterations);
+                                if self.goal_mode {
+                                    self.messages.push(DisplayMessage::new_text(
+                                        Role::System,
+                                        "Goal mode: checking if objective achieved...".to_string(),
+                                    ));
+                                    self.status = "Goal mode: checking if objective achieved..."
+                                        .to_string();
+                                }
                                 self.scroll = self.messages.len().saturating_sub(1);
                             }
                             Err(e) => {

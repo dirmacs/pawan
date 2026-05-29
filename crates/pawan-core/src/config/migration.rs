@@ -3,7 +3,8 @@
 //! Applies sequential version upgrades to a [`PawanConfig`] loaded from disk,
 //! creating a timestamped backup before modifying anything.
 
-use super::{default_tool_idle_timeout, PawanConfig};
+use super::defaults::default_tool_idle_timeout;
+use super::PawanConfig;
 use chrono::Utc;
 use std::path::PathBuf;
 use tracing;
