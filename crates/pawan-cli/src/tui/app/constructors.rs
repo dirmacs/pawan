@@ -38,6 +38,7 @@ impl<'a> App<'a> {
         model_name: String,
         cmd_tx: mpsc::UnboundedSender<AgentCommand>,
         event_rx: mpsc::UnboundedReceiver<AgentEvent>,
+        irc_relay: std::sync::Arc<std::sync::Mutex<pawan::agent::IrcRelay>>,
     ) -> Self {
         let input = Self::new_input();
 
@@ -99,6 +100,9 @@ impl<'a> App<'a> {
             history_position: None,
             slash_inflight: None,
             slash_registry: SlashCommandRegistry::built_in(),
+            irc_compose_open: false,
+            irc_compose_input: String::new(),
+            irc_relay,
         }
     }
 

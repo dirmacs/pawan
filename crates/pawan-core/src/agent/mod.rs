@@ -21,6 +21,9 @@ pub mod session_store;
 mod construction;
 mod execute;
 pub mod session;
+pub mod irc;
+
+pub use irc::{IrcHub, IrcMessage, IrcRelay};
 
 // Re-export event types for public API
 pub use events::{

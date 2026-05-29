@@ -5,7 +5,7 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use pawan::agent::{AgentResponse, PawanAgent, Role, ToolCallRecord};
+use pawan::agent::{AgentResponse, IrcHub, PawanAgent, Role, ToolCallRecord};
 use pawan::config::TuiConfig;
 use pawan::{PawanError, Result};
 use ratatui::{
@@ -60,6 +60,8 @@ impl<'a> App<'a> {
                     Err(_) => {} // sender dropped = fetch failed, keep fallback
                 }
             }
+
+            self.poll_irc_inbox();
 
             terminal.draw(|f| self.ui(f)).map_err(PawanError::Io)?;
 
@@ -151,6 +153,16 @@ impl<'a> App<'a> {
                             self.status = format!("Permission required: {} — y/n/a", tool_name);
                         }
                     }
+                    AgentEvent::IrcReceived(msg) => {
+                        self.messages.push(DisplayMessage::new_text(
+                            Role::System,
+                            format!("[IRC] {} → {}: {}", msg.from, msg.to, msg.body),
+                        ));
+                        self.status = format!("IRC from {}", msg.from);
+                    }
+                    AgentEvent::IrcSent(msg) => {
+                        self.status = format!("IRC sent to {}", msg.to);
+                    }
                     AgentEvent::Complete(result) => {
                         self.processing = false;
                         match result {
@@ -238,6 +250,7 @@ async fn agent_task(
     mut agent: PawanAgent,
     mut cmd_rx: mpsc::UnboundedReceiver<AgentCommand>,
     event_tx: mpsc::UnboundedSender<AgentEvent>,
+    irc_relay: std::sync::Arc<std::sync::Mutex<pawan::agent::IrcRelay>>,
 ) {
     while let Some(cmd) = cmd_rx.recv().await {
         match cmd {
@@ -294,6 +307,22 @@ async fn agent_task(
                     usage: pawan::agent::TokenUsage::default(),
                 })));
             }
+            AgentCommand::IrcSend { to, body } => {
+                let result = {
+                    let relay = irc_relay.lock().expect("irc relay lock");
+                    relay.send(&to, body)
+                };
+                match result {
+                    Ok(msg) => {
+                        let _ = event_tx.send(AgentEvent::IrcSent(msg));
+                    }
+                    Err(err) => {
+                        let _ = event_tx.send(AgentEvent::Complete(Err(PawanError::Agent(
+                            format!("IRC send failed: {err}"),
+                        ))));
+                    }
+                }
+            }
             AgentCommand::Quit => break,
         }
     }
@@ -307,11 +336,15 @@ pub async fn run_tui(agent: PawanAgent, config: TuiConfig) -> Result<()> {
     let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
     let (event_tx, event_rx) = mpsc::unbounded_channel();
 
+    let irc_hub = IrcHub::new();
+    let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
+    let irc_for_task = std::sync::Arc::clone(&irc_relay);
+
     // Spawn agent on a separate task
-    tokio::spawn(agent_task(agent, cmd_rx, event_tx));
+    tokio::spawn(agent_task(agent, cmd_rx, event_tx, irc_for_task));
 
     // Run the TUI on the current task
-    let mut app = App::new(config, model_name, cmd_tx, event_rx);
+    let mut app = App::new(config, model_name, cmd_tx, event_rx, irc_relay);
     // Spawn live model catalog fetch
     let (fetch_tx, fetch_rx) = tokio::sync::oneshot::channel();
     tokio::spawn(async move {

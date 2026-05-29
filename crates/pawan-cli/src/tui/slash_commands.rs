@@ -1028,6 +1028,10 @@ impl<'a> App<'a> {
                     self.status = format!("GOAL: {}", arg);
                 }
             }
+            "/irc" => {
+                self.open_irc_compose();
+                self.status = "IRC compose — <peer> <message>".to_string();
+            }
             "/orchestrate" => {
                 if arg.is_empty() {
                     self.status = "Usage: /orchestrate <task description>".to_string();

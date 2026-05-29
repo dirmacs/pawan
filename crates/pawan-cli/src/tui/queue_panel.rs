@@ -1,7 +1,5 @@
 //! Compact queue / subagent status strip.
 
-#![allow(dead_code)] // integrated by upcoming shell layout wiring
-
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ratatui::layout::Rect;

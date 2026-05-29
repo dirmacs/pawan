@@ -102,6 +102,11 @@ pub(crate) struct App<'a> {
     pub(crate) slash_inflight: Option<String>,
     /// Slash command registry (metadata + shared handler)
     pub(crate) slash_registry: SlashCommandRegistry,
+    /// IRC compose modal (opened by /irc)
+    pub(crate) irc_compose_open: bool,
+    pub(crate) irc_compose_input: String,
+    /// Main orchestrator IRC endpoint (shared with agent task)
+    pub(crate) irc_relay: std::sync::Arc<std::sync::Mutex<pawan::agent::IrcRelay>>,
 }
 
 /// Registered TUI `/command` (names are explicit, including short aliases)
@@ -209,6 +214,7 @@ const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/retry", "Retry the last assistant response"),
     ("/compact", "Compact the conversation context"),
     ("/theme", "Switch color theme (e.g. /theme nord)"),
+    ("/irc", "Send IRC message to a subagent"),
     ("/help", "Show this help list"),
     ("/?", "Show help (shorthand)"),
     ("/goal", "Set a goal for the agent to work toward"),
