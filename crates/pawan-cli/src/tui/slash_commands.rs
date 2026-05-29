@@ -316,10 +316,10 @@ impl<'a> App<'a> {
                                     if !text_content.is_empty() {
                                         text_content.push('\n');
                                     }
-                                    text_content.push_str(content);
+                                    text_content.push_str(content.as_str());
                                 }
                                 ContentBlock::ToolCall { state, .. } => {
-                                    if let ToolBlockState::Done { ref record, .. } = &**state {
+                                    if let ToolBlockState::Done { ref record, .. } = state.as_ref() {
                                         tool_calls.push(ToolCallRequest {
                                             id: record.id.clone(),
                                             name: record.name.clone(),
@@ -462,10 +462,10 @@ impl<'a> App<'a> {
                                     if !tc.is_empty() {
                                         tc.push('\n');
                                     }
-                                    tc.push_str(content);
+                                    tc.push_str(content.as_str());
                                 }
                                 ContentBlock::ToolCall { state, .. } => {
-                                    if let ToolBlockState::Done { ref record, .. } = &**state {
+                                    if let ToolBlockState::Done { ref record, .. } = state.as_ref() {
                                         calls.push(ToolCallRequest {
                                             id: record.id.clone(),
                                             name: record.name.clone(),
@@ -541,10 +541,10 @@ impl<'a> App<'a> {
                                     if !tc.is_empty() {
                                         tc.push('\n');
                                     }
-                                    tc.push_str(content);
+                                    tc.push_str(content.as_str());
                                 }
                                 ContentBlock::ToolCall { state, .. } => {
-                                    if let ToolBlockState::Done { ref record, .. } = &**state {
+                                    if let ToolBlockState::Done { ref record, .. } = state.as_ref() {
                                         calls.push(ToolCallRequest {
                                             id: record.id.clone(),
                                             name: record.name.clone(),

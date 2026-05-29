@@ -5,9 +5,9 @@
 //! Non-blocking TUI: agent runs on a spawned tokio task,
 //! events stream back to the UI via mpsc channel.
 
-mod fuzzy_search;
-mod model_catalog;
-mod theme;
+pub(crate) mod fuzzy_search;
+pub(crate) mod model_catalog;
+pub(crate) mod theme;
 
 mod highlight;
 mod layout;
