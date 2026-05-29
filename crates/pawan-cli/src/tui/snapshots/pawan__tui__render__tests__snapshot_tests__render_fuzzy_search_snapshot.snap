@@ -1,0 +1,16 @@
+---
+source: crates/pawan-cli/src/tui/render.rs
+expression: output
+---
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                    ┌ Fuzzy search (Ctrl+P, Ctrl+F) ───────┐                    
+                    │> help▌                               │                    
+                    │/? — Show help (shorthand)            │                    
+                    │/help — Show this help list           │                    
+                    │                                      │                    
+                    └──────────────────────────────────────┘

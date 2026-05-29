@@ -158,6 +158,32 @@ impl<'a> App<'a> {
 }
 
 impl<'a> App<'a> {
+    /// Refresh the queue strip from in-process / subprocess subagent trackers.
+    pub(crate) fn sync_subagent_queue(&mut self) {
+        use pawan::subagent::{snapshot_queue, SubagentState};
+
+        const TTL_MS: u64 = 4_000;
+        let entries = snapshot_queue(TTL_MS)
+            .into_iter()
+            .map(|run| {
+                let mut name = run.label;
+                if let Some(tool) = &run.current_tool {
+                    name = format!("{name} · {tool}");
+                }
+                let status = match run.state {
+                    SubagentState::Running => super::queue_panel::TaskStatus::Running,
+                    SubagentState::Done => super::queue_panel::TaskStatus::Done,
+                    SubagentState::Failed => super::queue_panel::TaskStatus::Failed,
+                };
+                super::queue_panel::QueueEntry {
+                    task_name: name,
+                    status,
+                }
+            })
+            .collect();
+        self.queue_panel.set_entries(entries);
+    }
+
     pub(crate) fn ui(&mut self, f: &mut Frame) {
         if self.show_welcome {
             self.render_welcome(f);
@@ -200,6 +226,7 @@ impl<'a> App<'a> {
         let content_area = shell.inner(shell_area);
         f.render_widget(shell, shell_area);
 
+        self.sync_subagent_queue();
         let queue_h = self.queue_panel.height_hint();
         let layout = super::layout::compute_layout(content_area, queue_h, input_height);
 
@@ -226,6 +253,8 @@ impl<'a> App<'a> {
             self.render_permission_dialog(f);
         } else if self.model_picker.visible {
             self.render_model_selector(f);
+        } else if self.irc_compose_open {
+            self.render_irc_compose(f);
         } else if self.session_browser_open {
             self.render_session_browser(f);
         } else if self.help_overlay {
@@ -410,11 +439,83 @@ impl<'a> App<'a> {
     /// Render welcome screen overlay
     pub(crate) fn render_welcome(&self, f: &mut Frame) {
         let area = f.area();
-        let theme = super::theme::current();
-        let bg_style = Style::default().bg(theme.background);
-        f.render_widget(ratatui::widgets::Block::default().style(bg_style), area);
-        self.welcome_splash
-            .render(area, f.buffer_mut(), theme.accent);
+        let w = 52u16.min(area.width.saturating_sub(4));
+        let h = 12u16.min(area.height.saturating_sub(4));
+        let x = (area.width.saturating_sub(w)) / 2;
+        let y = (area.height.saturating_sub(h)) / 2;
+        let welcome_area = Rect::new(x, y, w, h);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title(" पवन — pawan ");
+
+        f.render_widget(ratatui::widgets::Clear, welcome_area);
+        f.render_widget(block.clone(), welcome_area);
+
+        let inner = block.inner(welcome_area);
+
+        let cwd = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let text = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(
+                    "  Self-healing CLI coding agent",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("  v{}", env!("CARGO_PKG_VERSION")),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Model: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(&self.model_name, Style::default().fg(Color::Cyan)),
+            ]),
+            Line::from(vec![
+                Span::styled("  Path:  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(cwd, Style::default().fg(Color::White)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Type a task, or explore:",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(vec![
+                Span::styled(
+                    "  Ctrl+P",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "  fuzzy search (commands)",
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "  F1    ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("  keyboard shortcuts", Style::default().fg(Color::DarkGray)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press any key to start...",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::ITALIC),
+            )),
+        ];
+        f.render_widget(Paragraph::new(text), inner);
     }
 
     pub(crate) fn render_help_overlay(&self, f: &mut Frame) {
@@ -950,6 +1051,8 @@ impl<'a> App<'a> {
             model_name: self.model_name.clone(),
             mode: mode_label,
             mode_style,
+            goal_active: self.goal_mode,
+            loop_active: self.loop_mode,
             total_tokens: self.total_tokens,
             context_pct,
             iteration: self.iteration_count,
@@ -1214,6 +1317,7 @@ mod tests {
 
     use super::super::fuzzy_search::{default_command_item_lines, FuzzySearchState};
     use super::{markdown_to_lines, parse_inline_markdown};
+    use insta;
     use pawan::agent::session::Session;
     use pawan::agent::ToolCallRecord;
     use ratatui::style::Modifier;
@@ -1223,11 +1327,14 @@ mod tests {
     fn test_app<'a>() -> App<'a> {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_hub = pawan::agent::IrcHub::new();
+        let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
         let mut app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
             event_rx,
+            irc_relay,
         );
         // Disable welcome screen in tests so keypresses reach normal handlers
         app.show_welcome = false;
@@ -1240,7 +1347,7 @@ mod tests {
     }
 
     fn reset_theme_for_test() {
-        super::super::theme::set_theme("dracula").unwrap();
+        super::super::theme::set_theme("default").unwrap();
     }
 
     // ===== Rendering tests using TestBackend =====
@@ -2289,6 +2396,59 @@ mod tests {
     }
 
     #[test]
+    fn test_slash_goal_sets_objective_and_system_message() {
+        let mut app = test_app();
+        app.handle_slash_command("/goal ship the feature");
+        assert!(app.goal_mode);
+        assert_eq!(
+            app.goal_objective.as_deref(),
+            Some("ship the feature")
+        );
+        assert!(
+            app.messages
+                .iter()
+                .any(|m| m.text_content().contains("ship the feature"))
+        );
+        let ctx = app.status_bar_context();
+        assert!(ctx.goal_active);
+        assert!(!ctx.loop_active);
+    }
+
+    #[test]
+    fn test_slash_goal_toggle_off_clears_objective() {
+        let mut app = test_app();
+        app.handle_slash_command("/goal test objective");
+        app.handle_slash_command("/goal");
+        assert!(!app.goal_mode);
+        assert!(app.goal_objective.is_none());
+        let ctx = app.status_bar_context();
+        assert!(!ctx.goal_active);
+    }
+
+    #[test]
+    fn test_slash_loop_toggles_and_shows_iteration_hint() {
+        let mut app = test_app();
+        app.iteration_count = 3;
+        app.handle_slash_command("/loop");
+        assert!(app.loop_mode);
+        assert!(
+            app.messages
+                .iter()
+                .any(|m| m.text_content().contains("iteration 3"))
+        );
+        let ctx = app.status_bar_context();
+        assert!(ctx.loop_active);
+        app.handle_slash_command("/loop");
+        assert!(!app.loop_mode);
+        assert!(
+            app.messages
+                .iter()
+                .any(|m| m.text_content().contains("Loop mode disabled"))
+        );
+    }
+
+
+    #[test]
     fn test_slash_model_show() {
         let mut app = test_app();
         app.handle_slash_command("/model");
@@ -2368,7 +2528,7 @@ mod tests {
         app.handle_slash_command("/theme missing-theme");
 
         assert!(app.status.contains("Unknown theme 'missing-theme'"));
-        assert!(app.status.contains("dracula"));
+        assert!(app.status.contains("default"));
     }
 
     #[test]
@@ -2860,11 +3020,14 @@ mod tests {
     fn test_welcome_shown_on_fresh_app() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_hub = pawan::agent::IrcHub::new();
+        let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
         let app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
             event_rx,
+            irc_relay,
         );
         assert!(app.show_welcome, "Fresh app should show welcome");
     }
@@ -2873,11 +3036,14 @@ mod tests {
     fn test_welcome_dismissed_on_keypress() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_hub = pawan::agent::IrcHub::new();
+        let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
         let mut app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
             event_rx,
+            irc_relay,
         );
         assert!(app.show_welcome);
         app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
@@ -2891,11 +3057,14 @@ mod tests {
     fn test_welcome_swallows_keypress() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_hub = pawan::agent::IrcHub::new();
+        let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
         let mut app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
             event_rx,
+            irc_relay,
         );
         // Type 'a' while welcome is showing — should NOT reach input
         app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
@@ -2912,11 +3081,14 @@ mod tests {
     fn test_welcome_renders() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_hub = pawan::agent::IrcHub::new();
+        let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
         let mut app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
             event_rx,
+            irc_relay,
         );
         let backend = TestBackend::new(80, 30);
         let mut terminal = Terminal::new(backend).unwrap();
@@ -4021,4 +4193,97 @@ mod tests {
             assert_eq!(app.model_picker.selected, 1);
         }
     }
+
+    mod snapshot_tests {
+        use super::buffer_to_string;
+        use super::default_command_item_lines;
+        use super::test_app;
+        use super::FuzzySearchState;
+        use super::super::super::app::PermissionDialog;
+        use super::super::super::types::DisplayMessage;
+        use insta;
+        use pawan::agent::Role;
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        use tokio::sync::oneshot;
+
+        fn test_terminal(width: u16, height: u16) -> Terminal<TestBackend> {
+            let backend = TestBackend::new(width, height);
+            Terminal::new(backend).unwrap()
+        }
+
+        fn render_snapshot<F>(width: u16, height: u16, render: F) -> String
+        where
+            F: FnOnce(&mut ratatui::Frame),
+        {
+            let mut terminal = test_terminal(width, height);
+            terminal.draw(|f| render(f)).unwrap();
+            buffer_to_string(terminal.backend().buffer())
+        }
+
+        fn redact_cwd(output: &str) -> String {
+            std::env::current_dir()
+                .ok()
+                .map(|cwd| output.replace(&cwd.display().to_string(), "[CWD]"))
+                .unwrap_or_else(|| output.to_string())
+        }
+
+        #[test]
+        fn test_render_welcome_snapshot() {
+            let app = test_app();
+            let output = redact_cwd(&render_snapshot(80, 24, |f| app.render_welcome(f)));
+            insta::assert_snapshot!(output);
+        }
+
+        #[test]
+        fn test_render_help_overlay_snapshot() {
+            let app = test_app();
+            let output = render_snapshot(80, 24, |f| app.render_help_overlay(f));
+            insta::assert_snapshot!(output);
+        }
+
+        #[test]
+        fn test_render_model_selector_snapshot() {
+            let mut app = test_app();
+            app.load_available_models();
+            app.model_picker.visible = true;
+            let output = render_snapshot(80, 24, |f| app.render_model_selector(f));
+            insta::assert_snapshot!(output);
+        }
+
+        #[test]
+        fn test_render_fuzzy_search_snapshot() {
+            let mut app = test_app();
+            let mut fs = FuzzySearchState::new(default_command_item_lines());
+            fs.filter("help");
+            app.fuzzy_search = Some(fs);
+            let output = render_snapshot(80, 24, |f| app.render_fuzzy_search(f));
+            insta::assert_snapshot!(output);
+        }
+
+        #[test]
+        fn test_render_permission_dialog_snapshot() {
+            let mut app = test_app();
+            let (tx, _rx) = oneshot::channel();
+            app.permission_dialog = Some(PermissionDialog {
+                tool_name: "bash".to_string(),
+                args_summary: "echo hello".to_string(),
+                respond: Some(tx),
+            });
+            let output = render_snapshot(80, 24, |f| app.render_permission_dialog(f));
+            insta::assert_snapshot!(output);
+        }
+
+        #[test]
+        fn test_render_messages_snapshot() {
+            let mut app = test_app();
+            app.messages
+                .push(DisplayMessage::new_text(Role::User, "Hello pawan"));
+            app.messages
+                .push(DisplayMessage::new_text(Role::Assistant, "Hi there!"));
+            let output = render_snapshot(80, 24, |f| app.render_messages(f, f.area()));
+            insta::assert_snapshot!(output);
+        }
+    }
+
 }

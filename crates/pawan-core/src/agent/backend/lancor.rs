@@ -36,7 +36,17 @@ pub struct LancorBackend {
 impl LancorBackend {
     /// Create a new lancor backend pointed at the given llama.cpp server URL.
     pub fn new(base_url: impl Into<String>, model: impl Into<String>) -> Result<Self> {
-        let client = LlamaCppClient::new(base_url)
+        let url = base_url.into();
+        // Validate URL before passing to client
+        if url.is_empty() {
+            return Err(PawanError::Llm("lancor client init failed: empty URL".into()));
+        }
+        if url::Url::parse(&url).is_err() {
+            return Err(PawanError::Llm(format!(
+                "lancor client init failed: invalid URL: {url}"
+            )));
+        }
+        let client = LlamaCppClient::new(url)
             .map_err(|e| PawanError::Llm(format!("lancor client init failed: {e}")))?;
         Ok(Self {
             client,
@@ -52,7 +62,16 @@ impl LancorBackend {
         api_key: impl Into<String>,
         model: impl Into<String>,
     ) -> Result<Self> {
-        let client = LlamaCppClient::with_api_key(base_url, api_key)
+        let url = base_url.into();
+        if url.is_empty() {
+            return Err(PawanError::Llm("lancor client init failed: empty URL".into()));
+        }
+        if url::Url::parse(&url).is_err() {
+            return Err(PawanError::Llm(format!(
+                "lancor client init failed: invalid URL: {url}"
+            )));
+        }
+        let client = LlamaCppClient::with_api_key(url, api_key)
             .map_err(|e| PawanError::Llm(format!("lancor client init failed: {e}")))?;
         Ok(Self {
             client,
