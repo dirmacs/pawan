@@ -2,7 +2,7 @@
 //!
 //! Layout: left side shows mode + thinking label + git branch;
 //! right side shows model name, token usage bar, iteration, and timestamp.
-//! Inspired by maki-ui's left/right split status bar.
+//! Left/right split status bar (mode badges, model, tokens, clock).
 
 use std::time::{Duration, Instant};
 
@@ -77,6 +77,23 @@ impl StatusBar {
             left_spans.push(Span::styled(
                 format!(" {t}"),
                 Style::default().fg(theme.warning),
+            ));
+        }
+
+        if ctx.goal_active {
+            left_spans.push(Span::styled(
+                " GOAL ",
+                Style::default()
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ));
+        }
+        if ctx.loop_active {
+            left_spans.push(Span::styled(
+                " LOOP ",
+                Style::default()
+                    .fg(theme.warning)
+                    .add_modifier(Modifier::BOLD),
             ));
         }
 
@@ -178,6 +195,8 @@ pub struct StatusBarContext {
     pub model_name: String,
     pub mode: &'static str,
     pub mode_style: Style,
+    pub goal_active: bool,
+    pub loop_active: bool,
     pub total_tokens: u64,
     pub context_pct: f32,
     pub iteration: u32,
