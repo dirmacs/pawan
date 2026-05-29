@@ -15,7 +15,7 @@
 - Hindi welcome popup replacing maki splash screen; cyan-accent default theme
 
 ### Tests
-- 1627+ tests passing across 18 suites (up from 988+)
+- 1643+ tests passing across 18 suites (up from 988+)
 - Added SubagentCoreTests, ModelCatalogTests, IrcHubTests, CommitQueuePanel, CoordinatorTests, GoalLoopRuntime test suites
 
 ### Fixes
