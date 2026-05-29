@@ -164,8 +164,11 @@ pub(crate) fn fence_external_system_messages_for_resume(history: &mut [Message])
     }
 }
 
-pub(crate) use construction::{get_api_key_with_secure_fallback, load_arch_context, probe_local_endpoint, scan_context_file};
-pub(crate) use execute::{summarize_args, truncate_tool_result};
+#[cfg(test)]
+use construction::{get_api_key_with_secure_fallback, load_arch_context, probe_local_endpoint, scan_context_file};
+#[cfg(test)]
+use execute::{summarize_args, truncate_tool_result};
+
 #[cfg(test)]
 mod tests {
     use super::*;

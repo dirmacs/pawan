@@ -210,7 +210,7 @@ pawan/
 - **Model selector** — interactive model selection with search and filtering
 - **Session browser** — browse, load, and manage saved sessions with fuzzy search
 - **Auto-save** — automatic session saving at configurable intervals
-- **Comprehensive testing** — full workspace tests plus 988+ tests passing with 74.58% line / 74.80% region / 77.34% function coverage (cargo-llvm-cov baseline)
+- **Comprehensive testing** — full workspace tests plus 1627+ tests passing across 18 suites
 
 ### Intelligence (2026-04-08)
 

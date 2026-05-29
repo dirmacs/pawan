@@ -30,6 +30,7 @@ pub struct Theme {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
 pub struct SyntaxTheme {
     pub name: &'static str,
     pub fg: Color,
@@ -322,6 +323,7 @@ impl ColorTransition {
 
     const DEFAULT_DURATION_SECS: f32 = 0.4;
 
+    #[allow(dead_code)]
     pub fn set(&mut self, color: Color) {
         let rgb = extract_rgb(color, DEFAULT_ACCENT_FALLBACK);
         if rgb == self.to {
@@ -338,6 +340,7 @@ impl ColorTransition {
         Color::Rgb(r, g, b)
     }
 
+    #[allow(dead_code)]
     pub fn is_animating(&self) -> bool {
         std::time::Instant::now()
             .duration_since(self.start)
