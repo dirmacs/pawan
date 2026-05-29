@@ -6,7 +6,7 @@
 //! events stream back to the UI via mpsc channel.
 
 mod fuzzy_search;
-mod splash;
+mod model_catalog;
 mod theme;
 
 mod highlight;

@@ -53,6 +53,7 @@ toml = { workspace = true }
 
 # HTTP client
 reqwest = { workspace = true }
+url = "2"
 
 # Binary detection for native tools
 which = { workspace = true }

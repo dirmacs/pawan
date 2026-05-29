@@ -40,6 +40,30 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color::Rgb(r, g, b)
 }
 
+
+const DEFAULT: Theme = Theme {
+    name: "default",
+    background: rgb(0x00, 0x00, 0x00),
+    surface: rgb(0x1a, 0x1a, 0x1a),
+    surface_elevated: rgb(0x2a, 0x2a, 0x2a),
+    foreground: rgb(0xff, 0xff, 0xff),
+    accent: rgb(0x00, 0xcc, 0xcc),
+    accent_dim: rgb(0x00, 0x99, 0x99),
+    user_bubble: rgb(0x1a, 0x1a, 0x1a),
+    assistant_bubble: rgb(0x0d, 0x0d, 0x0d),
+    code_bg: rgb(0x0d, 0x0d, 0x0d),
+    border: rgb(0x44, 0x44, 0x44),
+    border_focused: rgb(0x00, 0xcc, 0xcc),
+    error: rgb(0xff, 0x55, 0x55),
+    warning: rgb(0xff, 0xb8, 0x6c),
+    success: rgb(0x50, 0xfa, 0x7b),
+    tool_success: rgb(0x50, 0xfa, 0x7b),
+    tool_error: rgb(0xff, 0x55, 0x55),
+    muted: rgb(0x88, 0x88, 0x88),
+    subtle: rgb(0x2a, 0x2a, 0x2a),
+    selection_bg: rgb(0x2a, 0x2a, 0x2a),
+};
+
 const DRACULA: Theme = Theme {
     name: "dracula",
     background: rgb(0x28, 0x2a, 0x36),
@@ -225,6 +249,7 @@ const ONEDARK: Theme = Theme {
 };
 
 static ALL_THEMES: &[Theme] = &[
+    DEFAULT,
     DRACULA,
     CATPPUCCIN_MOCHA,
     NORD,
@@ -235,7 +260,7 @@ static ALL_THEMES: &[Theme] = &[
     ONEDARK,
 ];
 
-static THEME_STATE: LazyLock<ArcSwap<Theme>> = LazyLock::new(|| ArcSwap::from_pointee(DRACULA));
+static THEME_STATE: LazyLock<ArcSwap<Theme>> = LazyLock::new(|| ArcSwap::from_pointee(DEFAULT));
 
 /// Thread-safe handle to the active palette (clone-on-read).
 pub fn current() -> Guard<Arc<Theme>> {
@@ -272,7 +297,7 @@ pub fn extract_rgb(color: Color, fallback: (u8, u8, u8)) -> (u8, u8, u8) {
     }
 }
 
-const DEFAULT_ACCENT_FALLBACK: (u8, u8, u8) = (100, 140, 255);
+const DEFAULT_ACCENT_FALLBACK: (u8, u8, u8) = (0, 204, 204);
 
 /// Smooth accent transitions when switching palettes.
 #[derive(Debug, Clone)]
@@ -344,7 +369,7 @@ mod tests {
     fn set_theme_roundtrip() {
         set_theme("nord").unwrap();
         assert_eq!(current().name, "nord");
-        set_theme("dracula").unwrap();
-        assert_eq!(current().name, "dracula");
+        set_theme("default").unwrap();
+        assert_eq!(current().name, "default");
     }
 }

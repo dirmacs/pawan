@@ -410,11 +410,83 @@ impl<'a> App<'a> {
     /// Render welcome screen overlay
     pub(crate) fn render_welcome(&self, f: &mut Frame) {
         let area = f.area();
-        let theme = super::theme::current();
-        let bg_style = Style::default().bg(theme.background);
-        f.render_widget(ratatui::widgets::Block::default().style(bg_style), area);
-        self.welcome_splash
-            .render(area, f.buffer_mut(), theme.accent);
+        let w = 52u16.min(area.width.saturating_sub(4));
+        let h = 12u16.min(area.height.saturating_sub(4));
+        let x = (area.width.saturating_sub(w)) / 2;
+        let y = (area.height.saturating_sub(h)) / 2;
+        let welcome_area = Rect::new(x, y, w, h);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan))
+            .title(" पवन — pawan ");
+
+        f.render_widget(ratatui::widgets::Clear, welcome_area);
+        f.render_widget(block.clone(), welcome_area);
+
+        let inner = block.inner(welcome_area);
+
+        let cwd = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default();
+        let text = vec![
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(
+                    "  Self-healing CLI coding agent",
+                    Style::default()
+                        .fg(Color::Green)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    format!("  v{}", env!("CARGO_PKG_VERSION")),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  Model: ", Style::default().fg(Color::DarkGray)),
+                Span::styled(&self.model_name, Style::default().fg(Color::Cyan)),
+            ]),
+            Line::from(vec![
+                Span::styled("  Path:  ", Style::default().fg(Color::DarkGray)),
+                Span::styled(cwd, Style::default().fg(Color::White)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Type a task, or explore:",
+                Style::default().fg(Color::DarkGray),
+            )),
+            Line::from(vec![
+                Span::styled(
+                    "  Ctrl+P",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(
+                    "  fuzzy search (commands)",
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled(
+                    "  F1    ",
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled("  keyboard shortcuts", Style::default().fg(Color::DarkGray)),
+            ]),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  Press any key to start...",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::ITALIC),
+            )),
+        ];
+        f.render_widget(Paragraph::new(text), inner);
     }
 
     pub(crate) fn render_help_overlay(&self, f: &mut Frame) {
@@ -1240,7 +1312,7 @@ mod tests {
     }
 
     fn reset_theme_for_test() {
-        super::super::theme::set_theme("dracula").unwrap();
+        super::super::theme::set_theme("default").unwrap();
     }
 
     // ===== Rendering tests using TestBackend =====
@@ -2368,7 +2440,7 @@ mod tests {
         app.handle_slash_command("/theme missing-theme");
 
         assert!(app.status.contains("Unknown theme 'missing-theme'"));
-        assert!(app.status.contains("dracula"));
+        assert!(app.status.contains("default"));
     }
 
     #[test]

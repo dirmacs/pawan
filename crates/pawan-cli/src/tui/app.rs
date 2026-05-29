@@ -77,7 +77,10 @@ pub(crate) struct App<'a> {
     pub(crate) file_completion_selected: usize,
     /// Welcome screen shown on first launch
     pub(crate) show_welcome: bool,
-    pub(crate) welcome_splash: super::splash::Splash,
+    /// Goal mode — when active, agent works toward a user-specified objective
+    pub(crate) goal_mode: bool,
+    /// Receiver for live model catalog (oneshot from spawned fetch)
+    pub(crate) model_fetch_rx: Option<tokio::sync::oneshot::Receiver<Vec<ModelInfo>>>,
     /// Centralized theme system (ArcSwap-backed, thread-safe)
     pub(crate) current_theme: String,
     /// Accent color transition animation
@@ -226,6 +229,8 @@ const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/theme", "Switch color theme (e.g. /theme nord)"),
     ("/help", "Show this help list"),
     ("/?", "Show help (shorthand)"),
+    ("/goal", "Set a goal for the agent to work toward"),
+    ("/orchestrate", "Orchestrate subagents for a task"),
 ];
 
 /// State for an active permission prompt dialog
@@ -297,8 +302,9 @@ impl<'a> App<'a> {
             file_completion_query: String::new(),
             file_completion_selected: 0,
             show_welcome: true,
-            welcome_splash: super::splash::Splash::new(true),
-            current_theme: "dracula".to_string(),
+            goal_mode: false,
+            model_fetch_rx: None,
+            current_theme: "default".to_string(),
             accent_transition: super::theme::ColorTransition::new(super::theme::current().accent),
             queue_panel: super::queue_panel::QueuePanel::new(),
             status_bar: super::status_bar::StatusBar::new(),
@@ -437,6 +443,20 @@ impl<'a> App<'a> {
     ) -> Result<()> {
         loop {
             self.refresh_keybind_context();
+            // Poll for live model catalog result
+            if let Some(mut rx) = self.model_fetch_rx.take() {
+                match rx.try_recv() {
+                    Ok(models) => {
+                        self.model_picker.models = models;
+                        self.status = format!("Loaded {} live models", self.model_picker.models.len());
+                    }
+                    Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                        self.model_fetch_rx = Some(rx); // not ready yet, put back
+                    }
+                    Err(_) => {} // sender dropped = fetch failed, keep fallback
+                }
+            }
+
             terminal.draw(|f| self.ui(f)).map_err(PawanError::Io)?;
 
             // Non-blocking: check for agent events first
@@ -963,513 +983,11 @@ impl<'a> App<'a> {
 
         context_parts.join("\n")
     }
-    /// Load available models (synchronous version)
+    /// Load available models — live fetch with fallback.
     pub(crate) fn load_available_models(&mut self) {
-        let default_models = vec![
-            // 01-ai models (1)
-            ModelInfo {
-                id: "01-ai/yi-large".to_string(),
-                provider: "01-ai".to_string(),
-                quality_score: 75,
-            },
-            // Abacusai models (1)
-            ModelInfo {
-                id: "abacusai/dracarys-llama-3.1-70b-instruct".to_string(),
-                provider: "Abacusai".to_string(),
-                quality_score: 93,
-            },
-            // Ai21labs models (1)
-            ModelInfo {
-                id: "ai21labs/jamba-1.5-large-instruct".to_string(),
-                provider: "Ai21labs".to_string(),
-                quality_score: 75,
-            },
-            // Aisingapore models (1)
-            ModelInfo {
-                id: "aisingapore/sea-lion-7b-instruct".to_string(),
-                provider: "Aisingapore".to_string(),
-                quality_score: 79,
-            },
-            // Bigcode models (1)
-            ModelInfo {
-                id: "bigcode/starcoder2-15b".to_string(),
-                provider: "Bigcode".to_string(),
-                quality_score: 75,
-            },
-            // Bytedance models (1)
-            ModelInfo {
-                id: "bytedance/seed-oss-36b-instruct".to_string(),
-                provider: "Bytedance".to_string(),
-                quality_score: 75,
-            },
-            // Databricks models (1)
-            ModelInfo {
-                id: "databricks/dbrx-instruct".to_string(),
-                provider: "Databricks".to_string(),
-                quality_score: 75,
-            },
-            // DeepSeek models (3)
-            ModelInfo {
-                id: "deepseek-ai/deepseek-coder-6.7b-instruct".to_string(),
-                provider: "Deepseek-ai".to_string(),
-                quality_score: 79,
-            },
-            ModelInfo {
-                id: "deepseek-ai/deepseek-v3.1-terminus".to_string(),
-                provider: "Deepseek-ai".to_string(),
-                quality_score: 91,
-            },
-            ModelInfo {
-                id: "deepseek-ai/deepseek-v3.2".to_string(),
-                provider: "Deepseek-ai".to_string(),
-                quality_score: 93,
-            },
-            // Google models (10)
-            ModelInfo {
-                id: "google/codegemma-1.1-7b".to_string(),
-                provider: "Google".to_string(),
-                quality_score: 79,
-            },
-            ModelInfo {
-                id: "google/codegemma-7b".to_string(),
-                provider: "Google".to_string(),
-                quality_score: 79,
-            },
-            ModelInfo {
-                id: "google/gemma-2-2b-it".to_string(),
-                provider: "Google".to_string(),
-                quality_score: 79,
-            },
-            ModelInfo {
-                id: "google/gemma-2b".to_string(),
-                provider: "Google".to_string(),
-                quality_score: 77,
-            },
-            ModelInfo {
-                id: "google/gemma-3-12b-it".to_string(),
-                provider: "Google".to_string(),
-                quality_score: 85,
-            },
-            ModelInfo {
-                id: "google/gemma-3-27b-it".to_string(),
-                provider: "Google".to_string(),
-                quality_score: 87,
-            },
-            ModelInfo {
-                id: "google/gemma-3-4b-it".to_string(),
-                provider: "Google".to_string(),
-                quality_score: 79,
-            },
-            ModelInfo {
-                id: "google/gemma-3n-e2b-it".to_string(),
-                provider: "Google".to_string(),
-                quality_score: 81,
-            },
-            ModelInfo {
-                id: "google/gemma-3n-e4b-it".to_string(),
-                provider: "Google".to_string(),
-                quality_score: 81,
-            },
-            ModelInfo {
-                id: "google/gemma-4-31b-it".to_string(),
-                provider: "Google".to_string(),
-                quality_score: 87,
-            },
-            // IBM models (4)
-            ModelInfo {
-                id: "ibm/granite-3.0-3b-a800m-instruct".to_string(),
-                provider: "Ibm".to_string(),
-                quality_score: 77,
-            },
-            ModelInfo {
-                id: "ibm/granite-3.0-8b-instruct".to_string(),
-                provider: "Ibm".to_string(),
-                quality_score: 79,
-            },
-            ModelInfo {
-                id: "ibm/granite-34b-code-instruct".to_string(),
-                provider: "Ibm".to_string(),
-                quality_score: 85,
-            },
-            ModelInfo {
-                id: "ibm/granite-8b-code-instruct".to_string(),
-                provider: "Ibm".to_string(),
-                quality_score: 81,
-            },
-            // Meta models (8)
-            ModelInfo {
-                id: "meta/llama-3.1-405b-instruct".to_string(),
-                provider: "Meta".to_string(),
-                quality_score: 95,
-            },
-            ModelInfo {
-                id: "meta/llama-3.1-70b-instruct".to_string(),
-                provider: "Meta".to_string(),
-                quality_score: 93,
-            },
-            ModelInfo {
-                id: "meta/llama-3.1-8b-instruct".to_string(),
-                provider: "Meta".to_string(),
-                quality_score: 79,
-            },
-            ModelInfo {
-                id: "meta/llama-3.2-11b-vision-instruct".to_string(),
-                provider: "Meta".to_string(),
-                quality_score: 81,
-            },
-            ModelInfo {
-                id: "meta/llama-3.2-1b-instruct".to_string(),
-                provider: "Meta".to_string(),
-                quality_score: 77,
-            },
-            ModelInfo {
-                id: "meta/llama-3.2-3b-instruct".to_string(),
-                provider: "Meta".to_string(),
-                quality_score: 77,
-            },
-            ModelInfo {
-                id: "meta/llama-3.3-70b-instruct".to_string(),
-                provider: "Meta".to_string(),
-                quality_score: 95,
-            },
-            ModelInfo {
-                id: "meta/llama-4-maverick-17b-128e-instruct".to_string(),
-                provider: "Meta".to_string(),
-                quality_score: 95,
-            },
-            // Microsoft models (4)
-            ModelInfo {
-                id: "microsoft/phi-3-vision-128k-instruct".to_string(),
-                provider: "Microsoft".to_string(),
-                quality_score: 83,
-            },
-            ModelInfo {
-                id: "microsoft/phi-3.5-moe-instruct".to_string(),
-                provider: "Microsoft".to_string(),
-                quality_score: 89,
-            },
-            ModelInfo {
-                id: "microsoft/phi-4-mini-instruct".to_string(),
-                provider: "Microsoft".to_string(),
-                quality_score: 91,
-            },
-            ModelInfo {
-                id: "microsoft/phi-4-multimodal-instruct".to_string(),
-                provider: "Microsoft".to_string(),
-                quality_score: 91,
-            },
-            // MiniMax models (2)
-            ModelInfo {
-                id: "minimaxai/minimax-m2.5".to_string(),
-                provider: "Minimaxai".to_string(),
-                quality_score: 81,
-            },
-            ModelInfo {
-                id: "minimaxai/minimax-m2.7".to_string(),
-                provider: "Minimaxai".to_string(),
-                quality_score: 89,
-            },
-            // Mistral models (14)
-            ModelInfo {
-                id: "mistralai/codestral-22b-instruct-v0.1".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 87,
-            },
-            ModelInfo {
-                id: "mistralai/devstral-2-123b-instruct-2512".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 95,
-            },
-            ModelInfo {
-                id: "mistralai/magistral-small-2506".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 75,
-            },
-            ModelInfo {
-                id: "mistralai/ministral-14b-instruct-2512".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 85,
-            },
-            ModelInfo {
-                id: "mistralai/mistral-7b-instruct-v0.3".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 79,
-            },
-            ModelInfo {
-                id: "mistralai/mistral-large".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 89,
-            },
-            ModelInfo {
-                id: "mistralai/mistral-large-2-instruct".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 93,
-            },
-            ModelInfo {
-                id: "mistralai/mistral-large-3-675b-instruct-2512".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 95,
-            },
-            ModelInfo {
-                id: "mistralai/mistral-medium-3-instruct".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 85,
-            },
-            ModelInfo {
-                id: "mistralai/mistral-nemotron".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 81,
-            },
-            ModelInfo {
-                id: "mistralai/mistral-small-4-119b-2603".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 91,
-            },
-            ModelInfo {
-                id: "mistralai/mixtral-8x22b-instruct-v0.1".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 77,
-            },
-            ModelInfo {
-                id: "mistralai/mixtral-8x22b-v0.1".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 77,
-            },
-            ModelInfo {
-                id: "mistralai/mixtral-8x7b-instruct-v0.1".to_string(),
-                provider: "Mistralai".to_string(),
-                quality_score: 83,
-            },
-            // Moonshot models (4)
-            ModelInfo {
-                id: "moonshotai/kimi-k2-instruct".to_string(),
-                provider: "Moonshotai".to_string(),
-                quality_score: 89,
-            },
-            ModelInfo {
-                id: "moonshotai/kimi-k2-instruct-0905".to_string(),
-                provider: "Moonshotai".to_string(),
-                quality_score: 89,
-            },
-            ModelInfo {
-                id: "moonshotai/kimi-k2-thinking".to_string(),
-                provider: "Moonshotai".to_string(),
-                quality_score: 91,
-            },
-            ModelInfo {
-                id: "moonshotai/kimi-k2.5".to_string(),
-                provider: "Moonshotai".to_string(),
-                quality_score: 93,
-            },
-            // NV-Mistral models (1)
-            ModelInfo {
-                id: "nv-mistralai/mistral-nemo-12b-instruct".to_string(),
-                provider: "Nv-mistralai".to_string(),
-                quality_score: 81,
-            },
-            // NVIDIA models (15)
-            ModelInfo {
-                id: "nvidia/ising-calibration-1-35b-a3b".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 77,
-            },
-            ModelInfo {
-                id: "nvidia/llama-3.1-nemotron-51b-instruct".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 91,
-            },
-            ModelInfo {
-                id: "nvidia/llama-3.1-nemotron-70b-instruct".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 93,
-            },
-            ModelInfo {
-                id: "nvidia/llama-3.1-nemotron-nano-8b-v1".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 89,
-            },
-            ModelInfo {
-                id: "nvidia/llama-3.1-nemotron-nano-vl-8b-v1".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 89,
-            },
-            ModelInfo {
-                id: "nvidia/llama-3.1-nemotron-ultra-253b-v1".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 93,
-            },
-            ModelInfo {
-                id: "nvidia/llama-3.3-nemotron-super-49b-v1".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 75,
-            },
-            ModelInfo {
-                id: "nvidia/llama-3.3-nemotron-super-49b-v1.5".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 75,
-            },
-            ModelInfo {
-                id: "nvidia/llama3-chatqa-1.5-70b".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 89,
-            },
-            ModelInfo {
-                id: "nvidia/mistral-nemo-minitron-8b-8k-instruct".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 81,
-            },
-            ModelInfo {
-                id: "nvidia/nemotron-3-nano-30b-a3b".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 91,
-            },
-            ModelInfo {
-                id: "nvidia/nemotron-3-super-120b-a12b".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 95,
-            },
-            ModelInfo {
-                id: "nvidia/nemotron-4-340b-instruct".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 95,
-            },
-            ModelInfo {
-                id: "nvidia/nemotron-4-340b-reward".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 95,
-            },
-            ModelInfo {
-                id: "nvidia/nemotron-mini-4b-instruct".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 77,
-            },
-            ModelInfo {
-                id: "nvidia/nemotron-nano-12b-v2-vl".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 81,
-            },
-            ModelInfo {
-                id: "nvidia/nemotron-nano-3-30b-a3b".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 77,
-            },
-            ModelInfo {
-                id: "nvidia/nvidia-nemotron-nano-9b-v2".to_string(),
-                provider: "NVIDIA".to_string(),
-                quality_score: 75,
-            },
-            // OpenAI models (4)
-            ModelInfo {
-                id: "openai/gpt-oss-120b".to_string(),
-                provider: "OpenAI".to_string(),
-                quality_score: 75,
-            },
-            ModelInfo {
-                id: "openai/gpt-oss-20b".to_string(),
-                provider: "OpenAI".to_string(),
-                quality_score: 75,
-            },
-            // Qwen models (6)
-            ModelInfo {
-                id: "qwen/qwen2.5-coder-32b-instruct".to_string(),
-                provider: "Qwen".to_string(),
-                quality_score: 89,
-            },
-            ModelInfo {
-                id: "qwen/qwen3-coder-480b-a35b-instruct".to_string(),
-                provider: "Qwen".to_string(),
-                quality_score: 95,
-            },
-            ModelInfo {
-                id: "qwen/qwen3-next-80b-a3b-instruct".to_string(),
-                provider: "Qwen".to_string(),
-                quality_score: 91,
-            },
-            ModelInfo {
-                id: "qwen/qwen3-next-80b-a3b-thinking".to_string(),
-                provider: "Qwen".to_string(),
-                quality_score: 91,
-            },
-            ModelInfo {
-                id: "qwen/qwen3.5-122b-a10b".to_string(),
-                provider: "Qwen".to_string(),
-                quality_score: 85,
-            },
-            ModelInfo {
-                id: "qwen/qwen3.5-397b-a17b".to_string(),
-                provider: "Qwen".to_string(),
-                quality_score: 95,
-            },
-            // Sarvamai models (1)
-            ModelInfo {
-                id: "sarvamai/sarvam-m".to_string(),
-                provider: "Sarvamai".to_string(),
-                quality_score: 75,
-            },
-            // StepFun models (1)
-            ModelInfo {
-                id: "stepfun-ai/step-3.5-flash".to_string(),
-                provider: "Stepfun-ai".to_string(),
-                quality_score: 85,
-            },
-            // Stockmark models (1)
-            ModelInfo {
-                id: "stockmark/stockmark-2-100b-instruct".to_string(),
-                provider: "Stockmark".to_string(),
-                quality_score: 75,
-            },
-            // Upstage models (1)
-            ModelInfo {
-                id: "upstage/solar-10.7b-instruct".to_string(),
-                provider: "Upstage".to_string(),
-                quality_score: 79,
-            },
-            // Writer models (4)
-            ModelInfo {
-                id: "writer/palmyra-creative-122b".to_string(),
-                provider: "Writer".to_string(),
-                quality_score: 77,
-            },
-            ModelInfo {
-                id: "writer/palmyra-fin-70b-32k".to_string(),
-                provider: "Writer".to_string(),
-                quality_score: 87,
-            },
-            ModelInfo {
-                id: "writer/palmyra-med-70b".to_string(),
-                provider: "Writer".to_string(),
-                quality_score: 87,
-            },
-            ModelInfo {
-                id: "writer/palmyra-med-70b-32k".to_string(),
-                provider: "Writer".to_string(),
-                quality_score: 87,
-            },
-            // Z-AI models (3)
-            ModelInfo {
-                id: "z-ai/glm-5.1".to_string(),
-                provider: "Z-ai".to_string(),
-                quality_score: 95,
-            },
-            ModelInfo {
-                id: "z-ai/glm4.7".to_string(),
-                provider: "Z-ai".to_string(),
-                quality_score: 87,
-            },
-            ModelInfo {
-                id: "z-ai/glm5".to_string(),
-                provider: "Z-ai".to_string(),
-                quality_score: 95,
-            },
-            // Zyphra models (1)
-            ModelInfo {
-                id: "zyphra/zamba2-7b-instruct".to_string(),
-                provider: "Zyphra".to_string(),
-                quality_score: 79,
-            },
-        ];
-        self.model_picker.models = default_models;
+        self.model_picker.models = super::model_catalog::default_models();
     }
+
     pub(crate) fn autosave(&mut self) {
         // Only autosave if there are messages to save
         if self.messages.is_empty() {
@@ -1631,6 +1149,15 @@ pub async fn run_tui(agent: PawanAgent, config: TuiConfig) -> Result<()> {
 
     // Run the TUI on the current task
     let mut app = App::new(config, model_name, cmd_tx, event_rx);
+    // Spawn live model catalog fetch
+    let (fetch_tx, fetch_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        if let Some(models) = super::model_catalog::fetch_live_models().await {
+            let _ = fetch_tx.send(models);
+        }
+    });
+    app.model_fetch_rx = Some(fetch_rx);
+
     app.run().await
 }
 
