@@ -59,8 +59,14 @@ pub(crate) struct App<'a> {
     pub(crate) show_welcome: bool,
     /// Goal mode — when active, agent works toward a user-specified objective
     pub(crate) goal_mode: bool,
+    /// Objective text set via `/goal <objective>` (cleared when goal mode is turned off)
+    pub(crate) goal_objective: Option<String>,
     /// Loop mode — when active, agent auto-continues after each response
     pub(crate) loop_mode: bool,
+    /// Orchestration mode — when active, subagents coordinate on a task
+    pub(crate) orchestrate_mode: bool,
+    /// Task text set via `/orchestrate <task>` (cleared when orchestration mode is off)
+    pub(crate) orchestrate_task: Option<String>,
     /// Receiver for live model catalog (oneshot from spawned fetch)
     pub(crate) model_fetch_rx: Option<tokio::sync::oneshot::Receiver<Vec<ModelInfo>>>,
     /// Centralized theme system (ArcSwap-backed, thread-safe)

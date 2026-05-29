@@ -1051,6 +1051,8 @@ impl<'a> App<'a> {
             model_name: self.model_name.clone(),
             mode: mode_label,
             mode_style,
+            goal_active: self.goal_mode,
+            loop_active: self.loop_mode,
             total_tokens: self.total_tokens,
             context_pct,
             iteration: self.iteration_count,
@@ -2392,6 +2394,59 @@ mod tests {
         assert!(app.messages.is_empty());
         assert_eq!(app.status, "Cleared");
     }
+
+    #[test]
+    fn test_slash_goal_sets_objective_and_system_message() {
+        let mut app = test_app();
+        app.handle_slash_command("/goal ship the feature");
+        assert!(app.goal_mode);
+        assert_eq!(
+            app.goal_objective.as_deref(),
+            Some("ship the feature")
+        );
+        assert!(
+            app.messages
+                .iter()
+                .any(|m| m.text_content().contains("ship the feature"))
+        );
+        let ctx = app.status_bar_context();
+        assert!(ctx.goal_active);
+        assert!(!ctx.loop_active);
+    }
+
+    #[test]
+    fn test_slash_goal_toggle_off_clears_objective() {
+        let mut app = test_app();
+        app.handle_slash_command("/goal test objective");
+        app.handle_slash_command("/goal");
+        assert!(!app.goal_mode);
+        assert!(app.goal_objective.is_none());
+        let ctx = app.status_bar_context();
+        assert!(!ctx.goal_active);
+    }
+
+    #[test]
+    fn test_slash_loop_toggles_and_shows_iteration_hint() {
+        let mut app = test_app();
+        app.iteration_count = 3;
+        app.handle_slash_command("/loop");
+        assert!(app.loop_mode);
+        assert!(
+            app.messages
+                .iter()
+                .any(|m| m.text_content().contains("iteration 3"))
+        );
+        let ctx = app.status_bar_context();
+        assert!(ctx.loop_active);
+        app.handle_slash_command("/loop");
+        assert!(!app.loop_mode);
+        assert!(
+            app.messages
+                .iter()
+                .any(|m| m.text_content().contains("Loop mode disabled"))
+        );
+    }
+
 
     #[test]
     fn test_slash_model_show() {

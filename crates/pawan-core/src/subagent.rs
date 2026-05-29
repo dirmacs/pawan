@@ -131,4 +131,136 @@ mod tests {
         h.dismiss();
         assert!(snapshot_queue(60_000).is_empty());
     }
+
+    #[test]
+    fn complete_err_sets_failed_state() {
+        let h = SubagentHandle::start("failing run", "task", None);
+        h.complete_err("connection reset");
+        let snap = snapshot_queue(60_000);
+        let run = snap
+            .iter()
+            .find(|r| r.id == h.id())
+            .expect("failed run should remain in queue");
+        assert_eq!(run.state, SubagentState::Failed);
+        assert_eq!(run.error.as_deref(), Some("connection reset"));
+        assert!(run.duration_ms.is_some());
+        h.dismiss();
+    }
+
+    #[test]
+    fn snapshot_queue_evicts_old_done_runs() {
+        let h = SubagentHandle::start("slow done", "task", None);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        h.complete_ok();
+        let snap = snapshot_queue(50);
+        assert!(
+            !snap.iter().any(|r| r.id == h.id()),
+            "done run whose duration exceeds max_age_ms should be evicted"
+        );
+        h.dismiss();
+    }
+
+    #[test]
+    fn set_tool_and_clear_tool_update_running_run() {
+        let h = SubagentHandle::start("tooling", "task", None);
+        h.set_tool("read");
+        let with_tool = snapshot_queue(60_000)
+            .into_iter()
+            .find(|r| r.id == h.id())
+            .expect("running run should be visible");
+        assert_eq!(with_tool.state, SubagentState::Running);
+        assert_eq!(with_tool.current_tool.as_deref(), Some("read"));
+
+        h.clear_tool();
+        let cleared = snapshot_queue(60_000)
+            .into_iter()
+            .find(|r| r.id == h.id())
+            .expect("running run should still be visible");
+        assert_eq!(cleared.current_tool, None);
+        h.dismiss();
+    }
+
+    #[test]
+    fn multiple_concurrent_handles_tracked() {
+        let h1 = SubagentHandle::start("first", "task", Some("explore".into()));
+        let h2 = SubagentHandle::start("second", "task", Some("quick_task".into()));
+        let snap = snapshot_queue(60_000);
+        assert!(snap.iter().any(|r| r.id == h1.id() && r.label == "first"));
+        assert!(snap.iter().any(|r| r.id == h2.id() && r.label == "second"));
+        assert_ne!(h1.id(), h2.id());
+        h1.dismiss();
+        h2.dismiss();
+    }
+
+    #[test]
+    fn complete_ok_sets_done_state_and_duration() {
+        let h = SubagentHandle::start("ok run", "task", None);
+        h.complete_ok();
+        let run = snapshot_queue(60_000)
+            .into_iter()
+            .find(|r| r.id == h.id())
+            .expect("done run");
+        assert_eq!(run.state, SubagentState::Done);
+        assert!(run.duration_ms.is_some());
+        h.dismiss();
+    }
+
+    #[test]
+    fn dismiss_removes_run_from_snapshot() {
+        let h = SubagentHandle::start("ephemeral", "task", None);
+        assert!(snapshot_queue(60_000).iter().any(|r| r.id == h.id()));
+        let id = h.id().to_string();
+        h.dismiss();
+        assert!(!snapshot_queue(60_000).iter().any(|r| r.id == id));
+    }
+
+    #[test]
+    fn snapshot_queue_retains_running_past_ttl() {
+        let h = SubagentHandle::start("still running", "task", None);
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        let snap = snapshot_queue(1);
+        assert!(
+            snap.iter()
+                .any(|r| r.id == h.id() && r.state == SubagentState::Running)
+        );
+        h.dismiss();
+    }
+
+    #[test]
+    fn complete_err_clears_current_tool() {
+        let h = SubagentHandle::start("tool then fail", "task", None);
+        h.set_tool("bash");
+        h.complete_err("boom");
+        let run = snapshot_queue(60_000)
+            .into_iter()
+            .find(|r| r.id == h.id())
+            .expect("failed run");
+        assert_eq!(run.current_tool, None);
+        h.dismiss();
+    }
+
+    #[test]
+    fn start_records_label_source_and_agent_type() {
+        let h = SubagentHandle::start("my label", "quick_task", Some("explore".into()));
+        let run = snapshot_queue(60_000)
+            .into_iter()
+            .find(|r| r.id == h.id())
+            .expect("running run");
+        assert_eq!(run.label, "my label");
+        assert_eq!(run.source, "quick_task");
+        assert_eq!(run.agent_type.as_deref(), Some("explore"));
+        h.dismiss();
+    }
+
+    #[test]
+    fn concurrent_handles_receive_distinct_ids() {
+        let handles: Vec<_> = (0..5)
+            .map(|i| SubagentHandle::start(format!("run-{i}"), "task", None))
+            .collect();
+        let ids: std::collections::HashSet<_> = handles.iter().map(SubagentHandle::id).collect();
+        assert_eq!(ids.len(), handles.len());
+        for h in handles {
+            h.dismiss();
+        }
+    }
 }

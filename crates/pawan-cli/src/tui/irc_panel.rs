@@ -143,3 +143,285 @@ impl<'a> App<'a> {
 fn format_irc_line(msg: &IrcMessage) -> String {
     format!("[IRC] {} → {}: {}", msg.from, msg.to, msg.body)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::format_irc_line;
+    use crate::tui::app::App;
+    use crate::tui::types::AgentCommand;
+    use pawan::agent::{IrcHub, IrcMessage, Role};
+    use pawan::config::TuiConfig;
+    use ratatui::backend::TestBackend;
+    use ratatui::Terminal;
+    use std::sync::{Arc, Mutex};
+    use tokio::sync::mpsc;
+
+    /// Minimal App harness (mirrors `render.rs` `test_app`, but keeps `cmd_rx` for dispatch checks).
+    fn test_app<'a>() -> (App<'a>, mpsc::UnboundedReceiver<AgentCommand>) {
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_hub = IrcHub::new();
+        let irc_relay = Arc::new(Mutex::new(irc_hub.join("main")));
+        let mut app = App::new(
+            TuiConfig::default(),
+            "test-model".to_string(),
+            cmd_tx,
+            event_rx,
+            irc_relay,
+        );
+        app.show_welcome = false;
+        (app, cmd_rx)
+    }
+
+    fn test_app_with_hub<'a>(
+        irc_hub: &IrcHub,
+    ) -> (App<'a>, mpsc::UnboundedReceiver<AgentCommand>) {
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
+        let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_relay = Arc::new(Mutex::new(irc_hub.join("main")));
+        let mut app = App::new(
+            TuiConfig::default(),
+            "test-model".to_string(),
+            cmd_tx,
+            event_rx,
+            irc_relay,
+        );
+        app.show_welcome = false;
+        (app, cmd_rx)
+    }
+
+    fn last_system_text(app: &App<'_>) -> String {
+        app.messages
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::System)
+            .expect("system message")
+            .text_content()
+    }
+
+    #[test]
+    fn format_irc_line_formats_message() {
+        use chrono::Utc;
+
+        let msg = IrcMessage {
+            from: "worker".into(),
+            to: "main".into(),
+            body: "ping".into(),
+            timestamp: Utc::now(),
+        };
+        assert_eq!(format_irc_line(&msg), "[IRC] worker → main: ping");
+    }
+
+    #[test]
+    fn submit_irc_compose_empty_line_closes_without_dispatch() {
+        let (mut app, mut cmd_rx) = test_app();
+        app.irc_compose_open = true;
+        app.irc_compose_input = "   ".into();
+        let messages_before = app.messages.len();
+
+        app.submit_irc_compose();
+
+        assert!(!app.irc_compose_open);
+        assert!(app.irc_compose_input.is_empty());
+        assert_eq!(app.messages.len(), messages_before);
+        assert!(cmd_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn submit_irc_compose_bad_format_shows_usage() {
+        let (mut app, mut cmd_rx) = test_app();
+        app.irc_compose_open = true;
+        app.irc_compose_input = "nopeer".into();
+
+        app.submit_irc_compose();
+
+        assert!(app.irc_compose_open);
+        assert_eq!(app.irc_compose_input, "nopeer");
+        assert!(last_system_text(&app).contains("IRC usage"));
+        assert!(cmd_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn submit_irc_compose_missing_body_shows_usage() {
+        let (mut app, mut cmd_rx) = test_app();
+        app.irc_compose_open = true;
+        app.irc_compose_input = "peer   ".into();
+
+        app.submit_irc_compose();
+
+        assert!(app.irc_compose_open);
+        assert!(last_system_text(&app).contains("IRC usage"));
+        assert!(cmd_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn submit_irc_compose_success_dispatches_and_closes() {
+        let (mut app, mut cmd_rx) = test_app();
+        app.irc_compose_open = true;
+        app.irc_compose_input = "worker  hello world".into();
+
+        app.submit_irc_compose();
+
+        assert!(!app.irc_compose_open);
+        assert!(app.irc_compose_input.is_empty());
+        assert_eq!(app.status, "IRC → worker");
+        assert!(last_system_text(&app).contains("IRC queued to worker: hello world"));
+
+        match cmd_rx.try_recv().expect("IrcSend command") {
+            AgentCommand::IrcSend { to, body } => {
+                assert_eq!(to, "worker");
+                assert_eq!(body, "hello world");
+            }
+            _ => panic!("expected IrcSend"),
+        }
+    }
+
+    #[test]
+    fn open_irc_compose_sets_state_and_lists_peers() {
+        let hub = IrcHub::new();
+        let _worker = hub.join("worker");
+        let (mut app, _cmd_rx) = test_app_with_hub(&hub);
+
+        app.open_irc_compose();
+
+        assert!(app.irc_compose_open);
+        assert!(app.irc_compose_input.is_empty());
+        let hint = last_system_text(&app);
+        assert!(hint.contains("IRC peers:"));
+        assert!(hint.contains("worker"));
+    }
+
+    #[test]
+    fn open_irc_compose_without_peers_shows_hint() {
+        let (mut app, _cmd_rx) = test_app();
+
+        app.open_irc_compose();
+
+        assert!(app.irc_compose_open);
+        assert!(last_system_text(&app).contains("no other agents registered"));
+    }
+
+    #[test]
+    fn poll_irc_inbox_surfaces_formatted_line() {
+        let hub = IrcHub::new();
+        let mut worker = hub.join("worker");
+        let (mut app, _cmd_rx) = test_app_with_hub(&hub);
+
+        worker.send("main", "ping").expect("deliver");
+        app.poll_irc_inbox();
+
+        assert_eq!(app.status, "IRC from worker");
+        assert_eq!(
+            app.messages.last().expect("inbox message").text_content(),
+            "[IRC] worker → main: ping"
+        );
+    }
+
+    #[test]
+    fn render_irc_compose_smoke() {
+        let (mut app, _cmd_rx) = test_app();
+        app.irc_compose_open = true;
+        app.irc_compose_input = "all hello".into();
+
+        let backend = TestBackend::new(80, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal
+            .draw(|f| app.render_irc_compose(f))
+            .unwrap();
+
+        let text: String = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect();
+        assert!(text.contains("IRC message"));
+        assert!(text.contains("all hello"));
+    }
+
+    #[test]
+    fn open_irc_compose_opens_modal_with_cleared_input() {
+        let (mut app, _cmd_rx) = test_app();
+        assert!(!app.irc_compose_open);
+
+        app.open_irc_compose();
+
+        assert!(app.irc_compose_open);
+        assert!(app.irc_compose_input.is_empty());
+    }
+
+    #[test]
+    fn submit_irc_compose_whitespace_only_dismisses_without_irc_status() {
+        let (mut app, mut cmd_rx) = test_app();
+        app.irc_compose_open = true;
+        app.status = "Ready".into();
+        app.irc_compose_input = "	  
+".into();
+
+        app.submit_irc_compose();
+
+        assert!(!app.irc_compose_open);
+        assert_eq!(app.status, "Ready");
+        assert!(cmd_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn submit_irc_compose_to_all_dispatches_irc_send() {
+        let (mut app, mut cmd_rx) = test_app();
+        app.irc_compose_open = true;
+        app.irc_compose_input = "all team sync".into();
+
+        app.submit_irc_compose();
+
+        match cmd_rx.try_recv().expect("IrcSend command") {
+            AgentCommand::IrcSend { to, body } => {
+                assert_eq!(to, "all");
+                assert_eq!(body, "team sync");
+            }
+            _ => panic!("expected IrcSend"),
+        }
+    }
+
+    #[test]
+    fn format_irc_line_alice_to_bob() {
+        use chrono::Utc;
+
+        let msg = IrcMessage {
+            from: "alice".into(),
+            to: "bob".into(),
+            body: "hi".into(),
+            timestamp: Utc::now(),
+        };
+        assert_eq!(format_irc_line(&msg), "[IRC] alice → bob: hi");
+    }
+
+    #[test]
+    fn submit_irc_compose_single_token_peer_shows_usage() {
+        let (mut app, mut cmd_rx) = test_app();
+        app.irc_compose_open = true;
+        app.irc_compose_input = "lonely-peer".into();
+
+        app.submit_irc_compose();
+
+        assert!(app.irc_compose_open);
+        assert!(last_system_text(&app).contains("IRC usage"));
+        assert!(cmd_rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn poll_irc_inbox_drains_multiple_messages() {
+        let hub = IrcHub::new();
+        let mut worker = hub.join("worker");
+        let (mut app, _cmd_rx) = test_app_with_hub(&hub);
+
+        worker.send("main", "one").expect("deliver");
+        worker.send("main", "two").expect("deliver");
+        app.poll_irc_inbox();
+
+        assert_eq!(app.messages.len(), 2);
+        assert_eq!(app.status, "IRC from worker");
+        app.poll_irc_inbox();
+        assert_eq!(app.messages.len(), 2);
+    }
+}
