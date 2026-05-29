@@ -175,4 +175,100 @@ mod tests {
         assert!(b.try_receive().is_some());
         assert!(main.try_receive().is_none());
     }
+
+    #[test]
+    fn list_peers_returns_registered_ids() {
+        let hub = IrcHub::new();
+        let main = hub.join("main");
+        hub.join("zebra");
+        hub.join("alpha");
+
+        assert_eq!(main.list_peers(), vec!["alpha", "zebra"]);
+    }
+
+    #[test]
+    fn send_to_unknown_peer_errors() {
+        let hub = IrcHub::new();
+        let main = hub.join("main");
+
+        let err = main.send("ghost", "hello").unwrap_err();
+        assert!(err.contains("unknown peer: ghost"));
+    }
+
+    #[test]
+    fn duplicate_join_replaces_inbox() {
+        let hub = IrcHub::new();
+        let main = hub.join("main");
+        let mut first = hub.join("worker");
+        let mut second = hub.join("worker");
+
+        main.send("worker", "after rejoin").expect("send");
+        assert!(first.try_receive().is_none());
+        let msg = second.try_receive().expect("new inbox");
+        assert_eq!(msg.body, "after rejoin");
+    }
+
+    #[test]
+    fn message_timestamp_set() {
+        let hub = IrcHub::new();
+        let main = hub.join("main");
+        let _worker = hub.join("worker");
+        let before = Utc::now();
+        let msg = main.send("worker", "timed").expect("send");
+        let after = Utc::now();
+
+        assert!(msg.timestamp >= before);
+        assert!(msg.timestamp <= after);
+    }
+
+    #[test]
+    fn try_receive_on_empty_inbox_returns_none() {
+        let hub = IrcHub::new();
+        let mut main = hub.join("main");
+        assert!(main.try_receive().is_none());
+    }
+
+    #[test]
+    fn send_empty_body_returns_err() {
+        let hub = IrcHub::new();
+        let main = hub.join("main");
+        let _peer = hub.join("worker");
+        let err = main.send("worker", "   ").unwrap_err();
+        assert!(err.contains("empty"));
+    }
+
+    #[test]
+    fn send_to_self_returns_err() {
+        let hub = IrcHub::new();
+        let main = hub.join("main");
+        let err = main.send("main", "hello").unwrap_err();
+        assert!(err.contains("cannot message self"));
+    }
+
+    #[test]
+    fn broadcast_with_no_other_peers_errors() {
+        let hub = IrcHub::new();
+        let main = hub.join("main");
+        let err = main.send("all", "solo").unwrap_err();
+        assert!(err.contains("no peers available"));
+    }
+
+    #[test]
+    fn list_peers_empty_when_only_self_registered() {
+        let hub = IrcHub::new();
+        let main = hub.join("main");
+        assert!(main.list_peers().is_empty());
+    }
+
+    #[test]
+    fn try_receive_drains_direct_messages_in_order() {
+        let hub = IrcHub::new();
+        let main = hub.join("main");
+        let mut worker = hub.join("worker");
+        main.send("worker", "first").unwrap();
+        main.send("worker", "second").unwrap();
+        assert_eq!(worker.try_receive().unwrap().body, "first");
+        assert_eq!(worker.try_receive().unwrap().body, "second");
+        assert!(worker.try_receive().is_none());
+    }
 }
