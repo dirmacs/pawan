@@ -153,7 +153,7 @@ mod tests {
     #[test]
     fn routes_direct_message() {
         let hub = IrcHub::new();
-        let mut main = hub.join("main");
+        let main = hub.join("main");
         let mut worker = hub.join("worker");
 
         main.send("worker", "ping").expect("send");
