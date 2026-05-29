@@ -20,6 +20,7 @@ pub struct QueueEntry {
 /// Lifecycle for a queued unit of work.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TaskStatus {
+    #[allow(dead_code)]
     Pending,
     Running,
     Done,

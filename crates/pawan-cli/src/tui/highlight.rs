@@ -222,6 +222,7 @@ impl SyntaxHighlighter {
     }
 
     /// Construct from an already-resolved `syntect` [`Theme`].
+    #[allow(dead_code)]
     pub fn with_theme(theme: Theme) -> Self {
         Self {
             theme: Arc::new(theme),
@@ -230,6 +231,7 @@ impl SyntaxHighlighter {
     }
 
     /// Replace the active theme while keeping syntax definitions cached.
+    #[allow(dead_code)]
     pub fn set_theme(&mut self, theme: Theme) {
         self.theme = Arc::new(theme);
     }

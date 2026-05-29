@@ -34,6 +34,7 @@ impl StatusBar {
         self.flash_until = Some(Instant::now() + Duration::from_secs(3));
     }
 
+    #[allow(dead_code)]
     pub fn clear_flash(&mut self) {
         self.flash_message = None;
         self.flash_until = None;

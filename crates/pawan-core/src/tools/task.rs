@@ -25,7 +25,6 @@ use crate::subagent::SubagentHandle;
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
 
 const MAX_PARALLEL_SUBAGENTS: usize = 4;
-const QUEUE_DONE_TTL_MS: u64 = 4_000;
 
 #[derive(Debug, Clone, Deserialize)]
 struct TaskItem {

@@ -109,7 +109,7 @@ Updated 2026-04-29:
 - **Fastest task completion**: Qwen3.5 122B (13.6s for healing module review)
 - **Highest SWE-bench**: MiniMax M2.5 (80.2%)
 - **16 data structures** in grind workspace
-- **988+ tests** passing with 74.58% line / 74.80% region / 77.34% function coverage (cargo-llvm-cov baseline); 98 new tests added in v0.5.6 (29 compaction, 16 eruka, 53 TUI types)
+- **1627+ tests** passing across 18 suites; major test additions in v0.5.7 (SubagentCore, ModelCatalog, IrcHub, CommitQueuePanel, Coordinator, GoalLoopRuntime)
 - **34 tools** in 3 tiers (Core/Standard/Extended) with auto-install via mise
 - **Multi-model thinking support**: Qwen (`enable_thinking`), Gemma (`enable_thinking`), GLM (`enable_thinking` + `clear_thinking`), Mistral Small 4 (`reasoning_effort`), DeepSeek (`thinking`)
 - **Token budget tracking**: thinking vs action token split visible in TUI and CLI

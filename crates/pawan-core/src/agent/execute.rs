@@ -5,9 +5,8 @@ use super::{
     PermissionRequest, Role, TokenCallback, TokenUsage, ToolCallback, ToolCallRecord,
     ToolCallRequest, ToolResultMessage, ToolStartCallback,
 };
-use crate::config::PawanConfig;
 use crate::coordinator::{CoordinatorResult, ToolCallingConfig, ToolCoordinator};
-use crate::tools::{ToolDefinition, ToolRegistry};
+use crate::tools::ToolRegistry;
 use crate::{PawanError, Result};
 use serde_json::{json, Value};
 use std::sync::Arc;

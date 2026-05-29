@@ -9,8 +9,10 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 /// Height of the bottom status strip (model, mode, tokens).
 pub const STATUS_BAR_HEIGHT: u16 = 1;
 /// Default height reserved for the input widget (separator + 1-line min + padding).
+#[allow(dead_code)]
 pub const INPUT_BASE_HEIGHT: u16 = 3;
 /// Height of a single queue row.
+#[allow(dead_code)]
 pub const QUEUE_ITEM_HEIGHT: u16 = 1;
 
 /// Primary layout regions for the main chat view.
@@ -53,6 +55,7 @@ pub fn compute_layout(full_area: Rect, queue_height: u16, input_height: u16) -> 
 }
 
 /// Shrink `area` by one cell on every side (for bordered widgets).
+#[allow(dead_code)]
 pub fn inset_border(area: Rect) -> Rect {
     if area.width <= 2 || area.height <= 2 {
         return Rect::default();
@@ -66,6 +69,7 @@ pub fn inset_border(area: Rect) -> Rect {
 }
 
 /// Split `area` into `(left, right)` where `right` is `width` columns wide.
+#[allow(dead_code)]
 pub fn split_right(area: Rect, width: u16) -> (Rect, Rect) {
     let w = width.min(area.width);
     let left_w = area.width.saturating_sub(w);
@@ -85,12 +89,14 @@ pub fn split_right(area: Rect, width: u16) -> (Rect, Rect) {
 }
 
 /// How many logical lines can fit in a viewport of `area_height` rows.
+#[allow(dead_code)]
 pub fn visible_height(lines: usize, area_height: u16) -> usize {
     let cap = usize::from(area_height);
     lines.min(cap)
 }
 
 /// Clamp a scroll offset so the viewport stays within `total` lines.
+#[allow(dead_code)]
 pub fn scroll_offset(total: usize, visible: usize, scroll: usize) -> usize {
     if total == 0 || visible == 0 {
         return 0;
