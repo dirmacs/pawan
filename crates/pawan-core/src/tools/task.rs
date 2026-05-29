@@ -322,6 +322,7 @@ impl TaskTool {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn run_subagent(
         &self,
         agent_type: &str,
