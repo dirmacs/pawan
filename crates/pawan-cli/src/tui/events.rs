@@ -91,6 +91,15 @@ impl<'a> App<'a> {
                         self.status = "Cleared".to_string();
                         return;
                     }
+                    (KeyModifiers::CONTROL, KeyCode::Char('g')) => {
+                        self.goal_mode = !self.goal_mode;
+                        self.status = if self.goal_mode {
+                            "GOAL mode active".to_string()
+                        } else {
+                            "GOAL mode off".to_string()
+                        };
+                        return;
+                    }
                     (KeyModifiers::CONTROL, KeyCode::Char('p')) => {
                         self.toggle_fuzzy_search();
                         return;
