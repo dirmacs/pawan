@@ -49,6 +49,7 @@ pub(crate) enum AgentEvent {
     /// IRC message delivered to a peer inbox
     IrcSent(pawan::agent::IrcMessage),
     /// IRC message received on this agent's inbox
+    #[allow(dead_code)]
     IrcReceived(pawan::agent::IrcMessage),
 }
 

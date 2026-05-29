@@ -5,7 +5,7 @@ Core library for the Pawan CLI coding agent. Contains the agent engine, tool sys
 ## What's New in v0.5.6
 
 - **Release alignment** — workspace crates now publish together at `0.5.7`; the CLI includes the `/theme` Enter fix, readable placeholder styling, status bar spacing, and expanded TUI regression tests
-- **Test suite expansion** — 29 new compaction tests (edge cases, strategies, keywords, summary parsing) and 16 new eruka bridge tests (serde, JSON parsing, disabled paths); 988+ total workspace tests with 74.58% line coverage
+- **Test suite expansion** — 29 new compaction tests (edge cases, strategies, keywords, summary parsing) and 16 new eruka bridge tests (serde, JSON parsing, disabled paths); 1627+ total workspace tests across 18 suites
 
 ## What's New in v0.5.0
 

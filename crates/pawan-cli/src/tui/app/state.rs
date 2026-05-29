@@ -147,6 +147,7 @@ impl SlashCommandRegistry {
     }
 
     /// Prefix match on the command name (e.g. `/m` returns `/model`, `/m`, ...).
+    #[allow(dead_code)]
     pub fn complete(&self, prefix: &str) -> Vec<&SlashCommand> {
         let p = prefix.to_lowercase();
         self.commands
@@ -160,6 +161,7 @@ impl SlashCommandRegistry {
     }
 
     /// Help string for /help, derived from the registry
+    #[allow(dead_code)]
     pub(crate) fn help_text(&self) -> String {
         let mut cmds: Vec<&SlashCommand> = self.commands.iter().collect();
         cmds.sort_by(|a, b| a.name.cmp(&b.name));
