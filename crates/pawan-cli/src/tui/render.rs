@@ -1317,7 +1317,6 @@ mod tests {
 
     use super::super::fuzzy_search::{default_command_item_lines, FuzzySearchState};
     use super::{markdown_to_lines, parse_inline_markdown};
-    use insta;
     use pawan::agent::session::Session;
     use pawan::agent::ToolCallRecord;
     use ratatui::style::Modifier;
@@ -2493,7 +2492,7 @@ mod tests {
         reset_theme_for_test();
         for name in ["onedark", "gruvbox"] {
             let mut app = test_app();
-            app.input.insert_str(&format!("/theme {name}"));
+            app.input.insert_str(format!("/theme {name}"));
             app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
                 KeyCode::Enter,
                 KeyModifiers::NONE,
@@ -4201,7 +4200,6 @@ mod tests {
         use super::FuzzySearchState;
         use super::super::super::app::PermissionDialog;
         use super::super::super::types::DisplayMessage;
-        use insta;
         use pawan::agent::Role;
         use ratatui::backend::TestBackend;
         use ratatui::Terminal;

@@ -48,7 +48,7 @@ pub async fn fetch_live_models_from(endpoint_url: &str) -> Option<Vec<ModelInfo>
     if models.is_empty() {
         None
     } else {
-        models.sort_by(|a, b| b.quality_score.cmp(&a.quality_score));
+        models.sort_by_key(|b| std::cmp::Reverse(b.quality_score));
         Some(models)
     }
 }
@@ -688,7 +688,6 @@ mod tests {
 #[cfg(test)]
 mod integration_tests {
     use super::*;
-    use serde_json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 

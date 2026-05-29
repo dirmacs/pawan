@@ -16,39 +16,39 @@ use pawan::agent::{ToolCallRecord, ToolCallRequest};
 
 #[test]
 fn test_export_format_from_str_lowercase() {
-    assert_eq!(ExportFormat::from_str("html"), ExportFormat::Html);
-    assert_eq!(ExportFormat::from_str("json"), ExportFormat::Json);
-    assert_eq!(ExportFormat::from_str("txt"), ExportFormat::Txt);
-    assert_eq!(ExportFormat::from_str("md"), ExportFormat::Markdown);
+    assert_eq!(ExportFormat::parse("html"), ExportFormat::Html);
+    assert_eq!(ExportFormat::parse("json"), ExportFormat::Json);
+    assert_eq!(ExportFormat::parse("txt"), ExportFormat::Txt);
+    assert_eq!(ExportFormat::parse("md"), ExportFormat::Markdown);
 }
 
 #[test]
 fn test_export_format_from_str_uppercase() {
-    assert_eq!(ExportFormat::from_str("HTML"), ExportFormat::Html);
-    assert_eq!(ExportFormat::from_str("JSON"), ExportFormat::Json);
-    assert_eq!(ExportFormat::from_str("TXT"), ExportFormat::Txt);
-    assert_eq!(ExportFormat::from_str("MD"), ExportFormat::Markdown);
+    assert_eq!(ExportFormat::parse("HTML"), ExportFormat::Html);
+    assert_eq!(ExportFormat::parse("JSON"), ExportFormat::Json);
+    assert_eq!(ExportFormat::parse("TXT"), ExportFormat::Txt);
+    assert_eq!(ExportFormat::parse("MD"), ExportFormat::Markdown);
 }
 
 #[test]
 fn test_export_format_from_str_mixed_case() {
-    assert_eq!(ExportFormat::from_str("Html"), ExportFormat::Html);
-    assert_eq!(ExportFormat::from_str("Json"), ExportFormat::Json);
+    assert_eq!(ExportFormat::parse("Html"), ExportFormat::Html);
+    assert_eq!(ExportFormat::parse("Json"), ExportFormat::Json);
 }
 
 #[test]
 fn test_export_format_from_str_full_words() {
-    assert_eq!(ExportFormat::from_str("markdown"), ExportFormat::Markdown);
-    assert_eq!(ExportFormat::from_str("MARKDOWN"), ExportFormat::Markdown);
-    assert_eq!(ExportFormat::from_str("text"), ExportFormat::Txt);
-    assert_eq!(ExportFormat::from_str("TEXT"), ExportFormat::Txt);
+    assert_eq!(ExportFormat::parse("markdown"), ExportFormat::Markdown);
+    assert_eq!(ExportFormat::parse("MARKDOWN"), ExportFormat::Markdown);
+    assert_eq!(ExportFormat::parse("text"), ExportFormat::Txt);
+    assert_eq!(ExportFormat::parse("TEXT"), ExportFormat::Txt);
 }
 
 #[test]
 fn test_export_format_from_str_unknown_defaults_to_markdown() {
-    assert_eq!(ExportFormat::from_str("pdf"), ExportFormat::Markdown);
-    assert_eq!(ExportFormat::from_str(""), ExportFormat::Markdown);
-    assert_eq!(ExportFormat::from_str("xyz"), ExportFormat::Markdown);
+    assert_eq!(ExportFormat::parse("pdf"), ExportFormat::Markdown);
+    assert_eq!(ExportFormat::parse(""), ExportFormat::Markdown);
+    assert_eq!(ExportFormat::parse("xyz"), ExportFormat::Markdown);
 }
 
 #[test]
@@ -285,7 +285,7 @@ fn test_content_block_text() {
 fn test_content_block_text_streaming() {
     let block = ContentBlock::Text { content: "streaming".to_string(), streaming: true };
     match block {
-        ContentBlock::Text { content, streaming } => {
+        ContentBlock::Text { streaming, .. } => {
             assert!(streaming);
         }
         _ => panic!("expected Text variant"),
@@ -301,7 +301,7 @@ fn test_content_block_tool_call() {
         state: Box::new(state),
     };
     match block {
-        ContentBlock::ToolCall { name, args_summary, state } => {
+        ContentBlock::ToolCall { name, state, .. } => {
             assert_eq!(name, "bash");
             assert!(matches!(*state, ToolBlockState::Running));
         }
@@ -531,10 +531,10 @@ fn test_tool_call_record_failed() {
 
 #[test]
 fn test_export_format_case_insensitive_all() {
-    assert_eq!(ExportFormat::from_str("hTmL"), ExportFormat::Html);
-    assert_eq!(ExportFormat::from_str("JsOn"), ExportFormat::Json);
-    assert_eq!(ExportFormat::from_str("TxT"), ExportFormat::Txt);
-    assert_eq!(ExportFormat::from_str("MaRkDoWn"), ExportFormat::Markdown);
+    assert_eq!(ExportFormat::parse("hTmL"), ExportFormat::Html);
+    assert_eq!(ExportFormat::parse("JsOn"), ExportFormat::Json);
+    assert_eq!(ExportFormat::parse("TxT"), ExportFormat::Txt);
+    assert_eq!(ExportFormat::parse("MaRkDoWn"), ExportFormat::Markdown);
 }
 
 #[test]
