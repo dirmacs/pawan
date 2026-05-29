@@ -17,6 +17,8 @@
 //! - [`ConversationMessage`] — a single turn in the history
 //! - [`CoordinatorResult`]   — everything the caller gets back
 //! - [`ToolCoordinator`]     — the runtime that drives the LLM+tool loop
+//! - [`TaskScheduleCoordinator`] — validates and dispatches multi-agent task batches
+//! - [`ScheduledTask`] / [`ScheduleError`] — task scheduling wire types
 //!
 //! ## Design notes
 //!
@@ -33,7 +35,10 @@ pub use types::*;
 use crate::agent::backend::LlmBackend;
 use crate::agent::{Message, Role, TokenUsage, ToolCallRecord, ToolCallRequest, ToolResultMessage};
 use crate::tools::ToolRegistry;
+use async_trait::async_trait;
 use futures::future::join_all;
+use serde_json::Value;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::time::timeout;
@@ -360,6 +365,119 @@ impl ToolCoordinator {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Multi-agent task scheduling
+// ---------------------------------------------------------------------------
+
+/// Subagent types accepted by the task scheduler (aligned with [`crate::tools::task::TaskTool`]).
+pub const KNOWN_AGENT_TYPES: &[&str] = &[
+    "explore",
+    "plan",
+    "task",
+    "reviewer",
+    "designer",
+    "librarian",
+];
+
+/// One schedulable unit of work for a typed subagent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScheduledTask {
+    pub id: String,
+    pub agent_type: String,
+    pub assignment: String,
+}
+
+/// Validation / scheduling failure before any task is dispatched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScheduleError {
+    EmptyTaskList,
+    InvalidAgentType(String),
+    DuplicateTaskId(String),
+}
+
+impl std::fmt::Display for ScheduleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScheduleError::EmptyTaskList => write!(f, "task list must not be empty"),
+            ScheduleError::InvalidAgentType(agent) => write!(
+                f,
+                "unknown agent type '{agent}'. Valid types: {}",
+                KNOWN_AGENT_TYPES.join(", ")
+            ),
+            ScheduleError::DuplicateTaskId(id) => write!(f, "duplicate task id '{id}'"),
+        }
+    }
+}
+
+/// Validate a batch before dispatching. Checks non-empty list, known agent types,
+/// and unique task ids.
+pub fn validate_task_schedule(tasks: &[ScheduledTask]) -> Result<(), ScheduleError> {
+    if tasks.is_empty() {
+        return Err(ScheduleError::EmptyTaskList);
+    }
+
+    let mut seen_ids = HashSet::with_capacity(tasks.len());
+    for task in tasks {
+        if !KNOWN_AGENT_TYPES.contains(&task.agent_type.as_str()) {
+            return Err(ScheduleError::InvalidAgentType(task.agent_type.clone()));
+        }
+        if !seen_ids.insert(task.id.clone()) {
+            return Err(ScheduleError::DuplicateTaskId(task.id.clone()));
+        }
+        if task.assignment.trim().is_empty() {
+            return Err(ScheduleError::InvalidAgentType(
+                "assignment must be non-empty".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Outcome of one successfully scheduled task.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScheduledTaskResult {
+    pub id: String,
+    pub output: Value,
+}
+
+/// Executes validated [`ScheduledTask`] items (used by tests and future batch dispatch).
+#[async_trait]
+pub trait TaskRunner: Send + Sync {
+    async fn run(&self, task: &ScheduledTask) -> crate::Result<Value>;
+}
+
+/// Coordinates validation and sequential dispatch of multi-agent task batches.
+pub struct TaskScheduleCoordinator<R> {
+    runner: Arc<R>,
+}
+
+impl<R: TaskRunner> TaskScheduleCoordinator<R> {
+    pub fn new(runner: Arc<R>) -> Self {
+        Self { runner }
+    }
+
+    /// Validate `tasks`, then run each item through the configured runner.
+    pub async fn schedule(
+        &self,
+        tasks: &[ScheduledTask],
+    ) -> Result<Vec<ScheduledTaskResult>, ScheduleError> {
+        validate_task_schedule(tasks)?;
+
+        let mut results = Vec::with_capacity(tasks.len());
+        for task in tasks {
+            let output = self.runner.run(task).await.map_err(|e| {
+                ScheduleError::InvalidAgentType(format!("task '{}' failed: {e}", task.id))
+            })?;
+            results.push(ScheduledTaskResult {
+                id: task.id.clone(),
+                output,
+            });
+        }
+        Ok(results)
+    }
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -470,5 +588,431 @@ mod tests {
         // Each iteration dispatches one noop tool call.
         assert_eq!(result.tool_calls.len(), 3);
         assert!(result.tool_calls.iter().all(|tc| tc.success));
+    }
+
+    /// When the model requests a tool that is not registered, the coordinator must
+    /// halt immediately with `FinishReason::UnknownTool` and must not execute anything.
+    #[tokio::test]
+    async fn test_unknown_tool_validation_returns_unknown_tool_finish_reason() {
+        use crate::agent::backend::mock::MockBackend;
+
+        let backend = Arc::new(MockBackend::with_tool_call(
+            "call_ghost",
+            "definitely_not_registered",
+            serde_json::json!({}),
+            "should not reach this",
+        ));
+        let registry = Arc::new(ToolRegistry::new());
+        let coordinator = ToolCoordinator::new(backend, registry, ToolCallingConfig::default());
+
+        let result = coordinator
+            .execute(None, "use a ghost tool")
+            .await
+            .expect("unknown tool should surface as a coordinator result, not a hard error");
+
+        assert_eq!(
+            result.finish_reason,
+            FinishReason::UnknownTool("definitely_not_registered".into())
+        );
+        assert!(
+            result.tool_calls.is_empty(),
+            "unknown tool must not be executed"
+        );
+        assert_eq!(result.iterations, 1);
+    }
+
+    /// With `stop_on_error = true`, a tool that returns `Err` must end the session
+    /// with `FinishReason::Error` rather than continuing the loop.
+    #[tokio::test]
+    async fn test_stop_on_error_halts_on_failed_tool_execution() {
+        use crate::agent::backend::mock::{MockBackend, MockResponse};
+        use crate::tools::Tool;
+        use async_trait::async_trait;
+        use serde_json::Value;
+
+        struct FailingTool;
+
+        #[async_trait]
+        impl Tool for FailingTool {
+            fn name(&self) -> &str {
+                "fail_me"
+            }
+            fn description(&self) -> &str {
+                "always fails"
+            }
+            fn parameters_schema(&self) -> Value {
+                serde_json::json!({"type": "object", "properties": {}})
+            }
+            async fn execute(&self, _args: Value) -> crate::Result<Value> {
+                Err(crate::PawanError::Tool("intentional failure".into()))
+            }
+        }
+
+        let backend = Arc::new(MockBackend::new(vec![
+            MockResponse::tool_call("fail_me", serde_json::json!({})),
+            MockResponse::text("unreachable"),
+        ]));
+
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(FailingTool));
+        let registry = Arc::new(registry);
+
+        let config = ToolCallingConfig {
+            stop_on_error: true,
+            parallel_execution: false,
+            ..ToolCallingConfig::default()
+        };
+        let coordinator = ToolCoordinator::new(backend, registry, config);
+
+        let result = coordinator
+            .execute(None, "trigger failure")
+            .await
+            .expect("stop_on_error should return Ok with Error finish reason");
+
+        match &result.finish_reason {
+            FinishReason::Error(msg) => {
+                assert!(
+                    msg.contains("intentional failure"),
+                    "error message should propagate from tool, got: {}",
+                    msg
+                );
+            }
+            other => panic!("expected FinishReason::Error, got {:?}", other),
+        }
+        assert_eq!(result.iterations, 1);
+    }
+
+    /// Per-tool timeout must produce a failed record rather than hanging the session.
+    #[tokio::test]
+    async fn test_tool_timeout_records_failed_tool_call() {
+        use crate::agent::backend::mock::{MockBackend, MockResponse};
+        use crate::tools::Tool;
+        use async_trait::async_trait;
+        use serde_json::Value;
+        use std::time::Duration;
+
+        struct SlowTool;
+
+        #[async_trait]
+        impl Tool for SlowTool {
+            fn name(&self) -> &str {
+                "slow_tool"
+            }
+            fn description(&self) -> &str {
+                "sleeps longer than the coordinator timeout"
+            }
+            fn parameters_schema(&self) -> Value {
+                serde_json::json!({"type": "object", "properties": {}})
+            }
+            async fn execute(&self, _args: Value) -> crate::Result<Value> {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                Ok(serde_json::json!({"ok": true}))
+            }
+        }
+
+        let backend = Arc::new(MockBackend::new(vec![
+            MockResponse::tool_call("slow_tool", serde_json::json!({})),
+            MockResponse::text("done after timeout"),
+        ]));
+
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(SlowTool));
+        let registry = Arc::new(registry);
+
+        let config = ToolCallingConfig {
+            tool_timeout: Duration::from_millis(50),
+            parallel_execution: false,
+            ..ToolCallingConfig::default()
+        };
+        let coordinator = ToolCoordinator::new(backend, registry, config);
+
+        let result = coordinator
+            .execute(None, "run slow tool")
+            .await
+            .expect("timeout should be absorbed into a failed tool record");
+
+        assert_eq!(result.tool_calls.len(), 1);
+        let record = &result.tool_calls[0];
+        assert!(!record.success, "timed-out tool must be marked unsuccessful");
+        assert_eq!(
+            record.result.get("error").and_then(|v| v.as_str()),
+            Some("tool execution timed out")
+        );
+        // Loop continues after a non-fatal timeout (stop_on_error defaults to false).
+        assert_eq!(result.finish_reason, FinishReason::Stop);
+        assert_eq!(result.iterations, 2);
+    }
+
+    /// `execute` with a system prompt must prepend a system message to history.
+    #[tokio::test]
+    async fn test_execute_with_system_prompt_prepends_system_message() {
+        use crate::agent::backend::mock::MockBackend;
+
+        let backend = Arc::new(MockBackend::with_text("acknowledged"));
+        let registry = Arc::new(ToolRegistry::new());
+        let coordinator = ToolCoordinator::new(backend, registry, ToolCallingConfig::default());
+
+        let result = coordinator
+            .execute(Some("be concise"), "hello")
+            .await
+            .expect("execute should succeed");
+
+        assert_eq!(result.message_history.len(), 3);
+        assert_eq!(result.message_history[0].role, Role::System);
+        assert_eq!(result.message_history[0].content, "be concise");
+        assert_eq!(result.message_history[1].role, Role::User);
+        assert_eq!(result.message_history[1].content, "hello");
+        assert_eq!(result.message_history[2].role, Role::Assistant);
+    }
+
+    /// Token usage reported by the backend must be captured in `total_usage`.
+    #[tokio::test]
+    async fn test_token_usage_captured_from_backend_response() {
+        use crate::agent::backend::mock::{MockBackend, MockResponse};
+        use crate::tools::Tool;
+        use async_trait::async_trait;
+        use serde_json::Value;
+
+        struct NoOpTool;
+
+        #[async_trait]
+        impl Tool for NoOpTool {
+            fn name(&self) -> &str {
+                "noop"
+            }
+            fn description(&self) -> &str {
+                "does nothing"
+            }
+            fn parameters_schema(&self) -> Value {
+                serde_json::json!({"type": "object", "properties": {}})
+            }
+            async fn execute(&self, _args: Value) -> crate::Result<Value> {
+                Ok(serde_json::json!({"ok": true}))
+            }
+        }
+
+        let backend = Arc::new(MockBackend::new(vec![
+            MockResponse::tool_call("noop", serde_json::json!({})),
+            MockResponse::TextWithUsage {
+                text: "done".into(),
+                usage: TokenUsage {
+                    prompt_tokens: 20,
+                    completion_tokens: 8,
+                    total_tokens: 28,
+                    reasoning_tokens: 3,
+                    action_tokens: 5,
+                },
+            },
+        ]));
+
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(NoOpTool));
+        let registry = Arc::new(registry);
+        let coordinator = ToolCoordinator::new(backend, registry, ToolCallingConfig::default());
+
+        let result = coordinator
+            .execute(None, "count tokens")
+            .await
+            .expect("execute should succeed");
+
+        assert_eq!(result.total_usage.prompt_tokens, 20);
+        assert_eq!(result.total_usage.completion_tokens, 8);
+        assert_eq!(result.total_usage.total_tokens, 28);
+        assert_eq!(result.total_usage.reasoning_tokens, 3);
+        assert_eq!(result.total_usage.action_tokens, 5);
+        assert_eq!(result.iterations, 2);
+    }
+
+    /// Parallel execution must dispatch every tool call in a single assistant turn.
+    #[tokio::test]
+    async fn test_parallel_execution_dispatches_multiple_tools_in_one_turn() {
+        use crate::agent::backend::mock::MockBackend;
+        use crate::tools::Tool;
+        use async_trait::async_trait;
+        use serde_json::Value;
+
+        struct EchoTool {
+            suffix: &'static str,
+        }
+
+        #[async_trait]
+        impl Tool for EchoTool {
+            fn name(&self) -> &str {
+                self.suffix
+            }
+            fn description(&self) -> &str {
+                "echoes a suffix"
+            }
+            fn parameters_schema(&self) -> Value {
+                serde_json::json!({"type": "object", "properties": {}})
+            }
+            async fn execute(&self, _args: Value) -> crate::Result<Value> {
+                Ok(serde_json::json!({ "tool": self.suffix }))
+            }
+        }
+
+        let backend = Arc::new(MockBackend::with_multiple_tool_calls(vec![
+            ("call_a", "echo_a", serde_json::json!({})),
+            ("call_b", "echo_b", serde_json::json!({})),
+        ]));
+
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(EchoTool { suffix: "echo_a" }));
+        registry.register(Arc::new(EchoTool { suffix: "echo_b" }));
+        let registry = Arc::new(registry);
+
+        let config = ToolCallingConfig {
+            parallel_execution: true,
+            ..ToolCallingConfig::default()
+        };
+        let coordinator = ToolCoordinator::new(backend, registry, config);
+
+        let result = coordinator
+            .execute(None, "run both")
+            .await
+            .expect("parallel tool execution should succeed");
+
+        assert_eq!(result.tool_calls.len(), 2);
+        assert!(result.tool_calls.iter().all(|r| r.success));
+        let names: Vec<&str> = result.tool_calls.iter().map(|r| r.name.as_str()).collect();
+        assert!(names.contains(&"echo_a"));
+        assert!(names.contains(&"echo_b"));
+        assert_eq!(result.finish_reason, FinishReason::Stop);
+        assert_eq!(result.iterations, 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // Task scheduling edge cases (mock runner)
+    // -----------------------------------------------------------------------
+
+    use async_trait::async_trait;
+    use serde_json::json;
+    use std::sync::Mutex;
+
+    struct MockTaskRunner {
+        dispatched: Mutex<Vec<String>>,
+    }
+
+    impl MockTaskRunner {
+        fn new() -> Self {
+            Self {
+                dispatched: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn dispatched_ids(&self) -> Vec<String> {
+            self.dispatched.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl TaskRunner for MockTaskRunner {
+        async fn run(&self, task: &ScheduledTask) -> crate::Result<Value> {
+            self.dispatched.lock().unwrap().push(task.id.clone());
+            Ok(json!({
+                "id": task.id,
+                "agent": task.agent_type,
+                "assignment": task.assignment,
+            }))
+        }
+    }
+
+    /// Scheduling must reject an empty task list before touching the runner.
+    #[tokio::test]
+    async fn schedule_empty_task_list_rejects_without_dispatch() {
+        let runner = Arc::new(MockTaskRunner::new());
+        let coordinator = TaskScheduleCoordinator::new(runner.clone());
+
+        let err = coordinator
+            .schedule(&[])
+            .await
+            .expect_err("empty task list should fail validation");
+
+        assert_eq!(err, ScheduleError::EmptyTaskList);
+        assert!(runner.dispatched_ids().is_empty());
+    }
+
+    /// Unknown agent types must fail validation and leave the runner idle.
+    #[tokio::test]
+    async fn schedule_invalid_agent_type_rejects_without_dispatch() {
+        let runner = Arc::new(MockTaskRunner::new());
+        let coordinator = TaskScheduleCoordinator::new(runner.clone());
+
+        let tasks = [ScheduledTask {
+            id: "AuthProbe".into(),
+            agent_type: "not_a_real_agent".into(),
+            assignment: "probe auth".into(),
+        }];
+
+        let err = coordinator
+            .schedule(&tasks)
+            .await
+            .expect_err("invalid agent type should fail validation");
+
+        assert_eq!(
+            err,
+            ScheduleError::InvalidAgentType("not_a_real_agent".into())
+        );
+        assert!(runner.dispatched_ids().is_empty());
+    }
+
+    /// Duplicate task ids must be rejected before any work is dispatched.
+    #[tokio::test]
+    async fn schedule_duplicate_task_ids_rejects_without_dispatch() {
+        let runner = Arc::new(MockTaskRunner::new());
+        let coordinator = TaskScheduleCoordinator::new(runner.clone());
+
+        let tasks = [
+            ScheduledTask {
+                id: "DupId".into(),
+                agent_type: "explore".into(),
+                assignment: "first".into(),
+            },
+            ScheduledTask {
+                id: "DupId".into(),
+                agent_type: "plan".into(),
+                assignment: "second".into(),
+            },
+        ];
+
+        let err = coordinator
+            .schedule(&tasks)
+            .await
+            .expect_err("duplicate ids should fail validation");
+
+        assert_eq!(err, ScheduleError::DuplicateTaskId("DupId".into()));
+        assert!(runner.dispatched_ids().is_empty());
+    }
+
+    /// Valid tasks must be dispatched through the mock runner in order.
+    #[tokio::test]
+    async fn schedule_valid_tasks_dispatches_via_mock_runner() {
+        let runner = Arc::new(MockTaskRunner::new());
+        let coordinator = TaskScheduleCoordinator::new(runner.clone());
+
+        let tasks = [
+            ScheduledTask {
+                id: "Alpha".into(),
+                agent_type: "explore".into(),
+                assignment: "scan src/".into(),
+            },
+            ScheduledTask {
+                id: "Beta".into(),
+                agent_type: "plan".into(),
+                assignment: "draft refactor".into(),
+            },
+        ];
+
+        let results = coordinator
+            .schedule(&tasks)
+            .await
+            .expect("valid schedule should succeed");
+
+        assert_eq!(runner.dispatched_ids(), vec!["Alpha", "Beta"]);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, "Alpha");
+        assert_eq!(results[0].output["agent"], "explore");
+        assert_eq!(results[1].id, "Beta");
+        assert_eq!(results[1].output["agent"], "plan");
     }
 }

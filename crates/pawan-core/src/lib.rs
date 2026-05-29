@@ -40,6 +40,7 @@ pub mod skill_distillation;
 pub mod skills;
 #[cfg(feature = "tasks")]
 pub mod tasks;
+pub mod subagent;
 pub mod tools;
 
 pub use crate::injection_detector::{
