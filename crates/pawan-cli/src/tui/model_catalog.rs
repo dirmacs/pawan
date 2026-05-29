@@ -48,7 +48,7 @@ pub async fn fetch_live_models_from(endpoint_url: &str) -> Option<Vec<ModelInfo>
     if models.is_empty() {
         None
     } else {
-        models.sort_by(|a, b| a.id.cmp(&b.id));
+        models.sort_by(|a, b| b.quality_score.cmp(&a.quality_score));
         Some(models)
     }
 }
@@ -691,6 +691,70 @@ mod integration_tests {
     use serde_json;
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn test_fetch_live_models_from_http_500_returns_none() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&mock_server)
+            .await;
+
+        let url = format!("{}/v1/models", mock_server.uri());
+        assert!(fetch_live_models_from(&url).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_live_models_from_empty_data_returns_none() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": []
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let url = format!("{}/v1/models", mock_server.uri());
+        assert!(fetch_live_models_from(&url).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_fetch_live_models_from_sorts_by_quality_score_descending() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    {"id": "aaa/vendor/small-1b", "owned_by": "VendorA"},
+                    {"id": "zzz/vendor/large-70b", "owned_by": "VendorZ"},
+                ]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let url = format!("{}/v1/models", mock_server.uri());
+        let models = fetch_live_models_from(&url).await.expect("mock should return models");
+        assert_eq!(models.len(), 2);
+        assert!(
+            models[0].quality_score >= models[1].quality_score,
+            "expected descending quality_score order"
+        );
+        assert_eq!(models[0].id, "zzz/vendor/large-70b");
+        assert_eq!(models[1].id, "aaa/vendor/small-1b");
+        assert!(models[0].quality_score > models[1].quality_score);
+    }
+
+    #[test]
+    fn test_quality_score_for_empty_string() {
+        assert_eq!(quality_score_for(""), 75);
+    }
+
+    #[test]
+    fn test_quality_score_for_unknown_vendor() {
+        assert_eq!(quality_score_for("totally-unknown-corp/obscure-widget"), 75);
+    }
 
     #[tokio::test]
     async fn test_fetch_live_models_from_mock_server() {

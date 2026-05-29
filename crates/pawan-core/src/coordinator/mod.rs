@@ -17,6 +17,8 @@
 //! - [`ConversationMessage`] — a single turn in the history
 //! - [`CoordinatorResult`]   — everything the caller gets back
 //! - [`ToolCoordinator`]     — the runtime that drives the LLM+tool loop
+//! - [`TaskScheduleCoordinator`] — validates and dispatches multi-agent task batches
+//! - [`ScheduledTask`] / [`ScheduleError`] — task scheduling wire types
 //!
 //! ## Design notes
 //!
@@ -33,7 +35,10 @@ pub use types::*;
 use crate::agent::backend::LlmBackend;
 use crate::agent::{Message, Role, TokenUsage, ToolCallRecord, ToolCallRequest, ToolResultMessage};
 use crate::tools::ToolRegistry;
+use async_trait::async_trait;
 use futures::future::join_all;
+use serde_json::Value;
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::time::timeout;
@@ -359,6 +364,119 @@ impl ToolCoordinator {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Multi-agent task scheduling
+// ---------------------------------------------------------------------------
+
+/// Subagent types accepted by the task scheduler (aligned with [`crate::tools::task::TaskTool`]).
+pub const KNOWN_AGENT_TYPES: &[&str] = &[
+    "explore",
+    "plan",
+    "task",
+    "reviewer",
+    "designer",
+    "librarian",
+];
+
+/// One schedulable unit of work for a typed subagent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScheduledTask {
+    pub id: String,
+    pub agent_type: String,
+    pub assignment: String,
+}
+
+/// Validation / scheduling failure before any task is dispatched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScheduleError {
+    EmptyTaskList,
+    InvalidAgentType(String),
+    DuplicateTaskId(String),
+}
+
+impl std::fmt::Display for ScheduleError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ScheduleError::EmptyTaskList => write!(f, "task list must not be empty"),
+            ScheduleError::InvalidAgentType(agent) => write!(
+                f,
+                "unknown agent type '{agent}'. Valid types: {}",
+                KNOWN_AGENT_TYPES.join(", ")
+            ),
+            ScheduleError::DuplicateTaskId(id) => write!(f, "duplicate task id '{id}'"),
+        }
+    }
+}
+
+/// Validate a batch before dispatching. Checks non-empty list, known agent types,
+/// and unique task ids.
+pub fn validate_task_schedule(tasks: &[ScheduledTask]) -> Result<(), ScheduleError> {
+    if tasks.is_empty() {
+        return Err(ScheduleError::EmptyTaskList);
+    }
+
+    let mut seen_ids = HashSet::with_capacity(tasks.len());
+    for task in tasks {
+        if !KNOWN_AGENT_TYPES.contains(&task.agent_type.as_str()) {
+            return Err(ScheduleError::InvalidAgentType(task.agent_type.clone()));
+        }
+        if !seen_ids.insert(task.id.clone()) {
+            return Err(ScheduleError::DuplicateTaskId(task.id.clone()));
+        }
+        if task.assignment.trim().is_empty() {
+            return Err(ScheduleError::InvalidAgentType(
+                "assignment must be non-empty".into(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Outcome of one successfully scheduled task.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScheduledTaskResult {
+    pub id: String,
+    pub output: Value,
+}
+
+/// Executes validated [`ScheduledTask`] items (used by tests and future batch dispatch).
+#[async_trait]
+pub trait TaskRunner: Send + Sync {
+    async fn run(&self, task: &ScheduledTask) -> crate::Result<Value>;
+}
+
+/// Coordinates validation and sequential dispatch of multi-agent task batches.
+pub struct TaskScheduleCoordinator<R> {
+    runner: Arc<R>,
+}
+
+impl<R: TaskRunner> TaskScheduleCoordinator<R> {
+    pub fn new(runner: Arc<R>) -> Self {
+        Self { runner }
+    }
+
+    /// Validate `tasks`, then run each item through the configured runner.
+    pub async fn schedule(
+        &self,
+        tasks: &[ScheduledTask],
+    ) -> Result<Vec<ScheduledTaskResult>, ScheduleError> {
+        validate_task_schedule(tasks)?;
+
+        let mut results = Vec::with_capacity(tasks.len());
+        for task in tasks {
+            let output = self.runner.run(task).await.map_err(|e| {
+                ScheduleError::InvalidAgentType(format!("task '{}' failed: {e}", task.id))
+            })?;
+            results.push(ScheduledTaskResult {
+                id: task.id.clone(),
+                output,
+            });
+        }
+        Ok(results)
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -761,5 +879,140 @@ mod tests {
         assert!(names.contains(&"echo_b"));
         assert_eq!(result.finish_reason, FinishReason::Stop);
         assert_eq!(result.iterations, 2);
+    }
+
+    // -----------------------------------------------------------------------
+    // Task scheduling edge cases (mock runner)
+    // -----------------------------------------------------------------------
+
+    use async_trait::async_trait;
+    use serde_json::json;
+    use std::sync::Mutex;
+
+    struct MockTaskRunner {
+        dispatched: Mutex<Vec<String>>,
+    }
+
+    impl MockTaskRunner {
+        fn new() -> Self {
+            Self {
+                dispatched: Mutex::new(Vec::new()),
+            }
+        }
+
+        fn dispatched_ids(&self) -> Vec<String> {
+            self.dispatched.lock().unwrap().clone()
+        }
+    }
+
+    #[async_trait]
+    impl TaskRunner for MockTaskRunner {
+        async fn run(&self, task: &ScheduledTask) -> crate::Result<Value> {
+            self.dispatched.lock().unwrap().push(task.id.clone());
+            Ok(json!({
+                "id": task.id,
+                "agent": task.agent_type,
+                "assignment": task.assignment,
+            }))
+        }
+    }
+
+    /// Scheduling must reject an empty task list before touching the runner.
+    #[tokio::test]
+    async fn schedule_empty_task_list_rejects_without_dispatch() {
+        let runner = Arc::new(MockTaskRunner::new());
+        let coordinator = TaskScheduleCoordinator::new(runner.clone());
+
+        let err = coordinator
+            .schedule(&[])
+            .await
+            .expect_err("empty task list should fail validation");
+
+        assert_eq!(err, ScheduleError::EmptyTaskList);
+        assert!(runner.dispatched_ids().is_empty());
+    }
+
+    /// Unknown agent types must fail validation and leave the runner idle.
+    #[tokio::test]
+    async fn schedule_invalid_agent_type_rejects_without_dispatch() {
+        let runner = Arc::new(MockTaskRunner::new());
+        let coordinator = TaskScheduleCoordinator::new(runner.clone());
+
+        let tasks = [ScheduledTask {
+            id: "AuthProbe".into(),
+            agent_type: "not_a_real_agent".into(),
+            assignment: "probe auth".into(),
+        }];
+
+        let err = coordinator
+            .schedule(&tasks)
+            .await
+            .expect_err("invalid agent type should fail validation");
+
+        assert_eq!(
+            err,
+            ScheduleError::InvalidAgentType("not_a_real_agent".into())
+        );
+        assert!(runner.dispatched_ids().is_empty());
+    }
+
+    /// Duplicate task ids must be rejected before any work is dispatched.
+    #[tokio::test]
+    async fn schedule_duplicate_task_ids_rejects_without_dispatch() {
+        let runner = Arc::new(MockTaskRunner::new());
+        let coordinator = TaskScheduleCoordinator::new(runner.clone());
+
+        let tasks = [
+            ScheduledTask {
+                id: "DupId".into(),
+                agent_type: "explore".into(),
+                assignment: "first".into(),
+            },
+            ScheduledTask {
+                id: "DupId".into(),
+                agent_type: "plan".into(),
+                assignment: "second".into(),
+            },
+        ];
+
+        let err = coordinator
+            .schedule(&tasks)
+            .await
+            .expect_err("duplicate ids should fail validation");
+
+        assert_eq!(err, ScheduleError::DuplicateTaskId("DupId".into()));
+        assert!(runner.dispatched_ids().is_empty());
+    }
+
+    /// Valid tasks must be dispatched through the mock runner in order.
+    #[tokio::test]
+    async fn schedule_valid_tasks_dispatches_via_mock_runner() {
+        let runner = Arc::new(MockTaskRunner::new());
+        let coordinator = TaskScheduleCoordinator::new(runner.clone());
+
+        let tasks = [
+            ScheduledTask {
+                id: "Alpha".into(),
+                agent_type: "explore".into(),
+                assignment: "scan src/".into(),
+            },
+            ScheduledTask {
+                id: "Beta".into(),
+                agent_type: "plan".into(),
+                assignment: "draft refactor".into(),
+            },
+        ];
+
+        let results = coordinator
+            .schedule(&tasks)
+            .await
+            .expect("valid schedule should succeed");
+
+        assert_eq!(runner.dispatched_ids(), vec!["Alpha", "Beta"]);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].id, "Alpha");
+        assert_eq!(results[0].output["agent"], "explore");
+        assert_eq!(results[1].id, "Beta");
+        assert_eq!(results[1].output["agent"], "plan");
     }
 }
