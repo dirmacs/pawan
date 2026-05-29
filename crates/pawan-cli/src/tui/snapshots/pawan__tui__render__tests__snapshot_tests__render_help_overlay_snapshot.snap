@@ -1,0 +1,24 @@
+---
+source: crates/pawan-cli/src/tui/render.rs
+expression: output
+---
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                ┌ Keyboard Shortcuts (F1) ─────────────────────┐                
+                │                                              │                
+                │  Navigation                                  │                
+                │  Tab     Switch focus (input/messages)       │                
+                │  j/k     Scroll up/down                      │                
+                │  g/G     Jump to top/bottom                  │                
+                │  /       Search in messages                  │                
+                │                                              │                
+                │  Commands                                    │                
+                │  Ctrl+P  Fuzzy search (slash commands)       │                
+                │  Ctrl+L  Clear chat                          │                
+                │  Ctrl+Q  Quit                                │                
+                │                                              │                
+                │  Slash Commands                              │                
+                │  /model  Switch model at runtime             │                
+                └──────────────────────────────────────────────┘
