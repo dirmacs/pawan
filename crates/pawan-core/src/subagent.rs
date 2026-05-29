@@ -112,7 +112,7 @@ pub fn snapshot_queue(max_age_ms: u64) -> Vec<SubagentRun> {
         age < max_age_ms
     });
     let mut runs: Vec<_> = guard.values().cloned().collect();
-    runs.sort_by(|a, b| a.started_at.cmp(&b.started_at));
+    runs.sort_by_key(|a| a.started_at);
     runs
 }
 

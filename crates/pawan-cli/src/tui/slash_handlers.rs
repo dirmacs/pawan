@@ -112,13 +112,11 @@ impl<'a> App<'a> {
             s.to_string()
         } else {
             let mut end = 0usize;
-            let mut count = 0usize;
-            for (i, _) in s.char_indices() {
+            for (count, (i, _)) in s.char_indices().enumerate() {
                 if count == max {
                     break;
                 }
                 end = i + 1;
-                count += 1;
             }
             format!("{}…", &s[..end])
         }
@@ -225,7 +223,7 @@ impl<'a> App<'a> {
             let parts: Vec<&str> = arg.splitn(3, ' ').collect();
             let format_str = parts.get(2).unwrap_or(&"md");
             let path = parts.get(1).unwrap_or(&"pawan-session");
-            (path.to_string(), ExportFormat::from_str(format_str))
+            (path.to_string(), ExportFormat::parse(format_str))
         } else if arg.is_empty() {
             ("pawan-session.md".to_string(), ExportFormat::Markdown)
         } else {
@@ -617,7 +615,7 @@ impl<'a> App<'a> {
         self.messages = Self::messages_from_session(result.messages);
         let compacted = self.messages.len();
         let pct = if original > 0 {
-            ((original.saturating_sub(compacted)) * 100) / original
+            ((original.saturating_sub(compacted)) * 100).checked_div(original).unwrap_or(0)
         } else {
             0
         };
@@ -638,7 +636,7 @@ impl<'a> App<'a> {
             .iter()
             .map(|c| format!("{} — {}", c.name, c.description))
             .collect();
-        lines.sort_by(|a, b| a.to_ascii_lowercase().cmp(&b.to_ascii_lowercase()));
+        lines.sort_by_key(|a| a.to_ascii_lowercase());
         self.messages.push(DisplayMessage::new_text(
             Role::System,
             lines.join("\n"),
