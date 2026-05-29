@@ -73,6 +73,7 @@ impl<'a> App<'a> {
             file_completion_selected: 0,
             show_welcome: true,
             goal_mode: false,
+            loop_mode: false,
             model_fetch_rx: None,
             current_theme: "default".to_string(),
             accent_transition: super::theme::ColorTransition::new(super::theme::current().accent),

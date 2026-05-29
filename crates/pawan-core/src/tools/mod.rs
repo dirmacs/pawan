@@ -865,4 +865,143 @@ mod tests {
         assert!(registry.tool_names().is_empty());
         assert!(registry.get_definitions().is_empty());
     }
+
+    #[test]
+    fn test_select_for_query_empty_query_returns_core_tools() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        let selected = registry.select_for_query("", 50);
+        let names: Vec<String> = selected.iter().map(|d| d.name.clone()).collect();
+
+        for core in &[
+            "bash",
+            "read_file",
+            "write_file",
+            "edit_file",
+            "grep_search",
+            "glob_search",
+            "ast_grep",
+        ] {
+            assert!(
+                names.contains(&core.to_string()),
+                "empty query must still include core tool {}, got {:?}",
+                core,
+                names
+            );
+        }
+    }
+
+    #[test]
+    fn test_select_for_query_max_tools_below_core_count_still_returns_all_core() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        // Core tier has 7 tools; max_tools=2 cannot trim them — cap is best-effort.
+        let selected = registry.select_for_query("irrelevant", 2);
+        let names: Vec<String> = selected.iter().map(|d| d.name.clone()).collect();
+
+        assert!(
+            names.len() >= 7,
+            "select_for_query must never drop Core tools even when max_tools < core count, got {:?}",
+            names
+        );
+        for core in &["bash", "read_file", "grep_search"] {
+            assert!(
+                names.contains(&core.to_string()),
+                "missing core tool {} in {:?}",
+                core,
+                names
+            );
+        }
+    }
+
+    #[test]
+    fn test_query_tools_malformed_dsl_returns_empty_vec() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        let matches = registry.query_tools("((( not a valid thulp-query dsl");
+        assert!(
+            matches.is_empty(),
+            "malformed DSL must return empty vec, got {:?}",
+            matches.iter().map(|d| &d.name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_select_for_query_mcp_web_search_gets_priority_boost() {
+        let mut registry = ToolRegistry::new();
+        registry.register_with_tier(
+            Arc::new(MockTool::new(
+                "mcp_web_search",
+                "search the web for live information",
+                Value::Null,
+            )),
+            ToolTier::Extended,
+        );
+        registry.register_with_tier(
+            Arc::new(MockTool::new(
+                "git_status",
+                "show git working tree status",
+                Value::Null,
+            )),
+            ToolTier::Standard,
+        );
+        // Register filler Standard tools to crowd the ranked window.
+        for i in 0..8 {
+            registry.register_with_tier(
+                Arc::new(MockTool::new(
+                    &format!("filler_{i}"),
+                    "generic helper tool",
+                    Value::Null,
+                )),
+                ToolTier::Standard,
+            );
+        }
+
+        let selected = registry.select_for_query("search the web online", 3);
+        let names: Vec<String> = selected.iter().map(|d| d.name.clone()).collect();
+        assert!(
+            names.contains(&"mcp_web_search".to_string()),
+            "web-search query should boost mcp_web_search into the capped window, got {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn test_select_for_query_short_words_do_not_contribute_to_scoring() {
+        let mut registry = ToolRegistry::new();
+        registry.register_with_tier(
+            Arc::new(MockTool::new(
+                "xyzzy_plover",
+                "obscure tool that only matches long tokens",
+                Value::Null,
+            )),
+            ToolTier::Extended,
+        );
+
+        // Words shorter than 3 chars are skipped — "go" and "do" must not score.
+        let selected = registry.select_for_query("go do it", 5);
+        let names: Vec<String> = selected.iter().map(|d| d.name.clone()).collect();
+        assert!(
+            !names.contains(&"xyzzy_plover".to_string()),
+            "short query words must not match extended tools, got {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn test_select_for_query_multiple_category_matches_rank_git_tools() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        let selected = registry.select_for_query("git commit branch diff status", 15);
+        let names: Vec<String> = selected.iter().map(|d| d.name.clone()).collect();
+        let git_tools: Vec<&String> = names.iter().filter(|n| n.starts_with("git_")).collect();
+        assert!(
+            git_tools.len() >= 3,
+            "multi-keyword git query should surface several git_ tools, got {:?}",
+            names
+        );
+    }
+
+    #[test]
+    fn test_get_lookup_returns_none_for_missing_tool() {
+        let registry = ToolRegistry::with_defaults(PathBuf::from("/tmp/test"));
+        assert!(registry.get("totally_missing_tool").is_none());
+        assert!(!registry.has_tool("totally_missing_tool"));
+    }
 }

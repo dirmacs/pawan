@@ -471,4 +471,295 @@ mod tests {
         assert_eq!(result.tool_calls.len(), 3);
         assert!(result.tool_calls.iter().all(|tc| tc.success));
     }
+
+    /// When the model requests a tool that is not registered, the coordinator must
+    /// halt immediately with `FinishReason::UnknownTool` and must not execute anything.
+    #[tokio::test]
+    async fn test_unknown_tool_validation_returns_unknown_tool_finish_reason() {
+        use crate::agent::backend::mock::MockBackend;
+
+        let backend = Arc::new(MockBackend::with_tool_call(
+            "call_ghost",
+            "definitely_not_registered",
+            serde_json::json!({}),
+            "should not reach this",
+        ));
+        let registry = Arc::new(ToolRegistry::new());
+        let coordinator = ToolCoordinator::new(backend, registry, ToolCallingConfig::default());
+
+        let result = coordinator
+            .execute(None, "use a ghost tool")
+            .await
+            .expect("unknown tool should surface as a coordinator result, not a hard error");
+
+        assert_eq!(
+            result.finish_reason,
+            FinishReason::UnknownTool("definitely_not_registered".into())
+        );
+        assert!(
+            result.tool_calls.is_empty(),
+            "unknown tool must not be executed"
+        );
+        assert_eq!(result.iterations, 1);
+    }
+
+    /// With `stop_on_error = true`, a tool that returns `Err` must end the session
+    /// with `FinishReason::Error` rather than continuing the loop.
+    #[tokio::test]
+    async fn test_stop_on_error_halts_on_failed_tool_execution() {
+        use crate::agent::backend::mock::{MockBackend, MockResponse};
+        use crate::tools::Tool;
+        use async_trait::async_trait;
+        use serde_json::Value;
+
+        struct FailingTool;
+
+        #[async_trait]
+        impl Tool for FailingTool {
+            fn name(&self) -> &str {
+                "fail_me"
+            }
+            fn description(&self) -> &str {
+                "always fails"
+            }
+            fn parameters_schema(&self) -> Value {
+                serde_json::json!({"type": "object", "properties": {}})
+            }
+            async fn execute(&self, _args: Value) -> crate::Result<Value> {
+                Err(crate::PawanError::Tool("intentional failure".into()))
+            }
+        }
+
+        let backend = Arc::new(MockBackend::new(vec![
+            MockResponse::tool_call("fail_me", serde_json::json!({})),
+            MockResponse::text("unreachable"),
+        ]));
+
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(FailingTool));
+        let registry = Arc::new(registry);
+
+        let config = ToolCallingConfig {
+            stop_on_error: true,
+            parallel_execution: false,
+            ..ToolCallingConfig::default()
+        };
+        let coordinator = ToolCoordinator::new(backend, registry, config);
+
+        let result = coordinator
+            .execute(None, "trigger failure")
+            .await
+            .expect("stop_on_error should return Ok with Error finish reason");
+
+        match &result.finish_reason {
+            FinishReason::Error(msg) => {
+                assert!(
+                    msg.contains("intentional failure"),
+                    "error message should propagate from tool, got: {}",
+                    msg
+                );
+            }
+            other => panic!("expected FinishReason::Error, got {:?}", other),
+        }
+        assert_eq!(result.iterations, 1);
+    }
+
+    /// Per-tool timeout must produce a failed record rather than hanging the session.
+    #[tokio::test]
+    async fn test_tool_timeout_records_failed_tool_call() {
+        use crate::agent::backend::mock::{MockBackend, MockResponse};
+        use crate::tools::Tool;
+        use async_trait::async_trait;
+        use serde_json::Value;
+        use std::time::Duration;
+
+        struct SlowTool;
+
+        #[async_trait]
+        impl Tool for SlowTool {
+            fn name(&self) -> &str {
+                "slow_tool"
+            }
+            fn description(&self) -> &str {
+                "sleeps longer than the coordinator timeout"
+            }
+            fn parameters_schema(&self) -> Value {
+                serde_json::json!({"type": "object", "properties": {}})
+            }
+            async fn execute(&self, _args: Value) -> crate::Result<Value> {
+                tokio::time::sleep(Duration::from_secs(2)).await;
+                Ok(serde_json::json!({"ok": true}))
+            }
+        }
+
+        let backend = Arc::new(MockBackend::new(vec![
+            MockResponse::tool_call("slow_tool", serde_json::json!({})),
+            MockResponse::text("done after timeout"),
+        ]));
+
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(SlowTool));
+        let registry = Arc::new(registry);
+
+        let config = ToolCallingConfig {
+            tool_timeout: Duration::from_millis(50),
+            parallel_execution: false,
+            ..ToolCallingConfig::default()
+        };
+        let coordinator = ToolCoordinator::new(backend, registry, config);
+
+        let result = coordinator
+            .execute(None, "run slow tool")
+            .await
+            .expect("timeout should be absorbed into a failed tool record");
+
+        assert_eq!(result.tool_calls.len(), 1);
+        let record = &result.tool_calls[0];
+        assert!(!record.success, "timed-out tool must be marked unsuccessful");
+        assert_eq!(
+            record.result.get("error").and_then(|v| v.as_str()),
+            Some("tool execution timed out")
+        );
+        // Loop continues after a non-fatal timeout (stop_on_error defaults to false).
+        assert_eq!(result.finish_reason, FinishReason::Stop);
+        assert_eq!(result.iterations, 2);
+    }
+
+    /// `execute` with a system prompt must prepend a system message to history.
+    #[tokio::test]
+    async fn test_execute_with_system_prompt_prepends_system_message() {
+        use crate::agent::backend::mock::MockBackend;
+
+        let backend = Arc::new(MockBackend::with_text("acknowledged"));
+        let registry = Arc::new(ToolRegistry::new());
+        let coordinator = ToolCoordinator::new(backend, registry, ToolCallingConfig::default());
+
+        let result = coordinator
+            .execute(Some("be concise"), "hello")
+            .await
+            .expect("execute should succeed");
+
+        assert_eq!(result.message_history.len(), 3);
+        assert_eq!(result.message_history[0].role, Role::System);
+        assert_eq!(result.message_history[0].content, "be concise");
+        assert_eq!(result.message_history[1].role, Role::User);
+        assert_eq!(result.message_history[1].content, "hello");
+        assert_eq!(result.message_history[2].role, Role::Assistant);
+    }
+
+    /// Token usage reported by the backend must be captured in `total_usage`.
+    #[tokio::test]
+    async fn test_token_usage_captured_from_backend_response() {
+        use crate::agent::backend::mock::{MockBackend, MockResponse};
+        use crate::tools::Tool;
+        use async_trait::async_trait;
+        use serde_json::Value;
+
+        struct NoOpTool;
+
+        #[async_trait]
+        impl Tool for NoOpTool {
+            fn name(&self) -> &str {
+                "noop"
+            }
+            fn description(&self) -> &str {
+                "does nothing"
+            }
+            fn parameters_schema(&self) -> Value {
+                serde_json::json!({"type": "object", "properties": {}})
+            }
+            async fn execute(&self, _args: Value) -> crate::Result<Value> {
+                Ok(serde_json::json!({"ok": true}))
+            }
+        }
+
+        let backend = Arc::new(MockBackend::new(vec![
+            MockResponse::tool_call("noop", serde_json::json!({})),
+            MockResponse::TextWithUsage {
+                text: "done".into(),
+                usage: TokenUsage {
+                    prompt_tokens: 20,
+                    completion_tokens: 8,
+                    total_tokens: 28,
+                    reasoning_tokens: 3,
+                    action_tokens: 5,
+                },
+            },
+        ]));
+
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(NoOpTool));
+        let registry = Arc::new(registry);
+        let coordinator = ToolCoordinator::new(backend, registry, ToolCallingConfig::default());
+
+        let result = coordinator
+            .execute(None, "count tokens")
+            .await
+            .expect("execute should succeed");
+
+        assert_eq!(result.total_usage.prompt_tokens, 20);
+        assert_eq!(result.total_usage.completion_tokens, 8);
+        assert_eq!(result.total_usage.total_tokens, 28);
+        assert_eq!(result.total_usage.reasoning_tokens, 3);
+        assert_eq!(result.total_usage.action_tokens, 5);
+        assert_eq!(result.iterations, 2);
+    }
+
+    /// Parallel execution must dispatch every tool call in a single assistant turn.
+    #[tokio::test]
+    async fn test_parallel_execution_dispatches_multiple_tools_in_one_turn() {
+        use crate::agent::backend::mock::MockBackend;
+        use crate::tools::Tool;
+        use async_trait::async_trait;
+        use serde_json::Value;
+
+        struct EchoTool {
+            suffix: &'static str,
+        }
+
+        #[async_trait]
+        impl Tool for EchoTool {
+            fn name(&self) -> &str {
+                self.suffix
+            }
+            fn description(&self) -> &str {
+                "echoes a suffix"
+            }
+            fn parameters_schema(&self) -> Value {
+                serde_json::json!({"type": "object", "properties": {}})
+            }
+            async fn execute(&self, _args: Value) -> crate::Result<Value> {
+                Ok(serde_json::json!({ "tool": self.suffix }))
+            }
+        }
+
+        let backend = Arc::new(MockBackend::with_multiple_tool_calls(vec![
+            ("call_a", "echo_a", serde_json::json!({})),
+            ("call_b", "echo_b", serde_json::json!({})),
+        ]));
+
+        let mut registry = ToolRegistry::new();
+        registry.register(Arc::new(EchoTool { suffix: "echo_a" }));
+        registry.register(Arc::new(EchoTool { suffix: "echo_b" }));
+        let registry = Arc::new(registry);
+
+        let config = ToolCallingConfig {
+            parallel_execution: true,
+            ..ToolCallingConfig::default()
+        };
+        let coordinator = ToolCoordinator::new(backend, registry, config);
+
+        let result = coordinator
+            .execute(None, "run both")
+            .await
+            .expect("parallel tool execution should succeed");
+
+        assert_eq!(result.tool_calls.len(), 2);
+        assert!(result.tool_calls.iter().all(|r| r.success));
+        let names: Vec<&str> = result.tool_calls.iter().map(|r| r.name.as_str()).collect();
+        assert!(names.contains(&"echo_a"));
+        assert!(names.contains(&"echo_b"));
+        assert_eq!(result.finish_reason, FinishReason::Stop);
+        assert_eq!(result.iterations, 2);
+    }
 }
