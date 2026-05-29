@@ -14,6 +14,8 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tracing;
 
+use crate::subagent::SubagentHandle;
+
 /// Tool for spawning a sub-agent (pawan subprocess)
 pub struct SpawnAgentTool {
     workspace_root: PathBuf,
@@ -140,7 +142,16 @@ impl Tool for SpawnAgentTool {
         let max_retries = args["retries"].as_u64().unwrap_or(0).min(2) as usize;
 
         // Generate unique agent ID for progress tracking
-        let agent_id = uuid::Uuid::new_v4().to_string()[..8].to_string();
+        let label: String = prompt
+            .lines()
+            .next()
+            .unwrap_or(prompt)
+            .chars()
+            .take(48)
+            .collect();
+        let progress = SubagentHandle::start(&label, "spawn_agent", None);
+
+        let agent_id = progress.id().to_string();
         let status_path = format!("/tmp/pawan-agent-{}.status", agent_id);
         let started_at = chrono::Utc::now().to_rfc3339();
 
@@ -181,12 +192,16 @@ impl Tool for SpawnAgentTool {
                 );
             }
 
-            let mut child = cmd.spawn().map_err(|e| {
-                PawanError::Tool(format!(
-                    "Failed to spawn sub-agent: {}. Binary: {}",
-                    e, pawan_bin
-                ))
-            })?;
+            let mut child = match cmd.spawn() {
+                Ok(c) => c,
+                Err(e) => {
+                    progress.complete_err(format!("spawn failed: {e}"));
+                    progress.dismiss();
+                    return Err(PawanError::Tool(format!(
+                        "Failed to spawn sub-agent: {e}. Binary: {pawan_bin}"
+                    )));
+                }
+            };
 
             let mut stdout = String::new();
             let mut stderr = String::new();
@@ -198,7 +213,14 @@ impl Tool for SpawnAgentTool {
                 handle.read_to_string(&mut stderr).await.ok();
             }
 
-            let status = child.wait().await.map_err(PawanError::Io)?;
+            let status = match child.wait().await {
+                Ok(s) => s,
+                Err(e) => {
+                    progress.complete_err(format!("wait failed: {e}"));
+                    progress.dismiss();
+                    return Err(PawanError::Io(e));
+                }
+            };
 
             let result = if let Ok(json_result) = serde_json::from_str::<Value>(&stdout) {
                 json_result
@@ -228,13 +250,25 @@ impl Tool for SpawnAgentTool {
                     );
                 }
 
-                return Ok(json!({
+                if status.success() {
+                    progress.complete_ok();
+                } else {
+                    progress.complete_err(format!(
+                        "exit code {}",
+                        status.code().unwrap_or(-1)
+                    ));
+                }
+                let out = json!({
                     "success": status.success(),
                     "attempt": attempt + 1,
                     "total_attempts": attempt + 1,
                     "result": result,
                     "stderr": stderr.trim(),
-                }));
+                    "subagent_id": progress.id(),
+                    "duration_ms": duration_ms,
+                });
+                progress.dismiss();
+                return Ok(out);
             }
             // Failed but retries remaining — continue loop
             // Failed but retries remaining — continue loop
@@ -244,7 +278,8 @@ impl Tool for SpawnAgentTool {
             );
         }
 
-        // Should not reach here, but satisfy the compiler
+        progress.complete_err("all retry attempts exhausted");
+        progress.dismiss();
         Err(PawanError::Tool(
             "spawn_agent: all retry attempts exhausted".into(),
         ))
@@ -312,27 +347,69 @@ impl Tool for SpawnAgentsTool {
             .as_array()
             .ok_or_else(|| PawanError::Tool("tasks array is required for spawn_agents".into()))?;
 
+        for (index, task) in tasks.iter().enumerate() {
+            if task.get("prompt").and_then(|p| p.as_str()).is_none() {
+                return Err(PawanError::Tool(format!(
+                    "spawn_agents: task {index} is missing prompt"
+                )));
+            }
+        }
+
         let single_tool = SpawnAgentTool::new(self.workspace_root.clone());
 
         let futures: Vec<_> = tasks
             .iter()
-            .map(|task| single_tool.execute(task.clone()))
+            .enumerate()
+            .map(|(index, task)| {
+                let tool = &single_tool;
+                let task = task.clone();
+                async move {
+                    let started = std::time::Instant::now();
+                    let result = tool.execute(task).await;
+                    (index, started.elapsed().as_millis() as u64, result)
+                }
+            })
             .collect();
 
         let results = futures::future::join_all(futures).await;
 
-        let output: Vec<Value> = results
-            .into_iter()
-            .map(|r| match r {
-                Ok(v) => v,
-                Err(e) => json!({"success": false, "error": e.to_string()}),
-            })
-            .collect();
+        let mut succeeded = 0usize;
+        let mut failed = 0usize;
+        let mut output: Vec<Value> = Vec::with_capacity(results.len());
 
+        for (index, duration_ms, result) in results {
+            match result {
+                Ok(mut v) => {
+                    if v.get("success").and_then(|s| s.as_bool()) == Some(true) {
+                        succeeded += 1;
+                    } else {
+                        failed += 1;
+                    }
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.insert("index".into(), json!(index));
+                        obj.insert("duration_ms".into(), json!(duration_ms));
+                    }
+                    output.push(v);
+                }
+                Err(e) => {
+                    failed += 1;
+                    output.push(json!({
+                        "index": index,
+                        "success": false,
+                        "error": e.to_string(),
+                        "duration_ms": duration_ms,
+                    }));
+                }
+            }
+        }
+
+        let total = tasks.len();
         Ok(json!({
-            "success": true,
+            "success": failed == 0,
+            "total_tasks": total,
+            "succeeded": succeeded,
+            "failed": failed,
             "results": output,
-            "total_tasks": tasks.len(),
         }))
     }
 }
@@ -765,14 +842,10 @@ exit 0",
             .execute(json!({
                 "tasks": [{"model": "gpt-4"}]
             }))
-            .await
-            .unwrap();
-        assert_eq!(result["success"], true);
-        assert_eq!(result["total_tasks"], 1);
-        assert_eq!(result["results"][0]["success"], false);
-        assert!(result["results"][0]["error"]
-            .as_str()
-            .unwrap()
-            .contains("prompt"));
+            .await;
+        // Upfront validation now rejects tasks missing a prompt
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("missing prompt"));
     }
 }

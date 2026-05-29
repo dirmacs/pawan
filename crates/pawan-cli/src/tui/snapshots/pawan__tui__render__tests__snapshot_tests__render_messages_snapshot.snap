@@ -1,0 +1,9 @@
+---
+source: crates/pawan-cli/src/tui/render.rs
+expression: output
+---
+You: (now)                                                                      
+  Hello pawan                                                                   
+                                                                                
+Pawan: (now)                                                                    
+  Hi there!

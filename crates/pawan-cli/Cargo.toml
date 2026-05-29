@@ -40,6 +40,7 @@ pawan-mcp = { workspace = true, optional = true }
 
 # Core from workspace
 tokio = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 reqwest = { workspace = true }
 toml = { workspace = true }
@@ -84,3 +85,5 @@ arboard = "3.4"
 tempfile = { workspace = true }
 assert_cmd = "2.0"
 predicates = "3.1"
+insta = { version = "1.40", features = ["redactions"] }
+wiremock = "0.6"
