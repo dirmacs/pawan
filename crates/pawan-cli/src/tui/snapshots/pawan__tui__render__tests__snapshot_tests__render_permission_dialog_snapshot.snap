@@ -1,0 +1,20 @@
+---
+source: crates/pawan-cli/src/tui/render.rs
+expression: output
+---
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+          ┌ Permission Required ─────────────────────────────────────┐          
+          │Tool: bash                                                │          
+          │Args: echo hello                                          │          
+          │                                                          │          
+          │ y  Allow   n  Deny   a  Allow all                        │          
+          │                                                          │          
+          │                                                          │          
+          └──────────────────────────────────────────────────────────┘

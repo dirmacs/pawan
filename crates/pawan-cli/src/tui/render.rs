@@ -1286,6 +1286,7 @@ mod tests {
 
     use super::super::fuzzy_search::{default_command_item_lines, FuzzySearchState};
     use super::{markdown_to_lines, parse_inline_markdown};
+    use insta;
     use pawan::agent::session::Session;
     use pawan::agent::ToolCallRecord;
     use ratatui::style::Modifier;
@@ -4093,4 +4094,97 @@ mod tests {
             assert_eq!(app.model_picker.selected, 1);
         }
     }
+
+    mod snapshot_tests {
+        use super::buffer_to_string;
+        use super::default_command_item_lines;
+        use super::test_app;
+        use super::FuzzySearchState;
+        use super::super::super::app::PermissionDialog;
+        use super::super::super::types::DisplayMessage;
+        use insta;
+        use pawan::agent::Role;
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        use tokio::sync::oneshot;
+
+        fn test_terminal(width: u16, height: u16) -> Terminal<TestBackend> {
+            let backend = TestBackend::new(width, height);
+            Terminal::new(backend).unwrap()
+        }
+
+        fn render_snapshot<F>(width: u16, height: u16, render: F) -> String
+        where
+            F: FnOnce(&mut ratatui::Frame),
+        {
+            let mut terminal = test_terminal(width, height);
+            terminal.draw(|f| render(f)).unwrap();
+            buffer_to_string(terminal.backend().buffer())
+        }
+
+        fn redact_cwd(output: &str) -> String {
+            std::env::current_dir()
+                .ok()
+                .map(|cwd| output.replace(&cwd.display().to_string(), "[CWD]"))
+                .unwrap_or_else(|| output.to_string())
+        }
+
+        #[test]
+        fn test_render_welcome_snapshot() {
+            let app = test_app();
+            let output = redact_cwd(&render_snapshot(80, 24, |f| app.render_welcome(f)));
+            insta::assert_snapshot!(output);
+        }
+
+        #[test]
+        fn test_render_help_overlay_snapshot() {
+            let app = test_app();
+            let output = render_snapshot(80, 24, |f| app.render_help_overlay(f));
+            insta::assert_snapshot!(output);
+        }
+
+        #[test]
+        fn test_render_model_selector_snapshot() {
+            let mut app = test_app();
+            app.load_available_models();
+            app.model_picker.visible = true;
+            let output = render_snapshot(80, 24, |f| app.render_model_selector(f));
+            insta::assert_snapshot!(output);
+        }
+
+        #[test]
+        fn test_render_fuzzy_search_snapshot() {
+            let mut app = test_app();
+            let mut fs = FuzzySearchState::new(default_command_item_lines());
+            fs.filter("help");
+            app.fuzzy_search = Some(fs);
+            let output = render_snapshot(80, 24, |f| app.render_fuzzy_search(f));
+            insta::assert_snapshot!(output);
+        }
+
+        #[test]
+        fn test_render_permission_dialog_snapshot() {
+            let mut app = test_app();
+            let (tx, _rx) = oneshot::channel();
+            app.permission_dialog = Some(PermissionDialog {
+                tool_name: "bash".to_string(),
+                args_summary: "echo hello".to_string(),
+                respond: Some(tx),
+            });
+            let output = render_snapshot(80, 24, |f| app.render_permission_dialog(f));
+            insta::assert_snapshot!(output);
+        }
+
+        #[test]
+        fn test_render_messages_snapshot() {
+            let mut app = test_app();
+            app.messages
+                .push(DisplayMessage::new_text(Role::User, "Hello pawan"));
+            app.messages
+                .push(DisplayMessage::new_text(Role::Assistant, "Hi there!"));
+            let output = render_snapshot(80, 24, |f| app.render_messages(f, f.area()));
+            insta::assert_snapshot!(output);
+        }
+    }
+
 }

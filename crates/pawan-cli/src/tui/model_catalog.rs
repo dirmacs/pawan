@@ -3,9 +3,9 @@ use super::types::ModelInfo;
 use std::time::Duration;
 use serde::Deserialize;
 
-/// Fetch live model list from NVIDIA API. Returns sorted vec on success.
+/// Fetch live model list from a custom endpoint URL. Returns sorted vec on success.
 /// 5-second timeout; on any failure returns None (caller uses fallback).
-pub async fn fetch_live_models() -> Option<Vec<ModelInfo>> {
+pub async fn fetch_live_models_from(endpoint_url: &str) -> Option<Vec<ModelInfo>> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
@@ -13,7 +13,7 @@ pub async fn fetch_live_models() -> Option<Vec<ModelInfo>> {
     // Try to read NVIDIA_API_KEY from env (optional — API works without it for public models)
     let _api_key = std::env::var("NVIDIA_API_KEY").ok();
     let resp = client
-        .get("https://integrate.api.nvidia.com/v1/models")
+        .get(endpoint_url)
         .send()
         .await
         .ok()?;
@@ -52,6 +52,13 @@ pub async fn fetch_live_models() -> Option<Vec<ModelInfo>> {
         Some(models)
     }
 }
+
+/// Fetch live model list from NVIDIA API. Returns sorted vec on success.
+/// 5-second timeout; on any failure returns None (caller uses fallback).
+pub async fn fetch_live_models() -> Option<Vec<ModelInfo>> {
+    fetch_live_models_from("https://integrate.api.nvidia.com/v1/models").await
+}
+
 
 /// Compute a heuristic quality score (0-100) for a model based on its ID.
 pub fn quality_score_for(model_id: &str) -> u8 {
@@ -651,6 +658,64 @@ mod tests {
             assert!(!m.id.is_empty());
             assert!(m.id.contains('/'), "Model ID should be provider/name: {}", m.id);
             assert!(m.quality_score > 0);
+        }
+    }
+
+    #[test]
+    fn test_fetch_live_models_live() {
+        if std::env::var("E2E").unwrap_or_default() != "1" {
+            return;
+        }
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let models = rt.block_on(fetch_live_models());
+        assert!(models.is_some(), "Live NVIDIA API should return models");
+        let models = models.unwrap();
+        assert!(!models.is_empty());
+        assert!(
+            models.len() > 50,
+            "Should have at least 50 models from live API"
+        );
+        let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
+        let has_deepseek = ids.iter().any(|id| id.contains("deepseek"));
+        let has_llama = ids.iter().any(|id| id.contains("llama"));
+        assert!(
+            has_deepseek || has_llama,
+            "Live API should have at least deepseek or llama models"
+        );
+    }
+}
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+    use serde_json;
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer, ResponseTemplate};
+
+    #[tokio::test]
+    async fn test_fetch_live_models_from_mock_server() {
+        let mock_server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v1/models"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [
+                    {"id": "test-org/test-model-7b", "owned_by": "TestOrg"},
+                    {"id": "test-org/test-model-70b", "owned_by": "TestOrg"},
+                ]
+            })))
+            .mount(&mock_server)
+            .await;
+
+        let url = format!("{}/v1/models", mock_server.uri());
+        let models = fetch_live_models_from(&url).await;
+        assert!(models.is_some(), "Mock server should return models");
+        let models = models.unwrap();
+        assert_eq!(models.len(), 2);
+        assert_eq!(models[0].id, "test-org/test-model-70b");
+        assert_eq!(models[1].id, "test-org/test-model-7b");
+        for m in &models {
+            assert_eq!(m.provider, "TestOrg");
+            assert_eq!(m.quality_score, quality_score_for(&m.id));
         }
     }
 }
