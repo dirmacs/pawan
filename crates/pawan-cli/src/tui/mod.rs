@@ -23,6 +23,7 @@ mod events;
 mod input;
 mod render;
 mod session_panel;
+mod irc_panel;
 mod slash_commands;
 pub mod types;
 

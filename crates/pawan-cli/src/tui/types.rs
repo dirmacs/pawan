@@ -46,12 +46,18 @@ pub(crate) enum AgentEvent {
     },
     /// Agent finished
     Complete(std::result::Result<AgentResponse, PawanError>),
+    /// IRC message delivered to a peer inbox
+    IrcSent(pawan::agent::IrcMessage),
+    /// IRC message received on this agent's inbox
+    IrcReceived(pawan::agent::IrcMessage),
 }
 
 /// Commands sent from the TUI to the agent task
 pub(crate) enum AgentCommand {
     Execute(String),
     SwitchModel(String),
+    /// Route an IRC-style message to another agent id (or "all")
+    IrcSend { to: String, body: String },
     Quit,
 }
 

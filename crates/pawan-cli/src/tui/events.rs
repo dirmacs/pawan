@@ -285,6 +285,27 @@ impl<'a> App<'a> {
                     return;
                 }
 
+                // IRC compose modal
+                if self.irc_compose_open {
+                    match key.code {
+                        KeyCode::Esc => {
+                            self.irc_compose_open = false;
+                            self.irc_compose_input.clear();
+                        }
+                        KeyCode::Backspace => {
+                            self.irc_compose_input.pop();
+                        }
+                        KeyCode::Char(c) => {
+                            self.irc_compose_input.push(c);
+                        }
+                        KeyCode::Enter => {
+                            self.submit_irc_compose();
+                        }
+                        _ => {}
+                    }
+                    return;
+                }
+
                 // Session browser modal - intercept all keys when open
                 if self.session_browser_open {
                     match key.code {

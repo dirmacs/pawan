@@ -158,6 +158,32 @@ impl<'a> App<'a> {
 }
 
 impl<'a> App<'a> {
+    /// Refresh the queue strip from in-process / subprocess subagent trackers.
+    pub(crate) fn sync_subagent_queue(&mut self) {
+        use pawan::subagent::{snapshot_queue, SubagentState};
+
+        const TTL_MS: u64 = 4_000;
+        let entries = snapshot_queue(TTL_MS)
+            .into_iter()
+            .map(|run| {
+                let mut name = run.label;
+                if let Some(tool) = &run.current_tool {
+                    name = format!("{name} · {tool}");
+                }
+                let status = match run.state {
+                    SubagentState::Running => super::queue_panel::TaskStatus::Running,
+                    SubagentState::Done => super::queue_panel::TaskStatus::Done,
+                    SubagentState::Failed => super::queue_panel::TaskStatus::Failed,
+                };
+                super::queue_panel::QueueEntry {
+                    task_name: name,
+                    status,
+                }
+            })
+            .collect();
+        self.queue_panel.set_entries(entries);
+    }
+
     pub(crate) fn ui(&mut self, f: &mut Frame) {
         if self.show_welcome {
             self.render_welcome(f);
@@ -200,6 +226,7 @@ impl<'a> App<'a> {
         let content_area = shell.inner(shell_area);
         f.render_widget(shell, shell_area);
 
+        self.sync_subagent_queue();
         let queue_h = self.queue_panel.height_hint();
         let layout = super::layout::compute_layout(content_area, queue_h, input_height);
 
@@ -226,6 +253,8 @@ impl<'a> App<'a> {
             self.render_permission_dialog(f);
         } else if self.model_picker.visible {
             self.render_model_selector(f);
+        } else if self.irc_compose_open {
+            self.render_irc_compose(f);
         } else if self.session_browser_open {
             self.render_session_browser(f);
         } else if self.help_overlay {
@@ -1296,11 +1325,14 @@ mod tests {
     fn test_app<'a>() -> App<'a> {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_hub = pawan::agent::IrcHub::new();
+        let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
         let mut app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
             event_rx,
+            irc_relay,
         );
         // Disable welcome screen in tests so keypresses reach normal handlers
         app.show_welcome = false;
@@ -2933,11 +2965,14 @@ mod tests {
     fn test_welcome_shown_on_fresh_app() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_hub = pawan::agent::IrcHub::new();
+        let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
         let app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
             event_rx,
+            irc_relay,
         );
         assert!(app.show_welcome, "Fresh app should show welcome");
     }
@@ -2946,11 +2981,14 @@ mod tests {
     fn test_welcome_dismissed_on_keypress() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_hub = pawan::agent::IrcHub::new();
+        let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
         let mut app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
             event_rx,
+            irc_relay,
         );
         assert!(app.show_welcome);
         app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
@@ -2964,11 +3002,14 @@ mod tests {
     fn test_welcome_swallows_keypress() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_hub = pawan::agent::IrcHub::new();
+        let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
         let mut app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
             event_rx,
+            irc_relay,
         );
         // Type 'a' while welcome is showing — should NOT reach input
         app.handle_event(Event::Key(crossterm::event::KeyEvent::new(
@@ -2985,11 +3026,14 @@ mod tests {
     fn test_welcome_renders() {
         let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_hub = pawan::agent::IrcHub::new();
+        let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
         let mut app = App::new(
             TuiConfig::default(),
             "test-model".to_string(),
             cmd_tx,
             event_rx,
+            irc_relay,
         );
         let backend = TestBackend::new(80, 30);
         let mut terminal = Terminal::new(backend).unwrap();

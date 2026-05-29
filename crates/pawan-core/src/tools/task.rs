@@ -15,17 +15,43 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use futures::stream::{self, StreamExt};
+use tokio::sync::Semaphore;
 use tokio::time::timeout;
+
+use crate::subagent::SubagentHandle;
 
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
 
+const MAX_PARALLEL_SUBAGENTS: usize = 4;
+const QUEUE_DONE_TTL_MS: u64 = 4_000;
+
 #[derive(Debug, Clone, Deserialize)]
-struct TaskArgs {
+struct TaskItem {
     agent: String,
     assignment: String,
     #[serde(default)]
     context: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct TaskArgs {
+    /// Single-task mode: agent type.
+    #[serde(default)]
+    agent: Option<String>,
+    /// Single-task mode: assignment text.
+    #[serde(default)]
+    assignment: Option<String>,
+    /// Parallel mode: one or more subagent jobs (max 8).
+    #[serde(default)]
+    tasks: Option<Vec<TaskItem>>,
+    #[serde(default)]
+    context: Option<String>,
+    #[serde(default)]
+    description: Option<String>,
     #[serde(default)]
     model: Option<String>,
     /// Timeout in seconds (default: 300).
@@ -236,6 +262,67 @@ impl TaskTool {
         }
     }
 
+    fn short_label(description: Option<&str>, assignment: &str) -> String {
+        description
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                let one_line = assignment.lines().next().unwrap_or(assignment).trim();
+                if one_line.chars().count() > 48 {
+                    format!("{}…", one_line.chars().take(45).collect::<String>())
+                } else {
+                    one_line.to_string()
+                }
+            })
+    }
+
+    fn aggregate_batch_results(results: Vec<(usize, Result<Value>)>) -> Value {
+        let mut succeeded = 0usize;
+        let mut failed = 0usize;
+        let mut items = Vec::with_capacity(results.len());
+
+        for (index, result) in results {
+            match result {
+                Ok(v) => {
+                    let status = v.get("status").and_then(|s| s.as_str()).unwrap_or("error");
+                    if status == "completed" {
+                        succeeded += 1;
+                    } else {
+                        failed += 1;
+                    }
+                    items.push(json!({
+                        "index": index,
+                        "status": status,
+                        "agent": v.get("agent"),
+                        "result": v.get("result"),
+                        "duration_ms": v.get("duration_ms"),
+                        "usage": v.get("usage"),
+                        "subagent_id": v.get("subagent_id"),
+                    }));
+                }
+                Err(e) => {
+                    failed += 1;
+                    items.push(json!({
+                        "index": index,
+                        "status": "error",
+                        "result": e.to_string(),
+                    }));
+                }
+            }
+        }
+
+        let total = items.len();
+        json!({
+            "mode": "batch",
+            "success": failed == 0,
+            "total": total,
+            "succeeded": succeeded,
+            "failed": failed,
+            "results": items,
+        })
+    }
+
     async fn run_subagent(
         &self,
         agent_type: &str,
@@ -243,8 +330,12 @@ impl TaskTool {
         context: Option<&str>,
         model: Option<&str>,
         timeout_secs: u64,
+        label: &str,
         backend_override: Option<Box<dyn LlmBackend>>,
     ) -> Result<Value> {
+        let started = Instant::now();
+        let handle = SubagentHandle::start(label, "task", Some(agent_type.to_string()));
+
         let mut config = PawanConfig {
             system_prompt: Some(Self::system_prompt_for(agent_type)),
             max_context_tokens: 32_000,
@@ -264,22 +355,54 @@ impl TaskTool {
             agent = agent.with_backend(backend);
         }
 
-        let run = agent.execute(&prompt);
+        let progress = handle.clone();
+        let on_tool_start: crate::agent::ToolStartCallback = Box::new(move |name: &str| {
+            progress.set_tool(name);
+        });
+        let progress_done = handle.clone();
+        let on_tool: crate::agent::ToolCallback = Box::new(move |_record| {
+            progress_done.clear_tool();
+        });
+
+        let run = agent.execute_with_callbacks(&prompt, None, Some(on_tool), Some(on_tool_start));
         let response = match timeout(Duration::from_secs(timeout_secs), run).await {
-            Ok(res) => res.map_err(|e| PawanError::Tool(format!("subagent error: {e}")))?,
+            Ok(Ok(res)) => res,
+            Ok(Err(e)) => {
+                handle.complete_err(e.to_string());
+                let duration_ms = started.elapsed().as_millis() as u64;
+                let out = json!({
+                    "agent": agent_type,
+                    "status": "error",
+                    "result": e.to_string(),
+                    "duration_ms": duration_ms,
+                    "subagent_id": handle.id(),
+                });
+                handle.dismiss();
+                return Ok(out);
+            }
             Err(_) => {
-                return Ok(json!({
+                handle.complete_err(format!("subagent timeout after {timeout_secs}s"));
+                let duration_ms = started.elapsed().as_millis() as u64;
+                let out = json!({
                     "agent": agent_type,
                     "status": "error",
                     "result": format!("subagent timeout after {timeout_secs}s"),
-                }));
+                    "duration_ms": duration_ms,
+                    "subagent_id": handle.id(),
+                });
+                handle.dismiss();
+                return Ok(out);
             }
         };
 
-        Ok(json!({
+        handle.complete_ok();
+        let duration_ms = started.elapsed().as_millis() as u64;
+        let out = json!({
             "agent": agent_type,
             "status": "completed",
             "result": response.content,
+            "duration_ms": duration_ms,
+            "subagent_id": handle.id(),
             "usage": {
                 "prompt_tokens": response.usage.prompt_tokens,
                 "completion_tokens": response.usage.completion_tokens,
@@ -287,7 +410,58 @@ impl TaskTool {
                 "reasoning_tokens": response.usage.reasoning_tokens,
                 "action_tokens": response.usage.action_tokens,
             }
-        }))
+        });
+        handle.dismiss();
+        Ok(out)
+    }
+
+    async fn run_tasks_parallel(
+        &self,
+        tasks: Vec<TaskItem>,
+        model: Option<&str>,
+        timeout_secs: u64,
+    ) -> Result<Value> {
+        if tasks.is_empty() {
+            return Ok(json!({
+                "mode": "batch",
+                "success": true,
+                "total": 0,
+                "succeeded": 0,
+                "failed": 0,
+                "results": [],
+            }));
+        }
+
+        let semaphore = Arc::new(Semaphore::new(MAX_PARALLEL_SUBAGENTS));
+        let model = model.map(str::to_string);
+
+        let results: Vec<(usize, Result<Value>)> = stream::iter(tasks.into_iter().enumerate())
+            .map(|(index, item)| {
+                let sem = Arc::clone(&semaphore);
+                let tool = self.clone();
+                let model = model.clone();
+                async move {
+                    let _permit = sem.acquire().await.expect("semaphore");
+                    let label = TaskTool::short_label(item.description.as_deref(), &item.assignment);
+                    let result = tool
+                        .run_subagent(
+                            &item.agent,
+                            &item.assignment,
+                            item.context.as_deref(),
+                            model.as_deref(),
+                            timeout_secs,
+                            &label,
+                            None,
+                        )
+                        .await;
+                    (index, result)
+                }
+            })
+            .buffered(MAX_PARALLEL_SUBAGENTS)
+            .collect()
+            .await;
+
+        Ok(Self::aggregate_batch_results(results))
     }
 }
 
@@ -309,13 +483,27 @@ impl Tool for TaskTool {
         json!({
             "type": "object",
             "properties": {
-                "agent": {"type": "string"},
-                "assignment": {"type": "string"},
+                "agent": {"type": "string", "description": "Agent type (single-task mode)"},
+                "assignment": {"type": "string", "description": "Assignment (single-task mode)"},
+                "tasks": {
+                    "type": "array",
+                    "description": "Parallel subagents (max 8). Each item needs agent + assignment.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "agent": {"type": "string"},
+                            "assignment": {"type": "string"},
+                            "context": {"type": "string"},
+                            "description": {"type": "string", "description": "Short label for TUI"}
+                        },
+                        "required": ["agent", "assignment"]
+                    }
+                },
                 "context": {"type": "string"},
+                "description": {"type": "string", "description": "Short label for TUI (single-task)"},
                 "model": {"type": "string"},
                 "timeout": {"type": "integer"}
-            },
-            "required": ["agent", "assignment"]
+            }
         })
     }
 
@@ -323,17 +511,42 @@ impl Tool for TaskTool {
         let parsed: TaskArgs = serde_json::from_value(args)
             .map_err(|e| PawanError::Tool(format!("invalid task args: {e}")))?;
 
-        Self::validate_agent_type(&parsed.agent).map_err(PawanError::Tool)?;
-        Self::validate_assignment(&parsed.assignment).map_err(PawanError::Tool)?;
-
         let timeout_secs = parsed.timeout.unwrap_or(DEFAULT_TIMEOUT_SECS);
 
+        if let Some(tasks) = parsed.tasks {
+            if tasks.len() > 8 {
+                return Err(PawanError::Tool(
+                    "task tool accepts at most 8 parallel subagents".into(),
+                ));
+            }
+            for item in &tasks {
+                Self::validate_agent_type(&item.agent).map_err(PawanError::Tool)?;
+                Self::validate_assignment(&item.assignment).map_err(PawanError::Tool)?;
+            }
+            return self
+                .run_tasks_parallel(tasks, parsed.model.as_deref(), timeout_secs)
+                .await;
+        }
+
+        let agent = parsed
+            .agent
+            .as_deref()
+            .ok_or_else(|| PawanError::Tool("agent is required (or pass tasks array)".into()))?;
+        let assignment = parsed.assignment.as_deref().ok_or_else(|| {
+            PawanError::Tool("assignment is required (or pass tasks array)".into())
+        })?;
+
+        Self::validate_agent_type(agent).map_err(PawanError::Tool)?;
+        Self::validate_assignment(assignment).map_err(PawanError::Tool)?;
+
+        let label = Self::short_label(parsed.description.as_deref(), assignment);
         self.run_subagent(
-            &parsed.agent,
-            &parsed.assignment,
+            agent,
+            assignment,
             parsed.context.as_deref(),
             parsed.model.as_deref(),
             timeout_secs,
+            &label,
             None,
         )
         .await
@@ -342,6 +555,19 @@ impl Tool for TaskTool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn batch_aggregate_counts_failures() {
+        let results = vec![
+            (0, Ok(json!({"status": "completed"}))),
+            (1, Ok(json!({"status": "error"}))),
+            (2, Err(PawanError::Tool("boom".into()))),
+        ];
+        let summary = TaskTool::aggregate_batch_results(results);
+        assert_eq!(summary["succeeded"], 1);
+        assert_eq!(summary["failed"], 2);
+        assert_eq!(summary["success"], false);
+    }
+
     use super::*;
     use crate::agent::backend::mock::{MockBackend, MockResponse};
     use serde_json::json;
@@ -351,7 +577,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let tool = TaskTool::new(dir.path().to_path_buf());
         let err = tool
-            .execute(json!({"agent": "nope", "assignment": "hi"}))
+            .execute(json!({"agent": "nope", "assignment": "hi", "timeout": 5}))
             .await
             .unwrap_err();
         assert!(err.to_string().contains("unknown agent type"));
@@ -369,6 +595,7 @@ mod tests {
                 None,
                 None,
                 0,
+                "timeout test",
                 None,
             )
             .await
@@ -394,6 +621,7 @@ mod tests {
                 Some("Context here"),
                 None,
                 5,
+                "explore repo",
                 Some(backend),
             )
             .await
