@@ -759,7 +759,8 @@ fn read_print_prompt(explicit: Option<String>) -> Result<String> {
     Ok(buf)
 }
 
-async fn run() -> Result<()> {
+/// Load environment and resolve configuration from CLI args.
+fn setup_config(cli: &Cli) -> Result<(PawanConfig, PathBuf)> {
     // Auto-load .env file: try CWD first, then ~/.config/pawan/.env fallback
     // Always load config fallback to ensure NVIDIA_API_KEY is valid (CWD .env may have placeholder)
     dotenvy::dotenv().ok();
@@ -771,11 +772,10 @@ async fn run() -> Result<()> {
         }
     }
 
-    let cli = Cli::parse();
-
     // Determine workspace root
     let workspace = cli
         .workspace
+        .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
     // Load configuration
@@ -792,8 +792,8 @@ async fn run() -> Result<()> {
     }
 
     // Apply CLI overrides (highest priority)
-    if let Some(model) = cli.model {
-        config.model = model;
+    if let Some(model) = &cli.model {
+        config.model = model.clone();
     }
     if cli.dry_run {
         config.dry_run = true;
@@ -806,6 +806,76 @@ async fn run() -> Result<()> {
             println!("{}", "Dry-run mode enabled".yellow());
         }
     }
+
+    Ok((config, workspace))
+}
+
+/// Resolve the session to resume from --session / --continue flags.
+fn resolve_session_resume(cli: &Cli, config: &PawanConfig) -> Result<Option<String>> {
+    use pawan::agent::session::Session;
+
+    if let Some(id) = cli.session.as_deref() {
+        let loaded = match Session::load(id) {
+            Ok(s) => s,
+            Err(PawanError::NotFound(_)) => {
+                return Err(PawanError::NotFound(format!(
+                    "No session with id {id}. Run `pawan --list-sessions` to see available sessions."
+                )));
+            }
+            Err(e) => {
+                return Err(PawanError::Config(format!(
+                    "Failed to load session {id}: {e}. The session data may be corrupted; remove ~/.pawan/sessions/{id}.json or start a new session."
+                )));
+            }
+        };
+        if loaded.model != config.model {
+            eprintln!(
+                "{} {}{}{}",
+                "Warning:".yellow().bold(),
+                "session model (".dimmed(),
+                loaded.model.dimmed(),
+                ") differs from current model; resuming anyway".dimmed()
+            );
+        }
+        Ok(Some(id.to_string()))
+    } else if cli.continue_session {
+        let sessions = Session::list()?;
+        if sessions.is_empty() {
+            eprintln!(
+                "{} {}",
+                "Warning:".yellow().bold(),
+                "no saved sessions found; starting fresh".dimmed()
+            );
+            Ok(None)
+        } else {
+            let id = sessions[0].id.clone();
+            let loaded = match Session::load(&id) {
+                Ok(s) => s,
+                Err(e) => {
+                    return Err(PawanError::Config(format!(
+                        "Failed to load most recent session {id}: {e}. The session data may be corrupted; remove ~/.pawan/sessions/{id}.json or start a new session."
+                    )));
+                }
+            };
+            if loaded.model != config.model {
+                eprintln!(
+                    "{} {}{}{}",
+                    "Warning:".yellow().bold(),
+                    "session model (".dimmed(),
+                    loaded.model.dimmed(),
+                    ") differs from current model; resuming anyway".dimmed()
+                );
+            }
+            Ok(Some(id))
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+async fn run() -> Result<()> {
+    let cli = Cli::parse();
+    let (config, workspace) = setup_config(&cli)?;
 
     if cli.print {
         let prompt = read_print_prompt(cli.print_prompt.clone())?;
@@ -826,76 +896,16 @@ async fn run() -> Result<()> {
         return Ok(());
     }
 
-    let resume_id_from_flags: Option<String> = {
-        use pawan::agent::session::Session;
-
-        if let Some(id) = cli.session.as_deref() {
-            let loaded = match Session::load(id) {
-                Ok(s) => s,
-                Err(PawanError::NotFound(_)) => {
-                    return Err(PawanError::NotFound(format!(
-                        "No session with id {id}. Run `pawan --list-sessions` to see available sessions."
-                    )));
-                }
-                Err(e) => {
-                    return Err(PawanError::Config(format!(
-                        "Failed to load session {id}: {e}. The session data may be corrupted; remove ~/.pawan/sessions/{id}.json or start a new session."
-                    )));
-                }
-            };
-            if loaded.model != config.model {
-                eprintln!(
-                    "{} {}{}{}",
-                    "Warning:".yellow().bold(),
-                    "session model (".dimmed(),
-                    loaded.model.dimmed(),
-                    ") differs from current model; resuming anyway".dimmed()
-                );
-            }
-            Some(id.to_string())
-        } else if cli.continue_session {
-            let sessions = Session::list()?;
-            if sessions.is_empty() {
-                eprintln!(
-                    "{} {}",
-                    "Warning:".yellow().bold(),
-                    "no saved sessions found; starting fresh".dimmed()
-                );
-                None
-            } else {
-                let id = sessions[0].id.clone();
-                let loaded = match Session::load(&id) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        return Err(PawanError::Config(format!(
-                            "Failed to load most recent session {id}: {e}. The session data may be corrupted; remove ~/.pawan/sessions/{id}.json or start a new session."
-                        )));
-                    }
-                };
-                if loaded.model != config.model {
-                    eprintln!(
-                        "{} {}{}{}",
-                        "Warning:".yellow().bold(),
-                        "session model (".dimmed(),
-                        loaded.model.dimmed(),
-                        ") differs from current model; resuming anyway".dimmed()
-                    );
-                }
-                Some(id)
-            }
-        } else {
-            None
-        }
-    };
+    let resume_id = resolve_session_resume(&cli, &config)?;
 
     // Resume via --session / --continue uses non-TUI (headless) REPL, matching /session behavior.
     let no_tui = cli.no_tui
         || cli.session.is_some()
-        || (cli.continue_session && resume_id_from_flags.is_some());
+        || (cli.continue_session && resume_id.is_some());
 
     match cli.command {
         None | Some(Commands::Chat { resume: None }) => {
-            run_interactive(config, workspace, no_tui, resume_id_from_flags).await
+            run_interactive(config, workspace, no_tui, resume_id).await
         }
         Some(Commands::Chat { resume: Some(id) }) => {
             run_interactive(config, workspace, cli.no_tui, Some(id)).await

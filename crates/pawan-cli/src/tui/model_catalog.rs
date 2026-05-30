@@ -58,65 +58,93 @@ pub async fn fetch_live_models() -> Option<Vec<ModelInfo>> {
 }
 
 
+/// Score a model based on known vendor/model-family prefixes.
+fn score_by_vendor(model_id: &str) -> Option<u8> {
+    let id = model_id.to_lowercase();
+    if id.contains("deepseek-r1") || id.contains("deepseek-v3") {
+        return Some(95);
+    }
+    if id.contains("qwen3") || id.contains("qwen-3") || id.contains("qwen2.5") {
+        return Some(95);
+    }
+    if id.contains("llama-3.3") || id.contains("llama-3.1-405") {
+        return Some(93);
+    }
+    if id.contains("llama-3.1") || id.contains("llama3.1") {
+        return Some(90);
+    }
+    if id.contains("llama-3") {
+        return Some(88);
+    }
+    if id.contains("mistral-large") || id.contains("mistral-small") {
+        return Some(90);
+    }
+    if id.contains("codestral") {
+        return Some(92);
+    }
+    if id.contains("gemma-3") || id.contains("gemma3") {
+        return Some(85);
+    }
+    if id.contains("step-3") || id.contains("step3") {
+        return Some(88);
+    }
+    if id.contains("glm-5") || id.contains("glm5") {
+        return Some(90);
+    }
+    if id.contains("phi-4") || id.contains("phi4") {
+        return Some(85);
+    }
+    if id.contains("star") {
+        return Some(80);
+    }
+    None
+}
+
+/// Score a model based on capability keywords (instruct, chat, etc.).
+///
+/// Placeholder for future capability-based scoring.
+fn score_by_capability(_model_id: &str) -> Option<u8> {
+    None
+}
+
+/// Score a model based on parameter-size markers in its ID (e.g. `7b`, `405b`).
+fn score_by_size(model_id: &str) -> Option<u8> {
+    let id = model_id.to_lowercase();
+    if id.contains("70b") || id.contains("405b") {
+        return Some(85);
+    }
+    if id.contains("34b") || id.contains("32b") {
+        return Some(82);
+    }
+    if id.contains("13b") || id.contains("14b") || id.contains("15b") {
+        return Some(79);
+    }
+    if id.contains("7b") || id.contains("8b") || id.contains("9b") {
+        return Some(77);
+    }
+    if id.contains("3b") || id.contains("4b") {
+        return Some(75);
+    }
+    if id.contains("1b") || id.contains("2b") {
+        return Some(73);
+    }
+    None
+}
+
 /// Compute a heuristic quality score (0-100) for a model based on its ID.
+///
+/// Combines vendor, capability, and size scores, returning the highest.
+/// Defaults to 75 when no heuristic matches.
 pub fn quality_score_for(model_id: &str) -> u8 {
-    // Known high-quality families get top scores
-    let id_lower = model_id.to_lowercase();
-    if id_lower.contains("deepseek-r1") || id_lower.contains("deepseek-v3") {
-        return 95;
-    }
-    if id_lower.contains("qwen3") || id_lower.contains("qwen-3") || id_lower.contains("qwen2.5") {
-        return 95;
-    }
-    if id_lower.contains("llama-3.3") || id_lower.contains("llama-3.1-405") {
-        return 93;
-    }
-    if id_lower.contains("llama-3.1") || id_lower.contains("llama3.1") {
-        return 90;
-    }
-    if id_lower.contains("llama-3") {
-        return 88;
-    }
-    if id_lower.contains("mistral-large") || id_lower.contains("mistral-small") {
-        return 90;
-    }
-    if id_lower.contains("codestral") {
-        return 92;
-    }
-    if id_lower.contains("gemma-3") || id_lower.contains("gemma3") {
-        return 85;
-    }
-    if id_lower.contains("step-3") || id_lower.contains("step3") {
-        return 88;
-    }
-    if id_lower.contains("glm-5") || id_lower.contains("glm5") {
-        return 90;
-    }
-    if id_lower.contains("phi-4") || id_lower.contains("phi4") {
-        return 85;
-    }
-    if id_lower.contains("star") {
-        return 80;
-    }
-    if id_lower.contains("70b") || id_lower.contains("405b") {
-        return 85;
-    }
-    if id_lower.contains("34b") || id_lower.contains("32b") {
-        return 82;
-    }
-    if id_lower.contains("13b") || id_lower.contains("14b") || id_lower.contains("15b") {
-        return 79;
-    }
-    if id_lower.contains("7b") || id_lower.contains("8b") || id_lower.contains("9b") {
-        return 77;
-    }
-    if id_lower.contains("3b") || id_lower.contains("4b") {
-        return 75;
-    }
-    if id_lower.contains("1b") || id_lower.contains("2b") {
-        return 73;
-    }
-    75 // default
+    let vendor = score_by_vendor(model_id);
+    let capability = score_by_capability(model_id);
+    let size = score_by_size(model_id);
+    vendor
+        .into_iter()
+        .chain(capability)
+        .chain(size)
+        .max()
+        .unwrap_or(75)
 }
 
 /// Hardcoded fallback model list (used when live fetch fails).
