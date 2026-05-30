@@ -258,7 +258,7 @@ mod tests {
         let bar = context_bar(0.5, 10);
         let chars: Vec<char> = bar.chars().collect();
         let thumb_count = chars.iter().filter(|&&c| c == '█').count();
-        assert!(thumb_count >= 4 && thumb_count <= 6);
+        assert!((4..=6).contains(&thumb_count));
     }
     #[test]
     fn context_bar_full_percentage() {

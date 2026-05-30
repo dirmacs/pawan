@@ -139,14 +139,14 @@ mod tests {
     fn test_filter_empty_query_shows_limited_results() {
         let items: Vec<String> = (0..30).map(|i| format!("item{i}")).collect();
         let search = FuzzySearchState::new(items);
-        assert_eq!(search.results.len(), FUZZY_EMPTY_ALL_LIMIT as usize);
+        assert_eq!(search.results.len(), FUZZY_EMPTY_ALL_LIMIT);
     }
     #[test]
     fn test_filter_limits_results_to_max() {
         let items: Vec<String> = (0..150).map(|i| format!("item{i}")).collect();
         let mut search = FuzzySearchState::new(items);
         search.filter("item");
-        assert!(search.results.len() <= FUZZY_MAX_RESULTS as usize);
+        assert!(search.results.len() <= FUZZY_MAX_RESULTS);
     }
     #[test]
     fn test_filter_case_insensitive() {
