@@ -119,4 +119,92 @@ mod tests {
         search.next();
         assert_eq!(search.selected, 0);
     }
+    #[test]
+    fn test_prev_moves_up() {
+        let items = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let mut search = FuzzySearchState::new(items);
+        search.selected = 1;
+        search.prev();
+        assert_eq!(search.selected, 0);
+    }
+    #[test]
+    fn test_prev_saturate_at_zero() {
+        let items = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let mut search = FuzzySearchState::new(items);
+        search.selected = 0;
+        search.prev();
+        assert_eq!(search.selected, 0);
+    }
+    #[test]
+    fn test_filter_empty_query_shows_limited_results() {
+        let items: Vec<String> = (0..30).map(|i| format!("item{i}")).collect();
+        let search = FuzzySearchState::new(items);
+        assert_eq!(search.results.len(), FUZZY_EMPTY_ALL_LIMIT as usize);
+    }
+    #[test]
+    fn test_filter_limits_results_to_max() {
+        let items: Vec<String> = (0..150).map(|i| format!("item{i}")).collect();
+        let mut search = FuzzySearchState::new(items);
+        search.filter("item");
+        assert!(search.results.len() <= FUZZY_MAX_RESULTS as usize);
+    }
+    #[test]
+    fn test_filter_case_insensitive() {
+        let items = vec!["Apple".to_string(), "BANANA".to_string(), "Cherry".to_string()];
+        let mut search = FuzzySearchState::new(items);
+        search.filter("BAN");
+        assert_eq!(search.results.len(), 1);
+        assert_eq!(search.results[0], "BANANA");
+    }
+    #[test]
+    fn test_filter_sets_selected_to_zero() {
+        let items = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        let mut search = FuzzySearchState::new(items);
+        search.selected = 2;
+        search.filter("a");
+        assert_eq!(search.selected, 0);
+    }
+    #[test]
+    fn test_filter_no_matches_returns_empty() {
+        let items = vec!["apple".to_string(), "banana".to_string()];
+        let mut search = FuzzySearchState::new(items);
+        search.filter("xyz");
+        assert!(search.results.is_empty());
+    }
+    #[test]
+    fn command_prefix_returns_full_string_when_no_separator() {
+        assert_eq!(command_prefix("/help"), "/help");
+    }
+    #[test]
+    fn command_prefix_handles_trailing_separator() {
+        assert_eq!(command_prefix("/export — "), "/export");
+    }
+    #[test]
+    fn command_prefix_handles_multiple_separators() {
+        assert_eq!(command_prefix("/cmd — arg — more"), "/cmd");
+    }
+    #[test]
+    fn next_noop_on_empty_results() {
+        let mut search = FuzzySearchState {
+            visible: true,
+            query: String::new(),
+            results: vec![],
+            selected: 0,
+            all_items: vec![],
+        };
+        search.next();
+        assert_eq!(search.selected, 0);
+    }
+    #[test]
+    fn prev_noop_on_empty_results() {
+        let mut search = FuzzySearchState {
+            visible: true,
+            query: String::new(),
+            results: vec![],
+            selected: 0,
+            all_items: vec![],
+        };
+        search.prev();
+        assert_eq!(search.selected, 0);
+    }
 }
