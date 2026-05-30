@@ -7,19 +7,18 @@ expression: output
                                                                                 
                     ┌ Model Picker (^M) ───────────────────┐                    
                     │> ▌                                   │                    
-                    │ 01-ai 01-ai/yi-large  q75            │                    
-                    │ Abacusai abacusai/dracarys-llama-3.1-│                    
-                    │ Ai21labs ai21labs/jamba-1.5-large-ins│                    
-                    │ Aisingapore aisingapore/sea-lion-7b-i│                    
-                    │ Bigcode bigcode/starcoder2-15b  q75  │                    
-                    │ Bytedance bytedance/seed-oss-36b-inst│                    
-                    │ Databricks databricks/dbrx-instruct  │                    
-                    │ Deepseek-ai deepseek-ai/deepseek-code│                    
-                    │ Deepseek-ai deepseek-ai/deepseek-v3.1│                    
-                    │ Deepseek-ai deepseek-ai/deepseek-v3.2│                    
-                    │ Google google/codegemma-1.1-7b  q79  │                    
-                    │ Google google/codegemma-7b  q79      │                    
-                    │ Google google/gemma-2-2b-it  q79     │                    
-                    │ Google google/gemma-2b  q77          │                    
+                    │ Meta meta/llama-3.1-70b-instruct  q90│                    
+                    │ Meta meta/llama-3.3-70b-instruct  q93│                    
+                    │ Meta meta/llama-4-maverick-17b-128e-i│                    
+                    │ Deepseek deepseek-ai/deepseek-v3.2  q│                    
+                    │ Deepseek deepseek-ai/deepseek-v4-flas│                    
                     │ Google google/gemma-3-12b-it  q85    │                    
+                    │ Mistral mistralai/mistral-large-3-675│                    
+                    │ Qwen qwen/qwen3.5-397b-a17b  q95     │                    
+                    │ Nvidia nvidia/llama-3.1-nemotron-ultr│                    
+                    │ Stepfun stepfun-ai/step-3.7-flash  q8│                    
+                    │ Stepfun stepfun-ai/step-3.5-flash  q8│                    
+                    │ Z-Ai z-ai/glm-5.1  q90               │                    
+                    │ OpenAI openai/gpt-oss-120b  q75      │                    
+                    │                                      │                    
                     └──────────────────────────────────────┘

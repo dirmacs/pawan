@@ -159,7 +159,7 @@ mod tests {
     fn test_default_models_not_empty() {
         let models = default_models();
         assert!(!models.is_empty());
-        assert!(models.len() >= 50, "Should have at least 50 fallback models");
+        assert!(models.len() >= 10, "Should have at least 10 fallback models");
     }
 
     #[test]
