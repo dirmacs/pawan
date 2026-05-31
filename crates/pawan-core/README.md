@@ -1,11 +1,12 @@
-# pawan-core v0.5.7
+# pawan-core v0.5.8
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
 
-## What's New in v0.5.7
+## What's New in v0.5.8
 
-- **Release alignment** — workspace crates now publish together at `0.5.7`; the CLI includes the `/theme` Enter fix, readable placeholder styling, status bar spacing, and expanded TUI regression tests
-- **Test suite expansion** — 29 new compaction tests (edge cases, strategies, keywords, summary parsing) and 16 new eruka bridge tests (serde, JSON parsing, disabled paths); 1643+ total workspace tests across 18 suites
+- **CRAP score reduction** — decomposed 10 high-complexity functions across agent, TUI, and CLI modules; extracted ~40 focused helpers
+- **Render decomposition** — split `render.rs` (4287 LOC) into `render/{mod.rs, messages.rs, overlays.rs}`
+- **Test coverage expansion** — 60 new tests for 0%-coverage functions; 1779 total workspace tests across 18 suites; 61.09% line coverage baseline
 
 ## What's New in v0.5.0
 

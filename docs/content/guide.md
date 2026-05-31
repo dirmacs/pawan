@@ -73,7 +73,7 @@ pawan
 pawan explain src/main.rs
 ```
 
-## What's New in v0.5.7
+## What's New in v0.5.8
 
 ### TUI Reliability & Polish
 
@@ -81,7 +81,7 @@ pawan explain src/main.rs
 - **Readable input placeholder** — placeholder styling is theme-aware at startup, after resets, and after theme switches
 - **Polished bottom status bar** — model, tokens, context percentage/bar, iteration, and timestamp are visually separated
 - **Expanded TUI tests** — key-event regressions and Ratatui TestBackend assertions cover `/theme`, placeholder styling, and status formatting
-- **Test suite expansion** — 98 new tests added (29 compaction, 16 eruka bridge, 53 TUI types); 1643+ total tests passing across 18 suites
+- **Test suite expansion** — 60 new tests for 0%-coverage functions (LspTool, InjectionDetector, main helpers, TUI model picker); 1779 total tests passing across 18 suites
 
 ## Configuration
 
