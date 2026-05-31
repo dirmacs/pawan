@@ -3150,7 +3150,11 @@ mod tests {
         fn redact_cwd(output: &str) -> String {
             std::env::current_dir()
                 .ok()
-                .map(|cwd| output.replace(&cwd.display().to_string(), "[CWD]"))
+                .map(|cwd| {
+                    let cwd_str = cwd.display().to_string();
+                    let pad = " ".repeat(cwd_str.len().saturating_sub("[CWD]".len()));
+                    output.replace(&cwd_str, &format!("[CWD]{pad}"))
+                })
                 .unwrap_or_else(|| output.to_string())
         }
 
