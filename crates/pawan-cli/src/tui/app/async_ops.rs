@@ -47,203 +47,13 @@ impl<'a> App<'a> {
     ) -> Result<()> {
         loop {
             self.refresh_keybind_context();
-            // Poll for live model catalog result
-            if let Some(mut rx) = self.model_fetch_rx.take() {
-                match rx.try_recv() {
-                    Ok(models) => {
-                        self.model_picker.models = models;
-                        self.status = format!("Loaded {} live models", self.model_picker.models.len());
-                    }
-                    Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
-                        self.model_fetch_rx = Some(rx); // not ready yet, put back
-                    }
-                    Err(_) => {} // sender dropped = fetch failed, keep fallback
-                }
-            }
-
+            self.poll_model_fetch();
             self.poll_irc_inbox();
-
             terminal.draw(|f| self.ui(f)).map_err(PawanError::Io)?;
-
-            // Non-blocking: check for agent events first
-            while let Ok(event) = self.event_rx.try_recv() {
-                match event {
-                    AgentEvent::Token(token) => {
-                        let state = self
-                            .streaming
-                            .get_or_insert_with(|| StreamingAssistantState { blocks: Vec::new() });
-                        // Append to last streaming text block, or start a new one
-                        match state.blocks.last_mut() {
-                            Some(ContentBlock::Text {
-                                content,
-                                streaming: true,
-                            }) => {
-                                content.push_str(&token);
-                            }
-                            _ => {
-                                state.blocks.push(ContentBlock::Text {
-                                    content: token,
-                                    streaming: true,
-                                });
-                            }
-                        }
-                        self.scroll = usize::MAX;
-                    }
-                    AgentEvent::ToolStart(name) => {
-                        let state = self
-                            .streaming
-                            .get_or_insert_with(|| StreamingAssistantState { blocks: Vec::new() });
-                        // Freeze current text block
-                        if let Some(ContentBlock::Text { streaming, .. }) = state.blocks.last_mut()
-                        {
-                            *streaming = false;
-                        }
-                        state.blocks.push(ContentBlock::ToolCall {
-                            name: name.clone(),
-                            args_summary: String::new(),
-                            state: Box::new(ToolBlockState::Running),
-                        });
-                        self.status = format!("Running tool: {}", name);
-                    }
-                    AgentEvent::ToolComplete(record) => {
-                        if let Some(state) = &mut self.streaming {
-                            for block in state.blocks.iter_mut().rev() {
-                                if let ContentBlock::ToolCall {
-                                    name,
-                                    args_summary,
-                                    state: tool_state,
-                                } = block
-                                {
-                                    if matches!(tool_state.as_ref(), ToolBlockState::Running)
-                                        && *name == record.name
-                                    {
-                                        *args_summary = summarize_args(&record.arguments);
-                                        **tool_state = ToolBlockState::Done {
-                                            record: record.clone(),
-                                            expanded: !record.success,
-                                        };
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-                        self.session_tool_calls += 1;
-                        if record.name.contains("write_file") || record.name.contains("edit_file") {
-                            self.session_files_edited += 1;
-                        }
-                        let icon = if record.success { "✓" } else { "✗" };
-                        self.status =
-                            format!("{} {} ({}ms)", icon, record.name, record.duration_ms);
-                    }
-                    AgentEvent::PermissionRequest {
-                        tool_name,
-                        args_summary,
-                        respond,
-                    } => {
-                        if self.auto_approve_tools {
-                            // Auto-approve all tool calls
-                            let _ = respond.send(true);
-                            self.status = format!("Auto-approved: {}", tool_name);
-                        } else {
-                            self.permission_dialog = Some(PermissionDialog {
-                                tool_name: tool_name.clone(),
-                                args_summary: args_summary.clone(),
-                                respond: Some(respond),
-                            });
-                            self.status = format!("Permission required: {} — y/n/a", tool_name);
-                        }
-                    }
-                    AgentEvent::IrcReceived(msg) => {
-                        self.messages.push(DisplayMessage::new_text(
-                            Role::System,
-                            format!("[IRC] {} → {}: {}", msg.from, msg.to, msg.body),
-                        ));
-                        self.status = format!("IRC from {}", msg.from);
-                    }
-                    AgentEvent::IrcSent(msg) => {
-                        self.status = format!("IRC sent to {}", msg.to);
-                    }
-                    AgentEvent::Complete(result) => {
-                        self.processing = false;
-                        match result {
-                            Ok(resp) => {
-                                let msg = if let Some(state) = self.streaming.take() {
-                                    let mut blocks = state.blocks;
-                                    for block in &mut blocks {
-                                        if let ContentBlock::Text { streaming, .. } = block {
-                                            *streaming = false;
-                                        }
-                                    }
-                                    DisplayMessage {
-                                        role: Role::Assistant,
-                                        blocks,
-                                        timestamp: std::time::Instant::now(),
-                                        cached_block_lines: None,
-                                    }
-                                } else {
-                                    DisplayMessage::from_agent_response(&resp)
-                                };
-                                self.messages.push(msg);
-                                // Pre-populate render cache for the finalized message
-                                if let Some(last) = self.messages.last_mut() {
-                                    last.block_lines_cached();
-                                }
-                                self.total_tokens += resp.usage.total_tokens;
-                                self.total_prompt_tokens += resp.usage.prompt_tokens;
-                                self.total_completion_tokens += resp.usage.completion_tokens;
-                                self.total_reasoning_tokens += resp.usage.reasoning_tokens;
-                                self.total_action_tokens += resp.usage.action_tokens;
-                                self.context_estimate = (self.total_prompt_tokens
-                                    + self.total_completion_tokens)
-                                    as usize;
-                                self.status = format!("Done ({} iterations)", resp.iterations);
-                                if self.goal_mode {
-                                    let hint = self
-                                        .goal_objective
-                                        .as_deref()
-                                        .map(|o| format!("Goal mode: checking objective — {o}"))
-                                        .unwrap_or_else(|| {
-                                            "Goal mode: checking if objective achieved..."
-                                                .to_string()
-                                        });
-                                    self.messages.push(DisplayMessage::new_text(
-                                        Role::System,
-                                        hint.clone(),
-                                    ));
-                                    self.status = hint;
-                                }
-                                self.scroll = self.messages.len().saturating_sub(1);
-                            }
-                            Err(e) => {
-                                self.streaming = None;
-                                self.status = format!("Error: {}", e);
-                                self.messages.push(DisplayMessage::new_text(
-                                    Role::Assistant,
-                                    format!("Error: {}", e),
-                                ));
-                                self.scroll = self.messages.len().saturating_sub(1);
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Handle terminal events with short poll timeout
-            if event::poll(std::time::Duration::from_millis(50)).map_err(PawanError::Io)? {
-                let event = event::read().map_err(PawanError::Io)?;
-                self.handle_event(event);
-            }
-
-            // Periodic autosave
-            if self.last_autosave.elapsed() >= AUTOSAVE_INTERVAL {
-                self.autosave();
-                self.last_autosave = Instant::now();
-            }
-
-            if self.should_quit {
-                // Final autosave before exit
-                self.autosave();
-                let _ = self.cmd_tx.send(AgentCommand::Quit);
+            self.handle_async_messages();
+            self.poll_terminal_event()?;
+            self.tick();
+            if self.check_should_quit() {
                 break;
             }
         }
@@ -251,6 +61,233 @@ impl<'a> App<'a> {
         Ok(())
     }
 
+    /// Poll for live model catalog result.
+    fn poll_model_fetch(&mut self) {
+        if let Some(mut rx) = self.model_fetch_rx.take() {
+            match rx.try_recv() {
+                Ok(models) => {
+                    self.model_picker.models = models;
+                    self.status = format!("Loaded {} live models", self.model_picker.models.len());
+                }
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                    self.model_fetch_rx = Some(rx); // not ready yet, put back
+                }
+                Err(_) => {} // sender dropped = fetch failed, keep fallback
+            }
+        }
+    }
+
+    /// Non-blocking: drain agent events from the channel.
+    fn handle_async_messages(&mut self) {
+        while let Ok(event) = self.event_rx.try_recv() {
+            match event {
+                AgentEvent::Token(token) => self.process_token_event(token),
+                AgentEvent::ToolStart(name) => self.process_tool_start_event(name),
+                AgentEvent::ToolComplete(record) => self.process_tool_complete_event(record),
+                AgentEvent::PermissionRequest {
+                    tool_name,
+                    args_summary,
+                    respond,
+                } => self.process_permission_request_event(tool_name, args_summary, respond),
+                AgentEvent::IrcReceived(msg) => self.process_irc_received_event(msg),
+                AgentEvent::IrcSent(msg) => self.process_irc_sent_event(msg),
+                AgentEvent::Complete(result) => self.process_complete_event(result),
+            }
+        }
+    }
+
+    fn process_token_event(&mut self, token: String) {
+        let state = self
+            .streaming
+            .get_or_insert_with(|| StreamingAssistantState { blocks: Vec::new() });
+        // Append to last streaming text block, or start a new one
+        match state.blocks.last_mut() {
+            Some(ContentBlock::Text {
+                content,
+                streaming: true,
+            }) => {
+                content.push_str(&token);
+            }
+            _ => {
+                state.blocks.push(ContentBlock::Text {
+                    content: token,
+                    streaming: true,
+                });
+            }
+        }
+        self.scroll = usize::MAX;
+    }
+
+    fn process_tool_start_event(&mut self, name: String) {
+        let state = self
+            .streaming
+            .get_or_insert_with(|| StreamingAssistantState { blocks: Vec::new() });
+        // Freeze current text block
+        if let Some(ContentBlock::Text { streaming, .. }) = state.blocks.last_mut()
+        {
+            *streaming = false;
+        }
+        state.blocks.push(ContentBlock::ToolCall {
+            name: name.clone(),
+            args_summary: String::new(),
+            state: Box::new(ToolBlockState::Running),
+        });
+        self.status = format!("Running tool: {}", name);
+    }
+
+    fn process_tool_complete_event(&mut self, record: ToolCallRecord) {
+        if let Some(state) = &mut self.streaming {
+            for block in state.blocks.iter_mut().rev() {
+                if let ContentBlock::ToolCall {
+                    name,
+                    args_summary,
+                    state: tool_state,
+                } = block
+                {
+                    if matches!(tool_state.as_ref(), ToolBlockState::Running)
+                        && *name == record.name
+                    {
+                        *args_summary = summarize_args(&record.arguments);
+                        **tool_state = ToolBlockState::Done {
+                            record: record.clone(),
+                            expanded: !record.success,
+                        };
+                        break;
+                    }
+                }
+            }
+        }
+        self.session_tool_calls += 1;
+        if record.name.contains("write_file") || record.name.contains("edit_file") {
+            self.session_files_edited += 1;
+        }
+        let icon = if record.success { "✓" } else { "✗" };
+        self.status =
+            format!("{} {} ({}ms)", icon, record.name, record.duration_ms);
+    }
+
+    fn process_permission_request_event(
+        &mut self,
+        tool_name: String,
+        args_summary: String,
+        respond: tokio::sync::oneshot::Sender<bool>,
+    ) {
+        if self.auto_approve_tools {
+            // Auto-approve all tool calls
+            let _ = respond.send(true);
+            self.status = format!("Auto-approved: {}", tool_name);
+        } else {
+            self.permission_dialog = Some(PermissionDialog {
+                tool_name: tool_name.clone(),
+                args_summary: args_summary.clone(),
+                respond: Some(respond),
+            });
+            self.status = format!("Permission required: {} — y/n/a", tool_name);
+        }
+    }
+
+    fn process_irc_received_event(&mut self, msg: pawan::agent::IrcMessage) {
+        self.messages.push(DisplayMessage::new_text(
+            Role::System,
+            format!("[IRC] {} → {}: {}", msg.from, msg.to, msg.body),
+        ));
+        self.status = format!("IRC from {}", msg.from);
+    }
+
+    fn process_irc_sent_event(&mut self, msg: pawan::agent::IrcMessage) {
+        self.status = format!("IRC sent to {}", msg.to);
+    }
+
+    fn process_complete_event(&mut self, result: std::result::Result<AgentResponse, PawanError>) {
+        self.processing = false;
+        match result {
+            Ok(resp) => {
+                let msg = if let Some(state) = self.streaming.take() {
+                    let mut blocks = state.blocks;
+                    for block in &mut blocks {
+                        if let ContentBlock::Text { streaming, .. } = block {
+                            *streaming = false;
+                        }
+                    }
+                    DisplayMessage {
+                        role: Role::Assistant,
+                        blocks,
+                        timestamp: std::time::Instant::now(),
+                        cached_block_lines: None,
+                    }
+                } else {
+                    DisplayMessage::from_agent_response(&resp)
+                };
+                self.messages.push(msg);
+                // Pre-populate render cache for the finalized message
+                if let Some(last) = self.messages.last_mut() {
+                    last.block_lines_cached();
+                }
+                self.total_tokens += resp.usage.total_tokens;
+                self.total_prompt_tokens += resp.usage.prompt_tokens;
+                self.total_completion_tokens += resp.usage.completion_tokens;
+                self.total_reasoning_tokens += resp.usage.reasoning_tokens;
+                self.total_action_tokens += resp.usage.action_tokens;
+                self.context_estimate = (self.total_prompt_tokens
+                    + self.total_completion_tokens)
+                    as usize;
+                self.status = format!("Done ({} iterations)", resp.iterations);
+                if self.goal_mode {
+                    let hint = self
+                        .goal_objective
+                        .as_deref()
+                        .map(|o| format!("Goal mode: checking objective — {o}"))
+                        .unwrap_or_else(|| {
+                            "Goal mode: checking if objective achieved..."
+                                .to_string()
+                        });
+                    self.messages.push(DisplayMessage::new_text(
+                        Role::System,
+                        hint.clone(),
+                    ));
+                    self.status = hint;
+                }
+                self.scroll = self.messages.len().saturating_sub(1);
+            }
+            Err(e) => {
+                self.streaming = None;
+                self.status = format!("Error: {}", e);
+                self.messages.push(DisplayMessage::new_text(
+                    Role::Assistant,
+                    format!("Error: {}", e),
+                ));
+                self.scroll = self.messages.len().saturating_sub(1);
+            }
+        }
+    }
+
+    /// Handle terminal events with short poll timeout.
+    fn poll_terminal_event(&mut self) -> Result<()> {
+        if event::poll(std::time::Duration::from_millis(50)).map_err(PawanError::Io)? {
+            let event = event::read().map_err(PawanError::Io)?;
+            self.handle_event(event);
+        }
+        Ok(())
+    }
+
+    /// Periodic autosave.
+    fn tick(&mut self) {
+        if self.last_autosave.elapsed() >= AUTOSAVE_INTERVAL {
+            self.autosave();
+            self.last_autosave = Instant::now();
+        }
+    }
+
+    /// Final autosave and agent shutdown when quit is requested.
+    fn check_should_quit(&mut self) -> bool {
+        if self.should_quit {
+            // Final autosave before exit
+            self.autosave();
+            let _ = self.cmd_tx.send(AgentCommand::Quit);
+            return true;
+        }
+        false
+    }
 }
 
 async fn agent_task(

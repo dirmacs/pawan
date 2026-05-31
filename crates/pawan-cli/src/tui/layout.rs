@@ -2,7 +2,7 @@
 //!
 //! Layout: full-width chat on top, queue + input in the middle, status bar at
 //! the bottom. No side activity panel — tool activity is shown inline in the
-//! chat stream, matching the maki-ui design language.
+//! chat stream.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
