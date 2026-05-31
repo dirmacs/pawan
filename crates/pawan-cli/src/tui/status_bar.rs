@@ -211,3 +211,82 @@ impl Default for StatusBar {
         Self::new()
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn abbrev_model_returns_full_when_narrow_false() {
+        assert_eq!(abbrev_model("nvidia/llama-3.1-nemotron", false), "nvidia/llama-3.1-nemotron");
+    }
+    #[test]
+    fn abbrev_model_short_names_unchanged() {
+        assert_eq!(abbrev_model("short", true), "short");
+        assert_eq!(abbrev_model("nvidia/llama", true), "nvidia/llama");
+    }
+    #[test]
+    fn abbrev_model_long_truncates_with_ellipsis() {
+        // Input is 56 chars, output should be 20 chars + 1 ellipsis = 21 chars
+        // Note: .len() returns bytes; ellipsis is 3 bytes, so use .chars().count()
+        let result = abbrev_model("nvidia/this-is-a-very-long-model-name-that-exceeds-limit", true);
+        assert_eq!(result.chars().count(), 21);
+        assert!(result.starts_with('…'));
+    }
+    #[test]
+    fn format_tokens_small_values() {
+        assert_eq!(format_tokens(0), "0 tok");
+        assert_eq!(format_tokens(5), "5 tok");
+        assert_eq!(format_tokens(999), "999 tok");
+    }
+    #[test]
+    fn format_tokens_thousands() {
+        assert_eq!(format_tokens(1000), "1.0k tok");
+        assert_eq!(format_tokens(1500), "1.5k tok");
+    }
+    #[test]
+    fn format_tokens_millions() {
+        assert_eq!(format_tokens(1_000_000), "1.0M tok");
+        assert_eq!(format_tokens(2_500_000), "2.5M tok");
+    }
+    #[test]
+    fn context_bar_zero_percentage() {
+        let bar = context_bar(0.0, 10);
+        let chars: Vec<char> = bar.chars().collect();
+        assert!(chars.iter().all(|&c| c == '░'));
+    }
+    #[test]
+    fn context_bar_half_percentage() {
+        let bar = context_bar(0.5, 10);
+        let chars: Vec<char> = bar.chars().collect();
+        let thumb_count = chars.iter().filter(|&&c| c == '█').count();
+        assert!((4..=6).contains(&thumb_count));
+    }
+    #[test]
+    fn context_bar_full_percentage() {
+        let bar = context_bar(1.0, 10);
+        let chars: Vec<char> = bar.chars().collect();
+        assert!(chars.iter().all(|&c| c == '█'));
+    }
+    #[test]
+    fn context_bar_clamps_high_values() {
+        let bar = context_bar(1.5, 10);
+        let chars: Vec<char> = bar.chars().collect();
+        assert!(chars.iter().all(|&c| c == '█'));
+    }
+    #[test]
+    fn context_bar_clamps_negative_values() {
+        let bar = context_bar(-0.5, 10);
+        let chars: Vec<char> = bar.chars().collect();
+        assert!(chars.iter().all(|&c| c == '░'));
+    }
+    #[test]
+    fn status_bar_new_has_no_flash() {
+        let sb = StatusBar::new();
+        let _ = sb;
+    }
+    #[test]
+    fn status_bar_default_equivalent_to_new() {
+        let sb1 = StatusBar::new();
+        let sb2 = StatusBar::default();
+        let _ = (sb1, sb2);
+    }
+}

@@ -37,6 +37,31 @@ pub struct OpenAiCompatBackend {
     cfg: OpenAiCompatConfig,
 }
 
+/// Accumulated state while parsing an SSE streaming response.
+struct StreamingAccumState {
+    content: String,
+    tool_calls: Vec<ToolCallRequest>,
+    finish_reason: String,
+    stream_usage: Option<TokenUsage>,
+    stream_reasoning: String,
+    buffer: String,
+    buf_start: usize,
+}
+
+impl StreamingAccumState {
+    fn new() -> Self {
+        Self {
+            content: String::new(),
+            tool_calls: Vec::new(),
+            finish_reason: "stop".to_string(),
+            stream_usage: None,
+            stream_reasoning: String::new(),
+            buffer: String::new(),
+            buf_start: 0,
+        }
+    }
+}
+
 impl OpenAiCompatBackend {
     pub fn new(cfg: OpenAiCompatConfig) -> Self {
         Self {
@@ -164,17 +189,27 @@ impl OpenAiCompatBackend {
             .collect()
     }
 
-    async fn non_streaming(&self, request: reqwest::RequestBuilder) -> Result<LLMResponse> {
-        let response = request
-            .send()
-            .await
-            .map_err(|e| PawanError::Llm(format!("HTTP request failed: {}", e)))?;
-
+    /// Map a non-success HTTP status to a formatted LLM error.
+    async fn handle_error_response(response: reqwest::Response) -> Result<reqwest::Response> {
         if !response.status().is_success() {
             let status = response.status();
             let text = response.text().await.unwrap_or_default();
             return Err(PawanError::Llm(Self::format_api_error(status, &text)));
         }
+        Ok(response)
+    }
+
+    /// Send an HTTP request and fail on transport or non-2xx errors.
+    async fn send_http_request(request: reqwest::RequestBuilder) -> Result<reqwest::Response> {
+        let response = request
+            .send()
+            .await
+            .map_err(|e| PawanError::Llm(format!("HTTP request failed: {}", e)))?;
+        Self::handle_error_response(response).await
+    }
+
+    async fn non_streaming(&self, request: reqwest::RequestBuilder) -> Result<LLMResponse> {
+        let response = Self::send_http_request(request).await?;
 
         let response_json: Value = response
             .json()
@@ -184,139 +219,125 @@ impl OpenAiCompatBackend {
         self.parse_response(&response_json)
     }
 
-    async fn streaming(
-        &self,
-        request: reqwest::RequestBuilder,
+    /// Apply one streaming `delta` object to accumulated content, reasoning, and tool calls.
+    fn accumulate_stream_delta(
+        state: &mut StreamingAccumState,
+        delta: &Value,
         on_token: Option<&TokenCallback>,
-    ) -> Result<LLMResponse> {
-        let response = request
-            .send()
-            .await
-            .map_err(|e| PawanError::Llm(format!("HTTP request failed: {}", e)))?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let text = response.text().await.unwrap_or_default();
-            return Err(PawanError::Llm(Self::format_api_error(status, &text)));
+    ) {
+        if let Some(c) = delta.get("content").and_then(|v| v.as_str()) {
+            if let Some(callback) = on_token {
+                callback(c);
+            }
+            state.content.push_str(c);
         }
 
-        let mut content = String::new();
-        let mut tool_calls: Vec<ToolCallRequest> = Vec::new();
-        let mut finish_reason = "stop".to_string();
-        let mut stream_usage: Option<TokenUsage> = None;
-        let mut stream_reasoning = String::new();
+        // Capture reasoning/thinking content from streaming deltas
+        if let Some(r) = delta
+            .get("reasoning_content")
+            .or_else(|| delta.get("reasoning"))
+            .and_then(|v| v.as_str())
+        {
+            state.stream_reasoning.push_str(r);
+        }
 
-        let mut stream = response.bytes_stream();
-        use futures::StreamExt;
+        if let Some(tc_array) = delta.get("tool_calls").and_then(|v| v.as_array()) {
+            for tc in tc_array {
+                let index = tc
+                    .get("index")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as usize;
 
-        let mut buffer = String::new();
-        let mut buf_start = 0usize;
-
-        while let Some(chunk) = stream.next().await {
-            let chunk = chunk.map_err(|e| PawanError::Llm(format!("Stream error: {}", e)))?;
-            buffer.push_str(&String::from_utf8_lossy(&chunk));
-
-            while let Some(rel_pos) = buffer[buf_start..].find('\n') {
-                let newline_pos = buf_start + rel_pos;
-                let line = buffer[buf_start..newline_pos].trim();
-                buf_start = newline_pos + 1; // advance past newline (zero-copy)
-                if line.is_empty() || line == "data: [DONE]" {
-                    continue;
+                while state.tool_calls.len() <= index {
+                    state.tool_calls.push(ToolCallRequest {
+                        id: String::new(),
+                        name: String::new(),
+                        arguments: json!(""),
+                    });
                 }
 
-                if let Some(data) = line.strip_prefix("data: ") {
-                    if let Ok(json) = serde_json::from_str::<Value>(data) {
-                        // Capture usage from final chunk (OpenAI stream_options, vllm-mlx, etc.)
-                        if json
-                            .get("usage")
-                            .and_then(|u| u.get("total_tokens"))
-                            .is_some()
-                        {
-                            stream_usage = Self::parse_usage(&json);
-                        }
-
-                        if let Some(choices) = json.get("choices").and_then(|v| v.as_array()) {
-                            for choice in choices {
-                                if let Some(delta) = choice.get("delta") {
-                                    if let Some(c) = delta.get("content").and_then(|v| v.as_str()) {
-                                        if let Some(callback) = on_token {
-                                            callback(c);
-                                        }
-                                        content.push_str(c);
-                                    }
-
-                                    // Capture reasoning/thinking content from streaming deltas
-                                    if let Some(r) = delta
-                                        .get("reasoning_content")
-                                        .or_else(|| delta.get("reasoning"))
-                                        .and_then(|v| v.as_str())
-                                    {
-                                        stream_reasoning.push_str(r);
-                                    }
-
-                                    if let Some(tc_array) =
-                                        delta.get("tool_calls").and_then(|v| v.as_array())
-                                    {
-                                        for tc in tc_array {
-                                            let index = tc
-                                                .get("index")
-                                                .and_then(|v| v.as_u64())
-                                                .unwrap_or(0)
-                                                as usize;
-
-                                            while tool_calls.len() <= index {
-                                                tool_calls.push(ToolCallRequest {
-                                                    id: String::new(),
-                                                    name: String::new(),
-                                                    arguments: json!(""),
-                                                });
-                                            }
-
-                                            if let Some(id) = tc.get("id").and_then(|v| v.as_str())
-                                            {
-                                                tool_calls[index].id = id.to_string();
-                                            }
-                                            if let Some(func) = tc.get("function") {
-                                                if let Some(name) =
-                                                    func.get("name").and_then(|v| v.as_str())
-                                                {
-                                                    tool_calls[index].name = name.to_string();
-                                                }
-                                                if let Some(args) =
-                                                    func.get("arguments").and_then(|v| v.as_str())
-                                                {
-                                                    let current = tool_calls[index]
-                                                        .arguments
-                                                        .as_str()
-                                                        .unwrap_or("");
-                                                    tool_calls[index].arguments =
-                                                        json!(format!("{}{}", current, args));
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-
-                                if let Some(reason) =
-                                    choice.get("finish_reason").and_then(|v| v.as_str())
-                                {
-                                    finish_reason = reason.to_string();
-                                }
-                            }
-                        }
+                if let Some(id) = tc.get("id").and_then(|v| v.as_str()) {
+                    state.tool_calls[index].id = id.to_string();
+                }
+                if let Some(func) = tc.get("function") {
+                    if let Some(name) = func.get("name").and_then(|v| v.as_str()) {
+                        state.tool_calls[index].name = name.to_string();
+                    }
+                    if let Some(args) = func.get("arguments").and_then(|v| v.as_str()) {
+                        let current = state.tool_calls[index]
+                            .arguments
+                            .as_str()
+                            .unwrap_or("");
+                        state.tool_calls[index].arguments =
+                            json!(format!("{}{}", current, args));
                     }
                 }
             }
-            // Compact buffer: only reallocate when >50% consumed
-            if buf_start > 0 {
-                buffer = buffer[buf_start..].to_string();
-                buf_start = 0;
+        }
+    }
+
+    /// Parse one SSE `data:` payload and update streaming accumulation state.
+    fn parse_stream_sse_data(
+        state: &mut StreamingAccumState,
+        data: &str,
+        on_token: Option<&TokenCallback>,
+    ) {
+        if let Ok(json) = serde_json::from_str::<Value>(data) {
+            // Capture usage from final chunk (OpenAI stream_options, vllm-mlx, etc.)
+            if json
+                .get("usage")
+                .and_then(|u| u.get("total_tokens"))
+                .is_some()
+            {
+                state.stream_usage = Self::parse_usage(&json);
+            }
+
+            if let Some(choices) = json.get("choices").and_then(|v| v.as_array()) {
+                for choice in choices {
+                    if let Some(delta) = choice.get("delta") {
+                        Self::accumulate_stream_delta(state, delta, on_token);
+                    }
+
+                    if let Some(reason) = choice.get("finish_reason").and_then(|v| v.as_str()) {
+                        state.finish_reason = reason.to_string();
+                    }
+                }
             }
         }
+    }
 
+    /// Drain complete SSE lines from the streaming buffer.
+    fn process_stream_buffer_lines(
+        state: &mut StreamingAccumState,
+        on_token: Option<&TokenCallback>,
+    ) {
+        while let Some(rel_pos) = state.buffer[state.buf_start..].find('\n') {
+            let newline_pos = state.buf_start + rel_pos;
+            let line = state.buffer[state.buf_start..newline_pos].trim().to_string();
+            state.buf_start = newline_pos + 1; // advance past newline (zero-copy)
+            if line.is_empty() || line == "data: [DONE]" {
+                continue;
+            }
+
+            if let Some(data) = line.strip_prefix("data: ") {
+                Self::parse_stream_sse_data(state, data, on_token);
+            }
+        }
+    }
+
+    /// Compact buffer after consuming prefix bytes.
+    fn compact_stream_buffer(state: &mut StreamingAccumState) {
+        if state.buf_start > 0 {
+            state.buffer = state.buffer[state.buf_start..].to_string();
+            state.buf_start = 0;
+        }
+    }
+
+    /// Finalize streamed tool calls (JSON parse, UUIDs, Mistral fallback).
+    fn finalize_stream_tool_calls(state: &mut StreamingAccumState) {
         // Parse tool call arguments from JSON strings
         // StepFun/Qwen models may interleave <think>...</think> tokens inside arguments
-        for tc in &mut tool_calls {
+        for tc in &mut state.tool_calls {
             if let Some(args_str) = tc.arguments.as_str() {
                 // Strip think blocks from arguments before JSON parse
                 let clean_args = Self::strip_think_from_str(args_str);
@@ -332,30 +353,33 @@ impl OpenAiCompatBackend {
             }
         }
 
-        tool_calls.retain(|tc| !tc.name.is_empty());
+        state.tool_calls.retain(|tc| !tc.name.is_empty());
 
         // Fallback: devstral/Mistral models sometimes stream [TOOL_CALLS] text
         // instead of structured tool_call deltas.
-        if tool_calls.is_empty() {
-            tool_calls = Self::parse_mistral_tool_calls(&content);
+        if state.tool_calls.is_empty() {
+            state.tool_calls = Self::parse_mistral_tool_calls(&state.content);
         }
 
-        if !tool_calls.is_empty() {
-            finish_reason = "tool_calls".to_string();
+        if !state.tool_calls.is_empty() {
+            state.finish_reason = "tool_calls".to_string();
         }
+    }
 
+    /// Build the final `LLMResponse` from completed streaming accumulation.
+    fn build_streaming_response(state: StreamingAccumState) -> LLMResponse {
         // Strip think blocks from content (StepFun/Qwen interleave reasoning)
-        let content = Self::strip_think_from_str(&content);
+        let content = Self::strip_think_from_str(&state.content);
 
         // Build reasoning from streamed chunks
-        let reasoning = if stream_reasoning.is_empty() {
+        let reasoning = if state.stream_reasoning.is_empty() {
             None
         } else {
-            Some(stream_reasoning)
+            Some(state.stream_reasoning)
         };
 
         // Enrich stream usage with reasoning token estimate
-        let usage = stream_usage.map(|mut u| {
+        let usage = state.stream_usage.map(|mut u| {
             if let Some(ref r) = reasoning {
                 u.reasoning_tokens = (r.len() as u64) / 4;
                 u.action_tokens = u.completion_tokens.saturating_sub(u.reasoning_tokens);
@@ -363,13 +387,36 @@ impl OpenAiCompatBackend {
             u
         });
 
-        Ok(LLMResponse {
+        LLMResponse {
             content,
             reasoning,
-            tool_calls,
-            finish_reason,
+            tool_calls: state.tool_calls,
+            finish_reason: state.finish_reason,
             usage,
-        })
+        }
+    }
+
+    async fn streaming(
+        &self,
+        request: reqwest::RequestBuilder,
+        on_token: Option<&TokenCallback>,
+    ) -> Result<LLMResponse> {
+        let response = Self::send_http_request(request).await?;
+
+        let mut state = StreamingAccumState::new();
+        let mut stream = response.bytes_stream();
+        use futures::StreamExt;
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| PawanError::Llm(format!("Stream error: {}", e)))?;
+            state.buffer.push_str(&String::from_utf8_lossy(&chunk));
+            Self::process_stream_buffer_lines(&mut state, on_token);
+            // Compact buffer: only reallocate when >50% consumed
+            Self::compact_stream_buffer(&mut state);
+        }
+
+        Self::finalize_stream_tool_calls(&mut state);
+        Ok(Self::build_streaming_response(state))
     }
 
     /// Strip <think>...</think> blocks from a string. Handles case-insensitive,
@@ -656,26 +703,21 @@ impl OpenAiCompatBackend {
             action_tokens: completion,
         })
     }
-}
 
-#[async_trait]
-impl LlmBackend for OpenAiCompatBackend {
-    async fn generate(
+    /// Build the base OpenAI-compatible chat completion request body.
+    fn build_request_body(
         &self,
-        messages: &[Message],
-        tools: &[ToolDefinition],
-        on_token: Option<&TokenCallback>,
-    ) -> Result<LLMResponse> {
-        let api_messages = self.build_messages(messages);
-        let api_tools = self.build_tools(tools);
-
+        api_messages: &[Value],
+        api_tools: &[Value],
+        stream: bool,
+    ) -> Value {
         let mut request_body = json!({
             "model": self.cfg.model,
             "messages": api_messages,
             "temperature": self.cfg.temperature,
             "top_p": self.cfg.top_p,
             "max_tokens": self.cfg.max_tokens,
-            "stream": on_token.is_some()
+            "stream": stream
         });
 
         // Only include tools if non-empty AND model supports tool use
@@ -699,7 +741,11 @@ impl LlmBackend for OpenAiCompatBackend {
         }
 
         request_body["seed"] = json!(42);
+        request_body
+    }
 
+    /// Build local and optional cloud model fallback chains.
+    fn build_model_chains(&self) -> Vec<(String, Option<String>, Vec<String>)> {
         // Build model chain: primary model + fallback models (same provider)
         let mut model_chains: Vec<(String, Option<String>, Vec<String>)> =
             vec![(self.cfg.api_url.clone(), self.cfg.api_key.clone(), {
@@ -715,6 +761,109 @@ impl LlmBackend for OpenAiCompatBackend {
             model_chains.push((cloud.api_url.clone(), cloud.api_key.clone(), cloud_models));
         }
 
+        model_chains
+    }
+
+    /// Adjust thinking/tool fields on the request body for a specific model.
+    fn apply_model_specific_request_fields(
+        &self,
+        request_body: &mut Value,
+        model: &str,
+        api_tools: &[Value],
+    ) {
+        // Dynamically add/remove thinking params based on model support
+        if Self::supports_reasoning_effort(model) {
+            request_body
+                .as_object_mut()
+                .map(|o| o.remove("chat_template_kwargs"));
+            request_body["reasoning_effort"] = if self.cfg.use_thinking {
+                json!("high")
+            } else {
+                json!("none")
+            };
+        } else if Self::supports_chat_template_kwargs(model) {
+            request_body
+                .as_object_mut()
+                .map(|o| o.remove("reasoning_effort"));
+            if request_body.get("chat_template_kwargs").is_none() {
+                request_body["chat_template_kwargs"] =
+                    Self::thinking_kwargs(model, self.cfg.use_thinking);
+            }
+        } else {
+            request_body
+                .as_object_mut()
+                .map(|o| o.remove("chat_template_kwargs"));
+            request_body
+                .as_object_mut()
+                .map(|o| o.remove("reasoning_effort"));
+        }
+
+        // Dynamically add/remove tools based on model support
+        if Self::supports_tool_use(model) {
+            if !api_tools.is_empty() && request_body.get("tools").is_none() {
+                request_body["tools"] = json!(api_tools);
+            }
+        } else {
+            request_body.as_object_mut().map(|o| o.remove("tools"));
+        }
+    }
+
+    /// Build an authenticated POST request for chat completions.
+    fn build_authenticated_request(
+        &self,
+        url: &str,
+        api_key: &Option<String>,
+        request_body: &Value,
+    ) -> reqwest::RequestBuilder {
+        let mut request = self.http_client.post(url).json(request_body);
+        if let Some(ref key) = api_key {
+            request = request.header("Authorization", format!("Bearer {}", key));
+        }
+        request
+    }
+
+    /// Whether an LLM error status should trigger exponential backoff retry.
+    fn is_retriable_llm_error(err: &PawanError) -> bool {
+        if let PawanError::Llm(ref msg) = err {
+            msg.contains("429")
+                || msg.contains("500")
+                || msg.contains("501")
+                || msg.contains("502")
+                || msg.contains("503")
+                || msg.contains("504")
+        } else {
+            false
+        }
+    }
+
+    /// Dispatch to streaming or non-streaming completion handling.
+    async fn dispatch_llm_request(
+        &self,
+        request: reqwest::RequestBuilder,
+        on_token: Option<&TokenCallback>,
+    ) -> Result<LLMResponse> {
+        if on_token.is_some() {
+            self.streaming(request, on_token).await
+        } else {
+            self.non_streaming(request).await
+        }
+    }
+}
+
+#[async_trait]
+impl LlmBackend for OpenAiCompatBackend {
+    async fn generate(
+        &self,
+        messages: &[Message],
+        tools: &[ToolDefinition],
+        on_token: Option<&TokenCallback>,
+    ) -> Result<LLMResponse> {
+        let api_messages = self.build_messages(messages);
+        let api_tools = self.build_tools(tools);
+        let mut request_body =
+            self.build_request_body(&api_messages, &api_tools, on_token.is_some());
+        let model_chains = self.build_model_chains();
+
         let mut last_error = None;
         let max_retries = self.cfg.max_retries;
 
@@ -724,49 +873,11 @@ impl LlmBackend for OpenAiCompatBackend {
 
             for model in models {
                 request_body["model"] = json!(model);
-
-                // Dynamically add/remove thinking params based on model support
-                if Self::supports_reasoning_effort(model) {
-                    request_body
-                        .as_object_mut()
-                        .map(|o| o.remove("chat_template_kwargs"));
-                    request_body["reasoning_effort"] = if self.cfg.use_thinking {
-                        json!("high")
-                    } else {
-                        json!("none")
-                    };
-                } else if Self::supports_chat_template_kwargs(model) {
-                    request_body
-                        .as_object_mut()
-                        .map(|o| o.remove("reasoning_effort"));
-                    if request_body.get("chat_template_kwargs").is_none() {
-                        request_body["chat_template_kwargs"] =
-                            Self::thinking_kwargs(model, self.cfg.use_thinking);
-                    }
-                } else {
-                    request_body
-                        .as_object_mut()
-                        .map(|o| o.remove("chat_template_kwargs"));
-                    request_body
-                        .as_object_mut()
-                        .map(|o| o.remove("reasoning_effort"));
-                }
-
-                // Dynamically add/remove tools based on model support
-                if Self::supports_tool_use(model) {
-                    if !api_tools.is_empty() && request_body.get("tools").is_none() {
-                        request_body["tools"] = json!(api_tools);
-                    }
-                } else {
-                    request_body.as_object_mut().map(|o| o.remove("tools"));
-                }
+                self.apply_model_specific_request_fields(&mut request_body, model, &api_tools);
 
                 for attempt in 0..=max_retries {
-                    let mut request = self.http_client.post(&url).json(&request_body);
-
-                    if let Some(ref key) = api_key {
-                        request = request.header("Authorization", format!("Bearer {}", key));
-                    }
+                    let request =
+                        self.build_authenticated_request(&url, api_key, &request_body);
 
                     let prompt_len: usize = messages.iter().map(|m| m.content.len()).sum();
                     let tools_count = tools.len();
@@ -782,11 +893,7 @@ impl LlmBackend for OpenAiCompatBackend {
                     );
 
                     let t0 = std::time::Instant::now();
-                    let result = if on_token.is_some() {
-                        self.streaming(request, on_token).await
-                    } else {
-                        self.non_streaming(request).await
-                    };
+                    let result = self.dispatch_llm_request(request, on_token).await;
                     let latency_ms = t0.elapsed().as_millis() as u64;
 
                     match result {
@@ -824,15 +931,8 @@ impl LlmBackend for OpenAiCompatBackend {
                             );
                             last_error = Some(err);
 
-                            if let Some(PawanError::Llm(ref msg)) = last_error.as_ref() {
-                                if (msg.contains("429")
-                                    || msg.contains("500")
-                                    || msg.contains("501")
-                                    || msg.contains("502")
-                                    || msg.contains("503")
-                                    || msg.contains("504"))
-                                    && attempt < max_retries
-                                {
+                            if let Some(ref err) = last_error {
+                                if Self::is_retriable_llm_error(err) && attempt < max_retries {
                                     let delay = Self::calculate_backoff_delay(attempt);
                                     tracing::warn!(
                                         attempt = attempt + 1,

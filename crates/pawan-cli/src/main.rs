@@ -252,7 +252,7 @@ mod print {
 use clap::{CommandFactory, Parser, Subcommand};
 use owo_colors::OwoColorize;
 use pawan::{agent::PawanAgent, config::PawanConfig, healing::Healer, PawanError, Result};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
 #[command(name = "pawan")]
@@ -759,7 +759,8 @@ fn read_print_prompt(explicit: Option<String>) -> Result<String> {
     Ok(buf)
 }
 
-async fn run() -> Result<()> {
+/// Load environment and resolve configuration from CLI args.
+fn setup_config(cli: &Cli) -> Result<(PawanConfig, PathBuf)> {
     // Auto-load .env file: try CWD first, then ~/.config/pawan/.env fallback
     // Always load config fallback to ensure NVIDIA_API_KEY is valid (CWD .env may have placeholder)
     dotenvy::dotenv().ok();
@@ -771,11 +772,10 @@ async fn run() -> Result<()> {
         }
     }
 
-    let cli = Cli::parse();
-
     // Determine workspace root
     let workspace = cli
         .workspace
+        .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
 
     // Load configuration
@@ -792,8 +792,8 @@ async fn run() -> Result<()> {
     }
 
     // Apply CLI overrides (highest priority)
-    if let Some(model) = cli.model {
-        config.model = model;
+    if let Some(model) = &cli.model {
+        config.model = model.clone();
     }
     if cli.dry_run {
         config.dry_run = true;
@@ -806,6 +806,76 @@ async fn run() -> Result<()> {
             println!("{}", "Dry-run mode enabled".yellow());
         }
     }
+
+    Ok((config, workspace))
+}
+
+/// Resolve the session to resume from --session / --continue flags.
+fn resolve_session_resume(cli: &Cli, config: &PawanConfig) -> Result<Option<String>> {
+    use pawan::agent::session::Session;
+
+    if let Some(id) = cli.session.as_deref() {
+        let loaded = match Session::load(id) {
+            Ok(s) => s,
+            Err(PawanError::NotFound(_)) => {
+                return Err(PawanError::NotFound(format!(
+                    "No session with id {id}. Run `pawan --list-sessions` to see available sessions."
+                )));
+            }
+            Err(e) => {
+                return Err(PawanError::Config(format!(
+                    "Failed to load session {id}: {e}. The session data may be corrupted; remove ~/.pawan/sessions/{id}.json or start a new session."
+                )));
+            }
+        };
+        if loaded.model != config.model {
+            eprintln!(
+                "{} {}{}{}",
+                "Warning:".yellow().bold(),
+                "session model (".dimmed(),
+                loaded.model.dimmed(),
+                ") differs from current model; resuming anyway".dimmed()
+            );
+        }
+        Ok(Some(id.to_string()))
+    } else if cli.continue_session {
+        let sessions = Session::list()?;
+        if sessions.is_empty() {
+            eprintln!(
+                "{} {}",
+                "Warning:".yellow().bold(),
+                "no saved sessions found; starting fresh".dimmed()
+            );
+            Ok(None)
+        } else {
+            let id = sessions[0].id.clone();
+            let loaded = match Session::load(&id) {
+                Ok(s) => s,
+                Err(e) => {
+                    return Err(PawanError::Config(format!(
+                        "Failed to load most recent session {id}: {e}. The session data may be corrupted; remove ~/.pawan/sessions/{id}.json or start a new session."
+                    )));
+                }
+            };
+            if loaded.model != config.model {
+                eprintln!(
+                    "{} {}{}{}",
+                    "Warning:".yellow().bold(),
+                    "session model (".dimmed(),
+                    loaded.model.dimmed(),
+                    ") differs from current model; resuming anyway".dimmed()
+                );
+            }
+            Ok(Some(id))
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+async fn run() -> Result<()> {
+    let cli = Cli::parse();
+    let (config, workspace) = setup_config(&cli)?;
 
     if cli.print {
         let prompt = read_print_prompt(cli.print_prompt.clone())?;
@@ -826,76 +896,16 @@ async fn run() -> Result<()> {
         return Ok(());
     }
 
-    let resume_id_from_flags: Option<String> = {
-        use pawan::agent::session::Session;
-
-        if let Some(id) = cli.session.as_deref() {
-            let loaded = match Session::load(id) {
-                Ok(s) => s,
-                Err(PawanError::NotFound(_)) => {
-                    return Err(PawanError::NotFound(format!(
-                        "No session with id {id}. Run `pawan --list-sessions` to see available sessions."
-                    )));
-                }
-                Err(e) => {
-                    return Err(PawanError::Config(format!(
-                        "Failed to load session {id}: {e}. The session data may be corrupted; remove ~/.pawan/sessions/{id}.json or start a new session."
-                    )));
-                }
-            };
-            if loaded.model != config.model {
-                eprintln!(
-                    "{} {}{}{}",
-                    "Warning:".yellow().bold(),
-                    "session model (".dimmed(),
-                    loaded.model.dimmed(),
-                    ") differs from current model; resuming anyway".dimmed()
-                );
-            }
-            Some(id.to_string())
-        } else if cli.continue_session {
-            let sessions = Session::list()?;
-            if sessions.is_empty() {
-                eprintln!(
-                    "{} {}",
-                    "Warning:".yellow().bold(),
-                    "no saved sessions found; starting fresh".dimmed()
-                );
-                None
-            } else {
-                let id = sessions[0].id.clone();
-                let loaded = match Session::load(&id) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        return Err(PawanError::Config(format!(
-                            "Failed to load most recent session {id}: {e}. The session data may be corrupted; remove ~/.pawan/sessions/{id}.json or start a new session."
-                        )));
-                    }
-                };
-                if loaded.model != config.model {
-                    eprintln!(
-                        "{} {}{}{}",
-                        "Warning:".yellow().bold(),
-                        "session model (".dimmed(),
-                        loaded.model.dimmed(),
-                        ") differs from current model; resuming anyway".dimmed()
-                    );
-                }
-                Some(id)
-            }
-        } else {
-            None
-        }
-    };
+    let resume_id = resolve_session_resume(&cli, &config)?;
 
     // Resume via --session / --continue uses non-TUI (headless) REPL, matching /session behavior.
     let no_tui = cli.no_tui
         || cli.session.is_some()
-        || (cli.continue_session && resume_id_from_flags.is_some());
+        || (cli.continue_session && resume_id.is_some());
 
     match cli.command {
         None | Some(Commands::Chat { resume: None }) => {
-            run_interactive(config, workspace, no_tui, resume_id_from_flags).await
+            run_interactive(config, workspace, no_tui, resume_id).await
         }
         Some(Commands::Chat { resume: Some(id) }) => {
             run_interactive(config, workspace, cli.no_tui, Some(id)).await
@@ -1195,30 +1205,23 @@ async fn run_task(
     Ok(())
 }
 
-/// Generate commit message
-async fn run_commit(
-    config: PawanConfig,
-    workspace: PathBuf,
-    stage_all: bool,
-    dry_run: bool,
-    auto_yes: bool,
-) -> Result<()> {
-    use dialoguer::{Confirm, MultiSelect};
-
-    // 1. Show current git status
+fn fetch_git_porcelain_status(workspace: &Path) -> Result<Option<String>> {
     let status_output = std::process::Command::new("git")
         .args(["status", "--porcelain"])
-        .current_dir(&workspace)
+        .current_dir(workspace)
         .output()
         .map_err(PawanError::Io)?;
     let status_text = String::from_utf8_lossy(&status_output.stdout);
-
     if status_text.trim().is_empty() {
         println!("{}", "Nothing to commit — working tree clean.".dimmed());
-        return Ok(());
+        return Ok(None);
     }
+    Ok(Some(status_text.into_owned()))
+}
 
-    // Parse files into categories
+fn parse_git_status_categories(
+    status_text: &str,
+) -> (Vec<String>, Vec<String>, Vec<String>) {
     let mut staged: Vec<String> = Vec::new();
     let mut unstaged: Vec<String> = Vec::new();
     let mut untracked: Vec<String> = Vec::new();
@@ -1243,37 +1246,53 @@ async fn run_commit(
         }
     }
 
-    // Display status summary
+    (staged, unstaged, untracked)
+}
+
+fn print_commit_status_summary(
+    staged: &[String],
+    unstaged: &[String],
+    untracked: &[String],
+) {
     if !staged.is_empty() {
         println!("{}", "Staged:".green().bold());
-        for f in &staged {
+        for f in staged {
             println!("  {} {}", "✓".green(), f);
         }
     }
     if !unstaged.is_empty() {
         println!("{}", "Unstaged:".yellow().bold());
-        for f in &unstaged {
+        for f in unstaged {
             println!("  {} {}", "~".yellow(), f);
         }
     }
     if !untracked.is_empty() {
         println!("{}", "Untracked:".red().bold());
-        for f in &untracked {
+        for f in untracked {
             println!("  {} {}", "?".red(), f);
         }
     }
     println!();
+}
 
-    // 2. Stage files
+/// Returns `false` when the user aborts file selection (caller should return early).
+fn stage_commit_changes(
+    workspace: &Path,
+    stage_all: bool,
+    staged: &[String],
+    unstaged: &[String],
+    untracked: &[String],
+) -> Result<bool> {
+    use dialoguer::MultiSelect;
+
     let needs_staging = !unstaged.is_empty() || !untracked.is_empty();
 
     if needs_staging {
         if stage_all {
-            // Stage everything
             println!("{}", "Staging all files...".cyan());
             let output = std::process::Command::new("git")
                 .args(["add", "-A"])
-                .current_dir(&workspace)
+                .current_dir(workspace)
                 .output()
                 .map_err(PawanError::Io)?;
             if !output.status.success() {
@@ -1281,7 +1300,6 @@ async fn run_commit(
                 return Err(PawanError::Git(format!("git add -A failed: {}", stderr)));
             }
         } else if staged.is_empty() {
-            // Nothing staged yet — prompt user to select files
             let mut all_files: Vec<String> = Vec::new();
             all_files.extend(unstaged.iter().map(|f| format!("~ {}", f)));
             all_files.extend(untracked.iter().map(|f| format!("? {}", f)));
@@ -1295,13 +1313,12 @@ async fn run_commit(
 
             if selections.is_empty() {
                 println!("{}", "No files selected. Aborting.".dimmed());
-                return Ok(());
+                return Ok(false);
             }
 
             let mut files_to_add: Vec<String> = Vec::new();
             for idx in selections {
                 let raw = &all_files[idx];
-                // Strip the "~ " or "? " prefix
                 files_to_add.push(raw[2..].to_string());
             }
 
@@ -1311,7 +1328,7 @@ async fn run_commit(
 
             let output = std::process::Command::new("git")
                 .args(&args)
-                .current_dir(&workspace)
+                .current_dir(workspace)
                 .output()
                 .map_err(PawanError::Io)?;
             if !output.status.success() {
@@ -1326,33 +1343,40 @@ async fn run_commit(
         }
     }
 
-    // 3. Generate AI commit message from staged diff
-    println!("{}", "Generating commit message...".cyan());
+    Ok(true)
+}
 
+fn fetch_staged_diff(workspace: &Path) -> Result<(String, String)> {
     let diff_output = std::process::Command::new("git")
         .args(["diff", "--cached", "--stat"])
-        .current_dir(&workspace)
+        .current_dir(workspace)
         .output()
         .map_err(PawanError::Io)?;
-    let diff_stat = String::from_utf8_lossy(&diff_output.stdout);
+    let diff_stat = String::from_utf8_lossy(&diff_output.stdout).into_owned();
 
     let diff_output = std::process::Command::new("git")
         .args(["diff", "--cached"])
-        .current_dir(&workspace)
+        .current_dir(workspace)
         .output()
         .map_err(PawanError::Io)?;
-    let diff_full = String::from_utf8_lossy(&diff_output.stdout);
+    let diff_full = String::from_utf8_lossy(&diff_output.stdout).into_owned();
 
+    Ok((diff_stat, diff_full))
+}
+
+fn ensure_staged_changes(diff_full: &str, staged: &[String]) -> bool {
     if diff_full.trim().is_empty() && staged.is_empty() {
         println!(
             "{}",
             "No staged changes to commit. Use -a to stage all.".dimmed()
         );
-        return Ok(());
+        return false;
     }
+    true
+}
 
-    // Truncate diff if too long to avoid token waste
-    let diff_for_prompt = if diff_full.len() > 8000 {
+fn truncate_diff_for_prompt(diff_full: &str) -> String {
+    if diff_full.len() > 8000 {
         format!(
             "{}...\n\n[diff truncated, {} total bytes]",
             &diff_full[..8000],
@@ -1360,9 +1384,11 @@ async fn run_commit(
         )
     } else {
         diff_full.to_string()
-    };
+    }
+}
 
-    let prompt = format!(
+fn build_commit_prompt(diff_stat: &str, diff_for_prompt: &str) -> String {
+    format!(
         r#"Generate a concise git commit message for the following changes.
 
 Rules:
@@ -1376,22 +1402,31 @@ Diff stat:
 
 Full diff:
 {diff_for_prompt}"#
-    );
+    )
+}
 
-    let mut agent = PawanAgent::new(config, workspace.clone());
-    let response = agent.execute(&prompt).await?;
-    let message = response.content.trim().to_string();
-
-    // Strip markdown code fences if the model wraps the output
-    let message = message
+fn strip_commit_message_fences(message: &str) -> String {
+    message
         .strip_prefix("```")
-        .unwrap_or(&message)
+        .unwrap_or(message)
         .strip_suffix("```")
-        .unwrap_or(&message)
+        .unwrap_or(message)
         .trim()
-        .to_string();
+        .to_string()
+}
 
-    // Show diff preview
+async fn generate_ai_commit_message(
+    config: PawanConfig,
+    workspace: PathBuf,
+    prompt: &str,
+) -> Result<String> {
+    let mut agent = PawanAgent::new(config, workspace);
+    let response = agent.execute(prompt).await?;
+    let message = response.content.trim().to_string();
+    Ok(strip_commit_message_fences(&message))
+}
+
+fn print_commit_diff_preview(diff_stat: &str, diff_full: &str, message: &str) {
     println!("\n{}", "Diff preview:".cyan().bold());
     println!("{}", "─".repeat(50).dimmed());
     println!("{}", diff_stat.trim());
@@ -1411,13 +1446,21 @@ Full diff:
     println!("{}", "─".repeat(50).dimmed());
     println!("{}", message);
     println!("{}", "─".repeat(50).dimmed());
+}
+
+fn confirm_and_execute_git_commit(
+    workspace: &Path,
+    message: &str,
+    dry_run: bool,
+    auto_yes: bool,
+) -> Result<()> {
+    use dialoguer::Confirm;
 
     if dry_run {
         println!("\n{}", "(dry run — not committing)".dimmed());
         return Ok(());
     }
 
-    // 4. Confirm and commit
     let should_commit = auto_yes
         || Confirm::new()
             .with_prompt("Commit with this message?")
@@ -1427,15 +1470,14 @@ Full diff:
 
     if should_commit {
         let output = std::process::Command::new("git")
-            .args(["commit", "-m", &message])
-            .current_dir(&workspace)
+            .args(["commit", "-m", message])
+            .current_dir(workspace)
             .output()
             .map_err(PawanError::Io)?;
 
         if output.status.success() {
             let stdout = String::from_utf8_lossy(&output.stdout);
             println!("{} {}", "✓".green(), "Committed!".green().bold());
-            // Extract and show commit hash
             if let Some(line) = stdout.lines().next() {
                 println!("  {}", line.dimmed());
             }
@@ -1448,6 +1490,47 @@ Full diff:
     }
 
     Ok(())
+}
+
+/// Generate commit message
+async fn run_commit(
+    config: PawanConfig,
+    workspace: PathBuf,
+    stage_all: bool,
+    dry_run: bool,
+    auto_yes: bool,
+) -> Result<()> {
+    let status_text = match fetch_git_porcelain_status(&workspace)? {
+        Some(text) => text,
+        None => return Ok(()),
+    };
+
+    let (staged, unstaged, untracked) = parse_git_status_categories(&status_text);
+    print_commit_status_summary(&staged, &unstaged, &untracked);
+
+    if !stage_commit_changes(
+        &workspace,
+        stage_all,
+        &staged,
+        &unstaged,
+        &untracked,
+    )? {
+        return Ok(());
+    }
+
+    println!("{}", "Generating commit message...".cyan());
+
+    let (diff_stat, diff_full) = fetch_staged_diff(&workspace)?;
+    if !ensure_staged_changes(&diff_full, &staged) {
+        return Ok(());
+    }
+
+    let diff_for_prompt = truncate_diff_for_prompt(&diff_full);
+    let prompt = build_commit_prompt(&diff_stat, &diff_for_prompt);
+    let message = generate_ai_commit_message(config, workspace.clone(), &prompt).await?;
+
+    print_commit_diff_preview(&diff_stat, &diff_full, &message);
+    confirm_and_execute_git_commit(&workspace, &message, dry_run, auto_yes)
 }
 
 /// AI-powered test runner and failure analysis
@@ -2044,25 +2127,18 @@ async fn run_status(config: PawanConfig, workspace: PathBuf) -> Result<()> {
 }
 
 /// List saved sessions
-/// Diagnose setup issues
-async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
-    use pawan::config::LlmProvider;
-
-    println!("{}", "Pawan Doctor".cyan().bold());
-    println!("{}\n", "─".repeat(40).dimmed());
-
-    let mut issues = 0u32;
-
-    // 1. Check workspace
+fn check_doctor_workspace(workspace: &Path) -> u32 {
     print!("  Workspace: ");
     if workspace.exists() {
         println!("{} {}", "✓".green(), workspace.display());
+        0
     } else {
         println!("{} {} (not found)", "✗".red(), workspace.display());
-        issues += 1;
+        1
     }
+}
 
-    // 2. Check config files
+fn check_doctor_project_files(workspace: &Path) {
     print!("  pawan.toml: ");
     if workspace.join("pawan.toml").exists() {
         println!("{}", "✓ found".green());
@@ -2076,34 +2152,40 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
     } else {
         println!("{}", "- not found (run `pawan init`)".dimmed());
     }
+}
 
-    // 3. Check .env
+fn check_doctor_env_file(workspace: &Path) {
     print!("  .env: ");
     if workspace.join(".env").exists() || std::path::Path::new(".env").exists() {
         println!("{}", "✓ found".green());
     } else {
         println!("{}", "- not found".dimmed());
     }
+}
 
-    // 4. Check API keys
+fn check_doctor_api_keys(config: &PawanConfig) -> u32 {
+    use pawan::config::LlmProvider;
+
     println!("\n{}", "  API Keys:".bold());
     match config.provider {
         LlmProvider::Nvidia => {
             print!("    NVIDIA_API_KEY: ");
             if std::env::var("NVIDIA_API_KEY").is_ok() {
                 println!("{}", "✓ set".green());
+                0
             } else {
                 println!("{}", "✗ NOT SET".red());
-                issues += 1;
+                1
             }
         }
         LlmProvider::OpenAI => {
             print!("    OPENAI_API_KEY: ");
             if std::env::var("OPENAI_API_KEY").is_ok() {
                 println!("{}", "✓ set".green());
+                0
             } else {
                 println!("{}", "✗ NOT SET".red());
-                issues += 1;
+                1
             }
         }
         LlmProvider::Ollama => {
@@ -2111,21 +2193,25 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
             let url =
                 std::env::var("OLLAMA_URL").unwrap_or_else(|_| "http://localhost:11434".into());
             println!("{}", url.cyan());
+            0
         }
         LlmProvider::Mlx => {
             print!("    MLX URL: ");
             let url = std::env::var("MLX_URL").unwrap_or_else(|_| "http://localhost:8080".into());
             println!("{}", url.cyan());
+            0
         }
     }
+}
 
-    // 5. Check model connectivity
+fn check_doctor_model_connectivity(config: &PawanConfig) -> u32 {
+    use pawan::config::LlmProvider;
+
     println!("\n{}", "  Model:".bold());
     println!("    Provider: {}", format!("{:?}", config.provider).cyan());
     println!("    Model: {}", config.model.cyan());
 
     print!("    Connectivity: ");
-    // Quick ping test
     let api_url = match config.provider {
         LlmProvider::Nvidia => std::env::var("NVIDIA_API_URL")
             .unwrap_or_else(|_| pawan::DEFAULT_NVIDIA_API_URL.to_string()),
@@ -2166,36 +2252,40 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
             } else {
                 println!("{} (HTTP {})", "⚠".yellow(), code);
             }
+            0
         }
         Ok(_) => {
             println!("{}", "✗ unreachable".red());
-            issues += 1;
+            1
         }
         Err(_) => {
             println!("{}", "✗ curl not found".red());
-            issues += 1;
+            1
         }
     }
+}
 
-    // 6. Check git
+fn check_doctor_git_repo(workspace: &Path) {
     println!("\n{}", "  Git:".bold());
     print!("    Repository: ");
     let git_check = std::process::Command::new("git")
         .args(["rev-parse", "--is-inside-work-tree"])
-        .current_dir(&workspace)
+        .current_dir(workspace)
         .output();
     match git_check {
         Ok(output) if output.status.success() => println!("{}", "✓ inside git repo".green()),
         _ => println!("{}", "- not a git repo".dimmed()),
     }
+}
 
-    // 7. Check tools
+fn print_doctor_tools_section(config: &PawanConfig, workspace: &Path) {
     println!("\n{}", "  Tools:".bold());
-    let agent = PawanAgent::new(config.clone(), workspace);
+    let agent = PawanAgent::new(config.clone(), workspace.to_path_buf());
     let tool_count = agent.get_tool_definitions().len();
     println!("    Registered: {} tools", format!("{}", tool_count).cyan());
+}
 
-    // 8. MCP servers
+fn print_doctor_mcp_servers(config: &PawanConfig) {
     if !config.mcp.is_empty() {
         println!("\n{}", "  MCP Servers:".bold());
         for (name, entry) in &config.mcp {
@@ -2212,8 +2302,9 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
             );
         }
     }
+}
 
-    // 9. Check native tool binaries (inspired by gstack health checks)
+fn check_doctor_native_binaries() {
     println!("\n{}", "  Native Binaries:".bold());
     let binaries = [
         ("rg", "ripgrep — fast code search"),
@@ -2244,8 +2335,9 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
     if missing_count > 0 {
         println!("    {}", "Install missing: mise install <name>".dimmed());
     }
+}
 
-    // Summary
+fn print_doctor_summary(issues: u32) {
     println!("\n{}", "─".repeat(40).dimmed());
     if issues == 0 {
         println!("{}", "  All checks passed! ✓".green().bold());
@@ -2255,6 +2347,25 @@ async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
             format!("  {} issue(s) found.", issues).yellow().bold()
         );
     }
+}
+
+/// Diagnose setup issues
+async fn run_doctor(config: PawanConfig, workspace: PathBuf) -> Result<()> {
+    println!("{}", "Pawan Doctor".cyan().bold());
+    println!("{}\n", "─".repeat(40).dimmed());
+
+    let mut issues = 0u32;
+
+    issues += check_doctor_workspace(&workspace);
+    check_doctor_project_files(&workspace);
+    check_doctor_env_file(&workspace);
+    issues += check_doctor_api_keys(&config);
+    issues += check_doctor_model_connectivity(&config);
+    check_doctor_git_repo(&workspace);
+    print_doctor_tools_section(&config, &workspace);
+    print_doctor_mcp_servers(&config);
+    check_doctor_native_binaries();
+    print_doctor_summary(issues);
 
     Ok(())
 }
@@ -2449,8 +2560,184 @@ max_tool_iterations = 15
     Ok(())
 }
 
+fn list_tasks_beads(
+    store: &pawan::tasks::BeadStore,
+    status: String,
+    priority: Option<u8>,
+    json: bool,
+) -> Result<()> {
+    use pawan::tasks::BeadStatus;
+
+    let status_filter = match status.as_str() {
+        "all" => None,
+        s => Some(s),
+    };
+    let beads = store.list(status_filter, priority)?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&beads).unwrap_or_default()
+        );
+        return Ok(());
+    }
+
+    if beads.is_empty() {
+        println!("{}", "No beads found.".dimmed());
+        return Ok(());
+    }
+
+    println!("{}", "Beads".green().bold());
+    println!("{}", "═".repeat(70).dimmed());
+    println!(
+        "  {:<12} {:<5} {:<12} {}",
+        "ID".cyan(),
+        "Pri".cyan(),
+        "Status".cyan(),
+        "Title".cyan()
+    );
+    println!("{}", "─".repeat(70).dimmed());
+
+    for b in &beads {
+        let status_color = match b.status {
+            BeadStatus::Open => format!("{:<12}", "open").yellow().to_string(),
+            BeadStatus::InProgress => format!("{:<12}", "in_progress").blue().to_string(),
+            BeadStatus::Closed => format!("{:<12}", "closed").dimmed().to_string(),
+        };
+        println!(
+            "  {:<12} {:<5} {} {}",
+            b.id.display(),
+            b.priority,
+            status_color,
+            b.title
+        );
+    }
+    println!("\n  {} beads total", beads.len());
+    Ok(())
+}
+
+fn list_ready_tasks(store: &pawan::tasks::BeadStore, json: bool) -> Result<()> {
+    let beads = store.ready()?;
+
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&beads).unwrap_or_default()
+        );
+        return Ok(());
+    }
+
+    if beads.is_empty() {
+        println!("{}", "No ready beads (all blocked or none open).".dimmed());
+        return Ok(());
+    }
+
+    println!(
+        "{} {} actionable beads:",
+        "Ready:".green().bold(),
+        beads.len()
+    );
+    for b in &beads {
+        println!("  {} [P{}] {}", b.id.display().cyan(), b.priority, b.title);
+    }
+    Ok(())
+}
+
+fn create_task_bead(
+    store: &pawan::tasks::BeadStore,
+    title: String,
+    priority: u8,
+    desc: Option<String>,
+) -> Result<()> {
+    let bead = store.create(&title, desc.as_deref(), priority)?;
+    println!(
+        "{} {} — {}",
+        "Created:".green().bold(),
+        bead.id.display().cyan(),
+        bead.title
+    );
+    Ok(())
+}
+
+fn update_task_bead(
+    store: &pawan::tasks::BeadStore,
+    id: String,
+    status: Option<String>,
+    priority: Option<u8>,
+    title: Option<String>,
+) -> Result<()> {
+    use pawan::tasks::{BeadId, BeadStatus};
+
+    let bid = BeadId::parse(&id);
+    let status = status.map(|s| s.parse::<BeadStatus>().unwrap_or(BeadStatus::Open));
+    store.update(&bid, title.as_deref(), status, priority)?;
+    println!("{} {}", "Updated:".green().bold(), bid.display().cyan());
+    Ok(())
+}
+
+fn close_task_bead(
+    store: &pawan::tasks::BeadStore,
+    id: String,
+    reason: Option<String>,
+) -> Result<()> {
+    use pawan::tasks::BeadId;
+
+    let bid = BeadId::parse(&id);
+    store.close(&bid, reason.as_deref())?;
+    println!("{} {}", "Closed:".green().bold(), bid.display().cyan());
+    Ok(())
+}
+
+fn handle_task_dep_action(
+    store: &pawan::tasks::BeadStore,
+    action: DepAction,
+) -> Result<()> {
+    use pawan::tasks::BeadId;
+
+    match action {
+        DepAction::Add { id, blocks_id } => {
+            let bid = BeadId::parse(&id);
+            let dep = BeadId::parse(&blocks_id);
+            store.dep_add(&bid, &dep)?;
+            println!(
+                "{} {} depends on {}",
+                "Dep added:".green().bold(),
+                bid.display().cyan(),
+                dep.display().cyan()
+            );
+        }
+        DepAction::Rm { id, blocks_id } => {
+            let bid = BeadId::parse(&id);
+            let dep = BeadId::parse(&blocks_id);
+            store.dep_remove(&bid, &dep)?;
+            println!(
+                "{} {} no longer depends on {}",
+                "Dep removed:".green().bold(),
+                bid.display().cyan(),
+                dep.display().cyan()
+            );
+        }
+    }
+    Ok(())
+}
+
+fn run_tasks_decay(store: &pawan::tasks::BeadStore, max_age_days: u64) -> Result<()> {
+    let count = store.memory_decay(max_age_days)?;
+    if count == 0 {
+        println!("{}", "No beads to archive.".dimmed());
+    } else {
+        println!(
+            "{} {} beads archived (older than {} days)",
+            "Decayed:".green().bold(),
+            count,
+            max_age_days
+        );
+    }
+    Ok(())
+}
+
 async fn run_tasks(action: TasksAction) -> Result<()> {
-    use pawan::tasks::{BeadId, BeadStatus, BeadStore};
+    use pawan::tasks::BeadStore;
 
     let store = BeadStore::open()?;
 
@@ -2459,150 +2746,22 @@ async fn run_tasks(action: TasksAction) -> Result<()> {
             status,
             priority,
             json,
-        } => {
-            let status_filter = match status.as_str() {
-                "all" => None,
-                s => Some(s),
-            };
-            let beads = store.list(status_filter, priority)?;
-
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&beads).unwrap_or_default()
-                );
-                return Ok(());
-            }
-
-            if beads.is_empty() {
-                println!("{}", "No beads found.".dimmed());
-                return Ok(());
-            }
-
-            println!("{}", "Beads".green().bold());
-            println!("{}", "═".repeat(70).dimmed());
-            println!(
-                "  {:<12} {:<5} {:<12} {}",
-                "ID".cyan(),
-                "Pri".cyan(),
-                "Status".cyan(),
-                "Title".cyan()
-            );
-            println!("{}", "─".repeat(70).dimmed());
-
-            for b in &beads {
-                let status_color = match b.status {
-                    BeadStatus::Open => format!("{:<12}", "open").yellow().to_string(),
-                    BeadStatus::InProgress => format!("{:<12}", "in_progress").blue().to_string(),
-                    BeadStatus::Closed => format!("{:<12}", "closed").dimmed().to_string(),
-                };
-                println!(
-                    "  {:<12} {:<5} {} {}",
-                    b.id.display(),
-                    b.priority,
-                    status_color,
-                    b.title
-                );
-            }
-            println!("\n  {} beads total", beads.len());
-        }
-
-        TasksAction::Ready { json } => {
-            let beads = store.ready()?;
-
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&beads).unwrap_or_default()
-                );
-                return Ok(());
-            }
-
-            if beads.is_empty() {
-                println!("{}", "No ready beads (all blocked or none open).".dimmed());
-                return Ok(());
-            }
-
-            println!(
-                "{} {} actionable beads:",
-                "Ready:".green().bold(),
-                beads.len()
-            );
-            for b in &beads {
-                println!("  {} [P{}] {}", b.id.display().cyan(), b.priority, b.title);
-            }
-        }
-
+        } => list_tasks_beads(&store, status, priority, json)?,
+        TasksAction::Ready { json } => list_ready_tasks(&store, json)?,
         TasksAction::Create {
             title,
             priority,
             desc,
-        } => {
-            let bead = store.create(&title, desc.as_deref(), priority)?;
-            println!(
-                "{} {} — {}",
-                "Created:".green().bold(),
-                bead.id.display().cyan(),
-                bead.title
-            );
-        }
-
+        } => create_task_bead(&store, title, priority, desc)?,
         TasksAction::Update {
             id,
             status,
             priority,
             title,
-        } => {
-            let bid = BeadId::parse(&id);
-            let status = status.map(|s| s.parse::<BeadStatus>().unwrap_or(BeadStatus::Open));
-            store.update(&bid, title.as_deref(), status, priority)?;
-            println!("{} {}", "Updated:".green().bold(), bid.display().cyan());
-        }
-
-        TasksAction::Close { id, reason } => {
-            let bid = BeadId::parse(&id);
-            store.close(&bid, reason.as_deref())?;
-            println!("{} {}", "Closed:".green().bold(), bid.display().cyan());
-        }
-
-        TasksAction::Dep { action } => match action {
-            DepAction::Add { id, blocks_id } => {
-                let bid = BeadId::parse(&id);
-                let dep = BeadId::parse(&blocks_id);
-                store.dep_add(&bid, &dep)?;
-                println!(
-                    "{} {} depends on {}",
-                    "Dep added:".green().bold(),
-                    bid.display().cyan(),
-                    dep.display().cyan()
-                );
-            }
-            DepAction::Rm { id, blocks_id } => {
-                let bid = BeadId::parse(&id);
-                let dep = BeadId::parse(&blocks_id);
-                store.dep_remove(&bid, &dep)?;
-                println!(
-                    "{} {} no longer depends on {}",
-                    "Dep removed:".green().bold(),
-                    bid.display().cyan(),
-                    dep.display().cyan()
-                );
-            }
-        },
-
-        TasksAction::Decay { max_age_days } => {
-            let count = store.memory_decay(max_age_days)?;
-            if count == 0 {
-                println!("{}", "No beads to archive.".dimmed());
-            } else {
-                println!(
-                    "{} {} beads archived (older than {} days)",
-                    "Decayed:".green().bold(),
-                    count,
-                    max_age_days
-                );
-            }
-        }
+        } => update_task_bead(&store, id, status, priority, title)?,
+        TasksAction::Close { id, reason } => close_task_bead(&store, id, reason)?,
+        TasksAction::Dep { action } => handle_task_dep_action(&store, action)?,
+        TasksAction::Decay { max_age_days } => run_tasks_decay(&store, max_age_days)?,
     }
 
     Ok(())
@@ -3062,48 +3221,44 @@ async fn run_mcp_list(config: PawanConfig) -> Result<()> {
     Ok(())
 }
 
-/// Headless single-prompt execution (replaces oh-my-opencode `run`)
-#[allow(clippy::too_many_arguments)]
-async fn run_headless(
-    mut config: PawanConfig,
-    workspace: PathBuf,
-    prompt: Option<String>,
-    file: Option<PathBuf>,
-    output_format: &str,
-    timeout_secs: u64,
-    max_iterations: Option<usize>,
-    max_retries: Option<usize>,
-    save_session: bool,
-    stream: bool,
-    verbose: bool,
-) -> Result<()> {
-    // Resolve prompt from argument or file
-    let prompt_text = match (prompt, file) {
-        (Some(p), _) => p,
+
+fn resolve_headless_prompt(prompt: Option<String>, file: Option<PathBuf>) -> Result<String> {
+    match (prompt, file) {
+        (Some(p), _) => Ok(p),
         (None, Some(f)) => std::fs::read_to_string(&f).map_err(|e| {
             PawanError::Config(format!("Failed to read prompt file {}: {}", f.display(), e))
-        })?,
-        (None, None) => {
-            return Err(PawanError::Config(
-                "Either a prompt argument or --file is required for `run`".into(),
-            ));
-        }
-    };
+        }),
+        (None, None) => Err(PawanError::Config(
+            "Either a prompt argument or --file is required for `run`".into(),
+        )),
+    }
+}
 
+fn apply_headless_config_limits(
+    mut config: PawanConfig,
+    max_iterations: Option<usize>,
+    max_retries: Option<usize>,
+) -> PawanConfig {
     if let Some(max_iter) = max_iterations {
         config.max_tool_iterations = max_iter;
     }
     if let Some(retries) = max_retries {
         config.max_retries = retries;
     }
+    config
+}
 
+async fn setup_headless_agent(config: PawanConfig, workspace: PathBuf) -> PawanAgent {
     let config_ref = config.clone();
     let mut agent = PawanAgent::new(config, workspace);
 
     #[cfg(feature = "mcp")]
     setup_mcp_tools(&mut agent, &config_ref).await;
 
-    // Pre-flight: verify model is reachable before starting work
+    agent
+}
+
+async fn run_headless_preflight_or_exit(agent: &mut PawanAgent, output_format: &str) {
     if let Err(e) = agent.preflight_check().await {
         if output_format == "json" {
             println!(
@@ -3116,36 +3271,36 @@ async fn run_headless(
         }
         std::process::exit(1);
     }
+}
 
-    let is_json = output_format == "json";
-    let use_color = !is_json && atty::is(atty::Stream::Stderr);
-
-    // Header
-    if !is_json {
-        if use_color {
-            eprintln!("\x1b[1;36m┌─ pawan run\x1b[0m");
-            eprintln!(
-                "\x1b[1;36m│\x1b[0m \x1b[33mModel:\x1b[0m  {}",
-                agent.config().model
-            );
-            let display_prompt: String = prompt_text.chars().take(80).collect();
-            eprintln!(
-                "\x1b[1;36m│\x1b[0m \x1b[33mPrompt:\x1b[0m {}",
-                display_prompt
-            );
-            eprintln!("\x1b[1;36m└─\x1b[0m");
-        } else {
-            eprintln!("── pawan run ──");
-            eprintln!("Model:  {}", agent.config().model);
-            let display_prompt: String = prompt_text.chars().take(80).collect();
-            eprintln!("Prompt: {}", display_prompt);
-            eprintln!("───────────────");
-        }
+fn print_headless_run_header(agent: &PawanAgent, prompt_text: &str, use_color: bool) {
+    if use_color {
+        eprintln!("\x1b[1;36m┌─ pawan run\x1b[0m");
+        eprintln!(
+            "\x1b[1;36m│\x1b[0m \x1b[33mModel:\x1b[0m  {}",
+            agent.config().model
+        );
+        let display_prompt: String = prompt_text.chars().take(80).collect();
+        eprintln!(
+            "\x1b[1;36m│\x1b[0m \x1b[33mPrompt:\x1b[0m {}",
+            display_prompt
+        );
+        eprintln!("\x1b[1;36m└─\x1b[0m");
+    } else {
+        eprintln!("── pawan run ──");
+        eprintln!("Model:  {}", agent.config().model);
+        let display_prompt: String = prompt_text.chars().take(80).collect();
+        eprintln!("Prompt: {}", display_prompt);
+        eprintln!("───────────────");
     }
+}
 
-    // Token streaming callback — streams content to stdout, strips thinking
-    let use_color_token = use_color;
-    let on_token: Option<pawan::agent::TokenCallback> = if stream && is_json {
+fn build_headless_token_callback(
+    stream: bool,
+    is_json: bool,
+    use_color: bool,
+) -> Option<pawan::agent::TokenCallback> {
+    if stream && is_json {
         Some(Box::new(|token: &str| {
             use std::io::Write;
             let event = serde_json::json!({"type": "token", "content": token});
@@ -3153,7 +3308,7 @@ async fn run_headless(
             std::io::stdout().flush().ok();
         }))
     } else if !is_json {
-        // Stateful token filter: suppresses [TOOL_CALLS], <think>, and model narration
+        let use_color_token = use_color;
         let suppressing = std::sync::Arc::new(std::sync::Mutex::new(false));
         let buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
         Some(Box::new(move |token: &str| {
@@ -3161,17 +3316,14 @@ async fn run_headless(
             let mut sup = suppressing.lock().unwrap_or_else(|e| e.into_inner());
             let mut buf = buffer.lock().unwrap_or_else(|e| e.into_inner());
 
-            // Accumulate into buffer for pattern detection
             buf.push_str(token);
 
-            // Suppress [TOOL_CALLS] blocks — model emits these as text before actual tool call
             if buf.contains("[TOOL_CALLS]") || buf.contains("[TOOL_CALL]") {
                 *sup = true;
                 buf.clear();
                 return;
             }
 
-            // If suppressing, eat tokens until newline (tool call JSON ends at newline)
             if *sup {
                 if token.contains('\n') {
                     *sup = false;
@@ -3180,22 +3332,18 @@ async fn run_headless(
                 return;
             }
 
-            // Strip thinking tags
             let clean = buf
                 .replace("<think>", "")
                 .replace("</think>", "")
                 .replace("<|im_start|>", "")
                 .replace("<|im_end|>", "");
 
-            // Suppress empty planning narration ("I'll", "Let me", "I will")
-            // Only on the very first output tokens
             if clean.len() < 50 {
                 let lower = clean.trim().to_lowercase();
                 if lower.starts_with("i'll ")
                     || lower.starts_with("let me ")
                     || lower.starts_with("i will ")
                 {
-                    // Don't print yet — buffer it in case it's just narration before a tool call
                     return;
                 }
             }
@@ -3212,9 +3360,17 @@ async fn run_headless(
         }))
     } else {
         None
-    };
+    }
+}
 
-    // Tool callbacks — show real-time progress in pretty format
+fn build_headless_tool_callbacks(
+    stream: bool,
+    is_json: bool,
+    use_color: bool,
+) -> (
+    Option<pawan::agent::ToolStartCallback>,
+    Option<pawan::agent::ToolCallback>,
+) {
     let use_color_tool = use_color;
     let on_tool_start: Option<pawan::agent::ToolStartCallback> = if is_json && stream {
         Some(Box::new(|name: &str| {
@@ -3261,14 +3417,25 @@ async fn run_headless(
         None
     };
 
-    // Execute with timeout
+    (on_tool_start, on_tool_done)
+}
+
+async fn execute_headless_with_timeout(
+    agent: &mut PawanAgent,
+    prompt_text: &str,
+    output_format: &str,
+    timeout_secs: u64,
+    on_token: Option<pawan::agent::TokenCallback>,
+    on_tool_done: Option<pawan::agent::ToolCallback>,
+    on_tool_start: Option<pawan::agent::ToolStartCallback>,
+) -> pawan::agent::AgentResponse {
     let result = tokio::time::timeout(
         std::time::Duration::from_secs(timeout_secs),
-        agent.execute_with_callbacks(&prompt_text, on_token, on_tool_done, on_tool_start),
+        agent.execute_with_callbacks(prompt_text, on_token, on_tool_done, on_tool_start),
     )
     .await;
 
-    let response = match result {
+    match result {
         Ok(Ok(resp)) => resp,
         Ok(Err(e)) => {
             if output_format == "json" {
@@ -3298,142 +3465,149 @@ async fn run_headless(
             }
             std::process::exit(2);
         }
-    };
+    }
+}
 
-    match output_format {
-        "json" => {
-            let tool_calls: Vec<serde_json::Value> = response
-                .tool_calls
-                .iter()
-                .map(|tc| {
-                    serde_json::json!({
-                        "name": tc.name,
-                        "success": tc.success,
-                        "duration_ms": tc.duration_ms,
-                    })
-                })
-                .collect();
+fn emit_headless_json_output(response: &pawan::agent::AgentResponse) {
+    let tool_calls: Vec<serde_json::Value> = response
+        .tool_calls
+        .iter()
+        .map(|tc| {
+            serde_json::json!({
+                "name": tc.name,
+                "success": tc.success,
+                "duration_ms": tc.duration_ms,
+            })
+        })
+        .collect();
 
-            let clean_content = strip_thinking_tags(&response.content);
-            let output = serde_json::json!({
-                "success": true,
-                "content": clean_content,
-                "iterations": response.iterations,
-                "tool_calls": tool_calls,
-                "tool_call_count": response.tool_calls.len(),
-                "usage": {
-                    "prompt_tokens": response.usage.prompt_tokens,
-                    "completion_tokens": response.usage.completion_tokens,
-                    "total_tokens": response.usage.total_tokens,
-                }
-            });
-            println!("{}", serde_json::to_string_pretty(&output).unwrap());
+    let clean_content = strip_thinking_tags(&response.content);
+    let output = serde_json::json!({
+        "success": true,
+        "content": clean_content,
+        "iterations": response.iterations,
+        "tool_calls": tool_calls,
+        "tool_call_count": response.tool_calls.len(),
+        "usage": {
+            "prompt_tokens": response.usage.prompt_tokens,
+            "completion_tokens": response.usage.completion_tokens,
+            "total_tokens": response.usage.total_tokens,
         }
-        _ => {
-            let content = strip_thinking_tags(&response.content);
-            if !content.ends_with('\n') {
-                println!();
-            }
+    });
+    println!("{}", serde_json::to_string_pretty(&output).unwrap());
+}
 
-            // Summary footer
-            let use_color = atty::is(atty::Stream::Stderr);
-            let tc_count = response.tool_calls.len();
-            let success_count = response.tool_calls.iter().filter(|t| t.success).count();
-            let fail_count = tc_count - success_count;
-            let total_ms: u64 = response.tool_calls.iter().map(|t| t.duration_ms).sum();
+fn emit_headless_text_output(response: &pawan::agent::AgentResponse, verbose: bool) {
+    let content = strip_thinking_tags(&response.content);
+    if !content.ends_with('\n') {
+        println!();
+    }
 
-            if use_color {
-                eprintln!();
-                eprintln!("\x1b[1;36m┌─ summary\x1b[0m");
-                eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mIterations:\x1b[0m {} \x1b[2m│\x1b[0m \x1b[33mTools:\x1b[0m \x1b[32m{} ok\x1b[0m{} \x1b[2m│\x1b[0m \x1b[33mTime:\x1b[0m {}ms",
-                    response.iterations,
-                    success_count,
-                    if fail_count > 0 { format!(" \x1b[31m{} fail\x1b[0m", fail_count) } else { String::new() },
-                    total_ms,
-                );
-                if response.usage.total_tokens > 0 {
-                    let budget = if response.usage.reasoning_tokens > 0 {
-                        format!(
-                            " \x1b[2m(think:{} act:{})\x1b[0m",
-                            response.usage.reasoning_tokens, response.usage.action_tokens
-                        )
-                    } else {
-                        String::new()
-                    };
-                    eprintln!(
-                        "\x1b[1;36m│\x1b[0m \x1b[33mTokens:\x1b[0m {}{}",
-                        response.usage.total_tokens, budget
-                    );
-                }
-                if !response.tool_calls.is_empty() && verbose {
-                    eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mTool log:\x1b[0m");
-                    for tc in &response.tool_calls {
-                        let icon = if tc.success {
-                            "\x1b[32m✓\x1b[0m"
-                        } else {
-                            "\x1b[31m✗\x1b[0m"
-                        };
-                        eprintln!(
-                            "\x1b[1;36m│\x1b[0m   {} \x1b[1m{}\x1b[0m \x1b[2m{}ms\x1b[0m",
-                            icon, tc.name, tc.duration_ms
-                        );
-                    }
-                }
-                eprintln!("\x1b[1;36m└─\x1b[0m");
+    let use_color = atty::is(atty::Stream::Stderr);
+    let tc_count = response.tool_calls.len();
+    let success_count = response.tool_calls.iter().filter(|t| t.success).count();
+    let fail_count = tc_count - success_count;
+    let total_ms: u64 = response.tool_calls.iter().map(|t| t.duration_ms).sum();
+
+    if use_color {
+        eprintln!();
+        eprintln!("\x1b[1;36m┌─ summary\x1b[0m");
+        eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mIterations:\x1b[0m {} \x1b[2m│\x1b[0m \x1b[33mTools:\x1b[0m \x1b[32m{} ok\x1b[0m{} \x1b[2m│\x1b[0m \x1b[33mTime:\x1b[0m {}ms",
+            response.iterations,
+            success_count,
+            if fail_count > 0 { format!(" \x1b[31m{} fail\x1b[0m", fail_count) } else { String::new() },
+            total_ms,
+        );
+        if response.usage.total_tokens > 0 {
+            let budget = if response.usage.reasoning_tokens > 0 {
+                format!(
+                    " \x1b[2m(think:{} act:{})\x1b[0m",
+                    response.usage.reasoning_tokens, response.usage.action_tokens
+                )
             } else {
-                eprintln!();
-                eprintln!("── summary ──");
-                eprintln!(
-                    "Iterations: {} | Tools: {} ok{} | Time: {}ms",
-                    response.iterations,
-                    success_count,
-                    if fail_count > 0 {
-                        format!(", {} fail", fail_count)
-                    } else {
-                        String::new()
-                    },
-                    total_ms
-                );
-                if response.usage.total_tokens > 0 {
-                    let budget = if response.usage.reasoning_tokens > 0 {
-                        format!(
-                            " (think:{} act:{})",
-                            response.usage.reasoning_tokens, response.usage.action_tokens
-                        )
-                    } else {
-                        String::new()
-                    };
-                    eprintln!("Tokens: {}{}", response.usage.total_tokens, budget);
-                }
-                if !response.tool_calls.is_empty() && verbose {
-                    for tc in &response.tool_calls {
-                        let s = if tc.success { "ok" } else { "FAIL" };
-                        eprintln!("  [{}] {} {}ms", s, tc.name, tc.duration_ms);
-                    }
-                }
-                eprintln!("─────────────");
-            }
-
-            // Only warn about no tool calls if the response seems incomplete
-            // (empty content + no tools = likely a problem; content present = LLM answered directly)
-            if response.tool_calls.is_empty() && response.content.trim().is_empty() {
-                if use_color {
-                    eprintln!("\x1b[33m⚠ No tool calls were made and response is empty.\x1b[0m");
+                String::new()
+            };
+            eprintln!(
+                "\x1b[1;36m│\x1b[0m \x1b[33mTokens:\x1b[0m {}{}",
+                response.usage.total_tokens, budget
+            );
+        }
+        if !response.tool_calls.is_empty() && verbose {
+            eprintln!("\x1b[1;36m│\x1b[0m \x1b[33mTool log:\x1b[0m");
+            for tc in &response.tool_calls {
+                let icon = if tc.success {
+                    "\x1b[32m✓\x1b[0m"
                 } else {
-                    eprintln!("Warning: No tool calls were made and response is empty.");
-                }
+                    "\x1b[31m✗\x1b[0m"
+                };
+                eprintln!(
+                    "\x1b[1;36m│\x1b[0m   {} \x1b[1m{}\x1b[0m \x1b[2m{}ms\x1b[0m",
+                    icon, tc.name, tc.duration_ms
+                );
             }
+        }
+        eprintln!("\x1b[1;36m└─\x1b[0m");
+    } else {
+        eprintln!();
+        eprintln!("── summary ──");
+        eprintln!(
+            "Iterations: {} | Tools: {} ok{} | Time: {}ms",
+            response.iterations,
+            success_count,
+            if fail_count > 0 {
+                format!(", {} fail", fail_count)
+            } else {
+                String::new()
+            },
+            total_ms
+        );
+        if response.usage.total_tokens > 0 {
+            let budget = if response.usage.reasoning_tokens > 0 {
+                format!(
+                    " (think:{} act:{})",
+                    response.usage.reasoning_tokens, response.usage.action_tokens
+                )
+            } else {
+                String::new()
+            };
+            eprintln!("Tokens: {}{}", response.usage.total_tokens, budget);
+        }
+        if !response.tool_calls.is_empty() && verbose {
+            for tc in &response.tool_calls {
+                let s = if tc.success { "ok" } else { "FAIL" };
+                eprintln!("  [{}] {} {}ms", s, tc.name, tc.duration_ms);
+            }
+        }
+        eprintln!("─────────────");
+    }
 
-            if verbose {}
+    if response.tool_calls.is_empty() && response.content.trim().is_empty() {
+        if use_color {
+            eprintln!("\x1b[33m⚠ No tool calls were made and response is empty.\x1b[0m");
+        } else {
+            eprintln!("Warning: No tool calls were made and response is empty.");
         }
     }
 
-    // Save session if requested
+    if verbose {}
+}
+
+fn emit_headless_output(response: &pawan::agent::AgentResponse, output_format: &str, verbose: bool) {
+    match output_format {
+        "json" => emit_headless_json_output(response),
+        _ => emit_headless_text_output(response, verbose),
+    }
+}
+
+async fn save_headless_session_if_requested(
+    agent: &mut PawanAgent,
+    save_session: bool,
+    output_format: &str,
+) {
     if save_session {
         match agent.save_session() {
             Ok(id) => {
                 if output_format == "json" {
-                    // Already printed JSON above — add session id to stderr
                     eprintln!("Session saved: {}", id);
                 } else {
                     eprintln!(
@@ -3441,7 +3615,6 @@ async fn run_headless(
                         id, id
                     );
                 }
-                // Also archive to Eruka (non-fatal if disabled/unreachable)
                 if let Err(e) = agent.archive_to_eruka().await {
                     eprintln!("Warning: eruka archive_session failed: {}", e);
                 }
@@ -3449,6 +3622,52 @@ async fn run_headless(
             Err(e) => eprintln!("Warning: failed to save session: {}", e),
         }
     }
+}
+
+/// Headless single-prompt execution (replaces oh-my-opencode `run`)
+#[allow(clippy::too_many_arguments)]
+async fn run_headless(
+    mut config: PawanConfig,
+    workspace: PathBuf,
+    prompt: Option<String>,
+    file: Option<PathBuf>,
+    output_format: &str,
+    timeout_secs: u64,
+    max_iterations: Option<usize>,
+    max_retries: Option<usize>,
+    save_session: bool,
+    stream: bool,
+    verbose: bool,
+) -> Result<()> {
+    let prompt_text = resolve_headless_prompt(prompt, file)?;
+    config = apply_headless_config_limits(config, max_iterations, max_retries);
+    let mut agent = setup_headless_agent(config, workspace).await;
+
+    run_headless_preflight_or_exit(&mut agent, output_format).await;
+
+    let is_json = output_format == "json";
+    let use_color = !is_json && atty::is(atty::Stream::Stderr);
+
+    if !is_json {
+        print_headless_run_header(&agent, &prompt_text, use_color);
+    }
+
+    let on_token = build_headless_token_callback(stream, is_json, use_color);
+    let (on_tool_start, on_tool_done) = build_headless_tool_callbacks(stream, is_json, use_color);
+
+    let response = execute_headless_with_timeout(
+        &mut agent,
+        &prompt_text,
+        output_format,
+        timeout_secs,
+        on_token,
+        on_tool_done,
+        on_tool_start,
+    )
+    .await;
+
+    emit_headless_output(&response, output_format, verbose);
+    save_headless_session_if_requested(&mut agent, save_session, output_format).await;
 
     Ok(())
 }

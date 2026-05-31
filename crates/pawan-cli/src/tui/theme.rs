@@ -1,4 +1,4 @@
-//! Centralized UI palette for the Ratatui front-end (inspired by maki-ui).
+//! Centralized UI palette for the Ratatui front-end.
 
 use std::sync::{Arc, LazyLock};
 

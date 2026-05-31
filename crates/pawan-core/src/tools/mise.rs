@@ -16,6 +16,173 @@ impl MiseTool {
     pub fn new(workspace_root: PathBuf) -> Self {
         Self { workspace_root }
     }
+
+    fn resolve_mise_bin() -> crate::Result<String> {
+        if binary_exists("mise") {
+            Ok("mise".to_string())
+        } else {
+            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
+            let local = format!("{}/.local/bin/mise", home);
+            if std::path::Path::new(&local).exists() {
+                Ok(local)
+            } else {
+                Err(crate::PawanError::Tool(
+                    "mise not found. Install: curl https://mise.run | sh".into(),
+                ))
+            }
+        }
+    }
+
+    fn parse_mise_action(args: &Value) -> crate::Result<&str> {
+        args["action"]
+            .as_str()
+            .ok_or_else(|| crate::PawanError::Tool("action required".into()))
+    }
+
+    fn build_mise_command(action: &str, args: &Value, global: bool) -> crate::Result<Vec<String>> {
+        match action {
+            "install" => Self::mise_install(args),
+            "uninstall" => Self::mise_uninstall(args),
+            "upgrade" => Self::mise_upgrade(args),
+            "list" => Ok(Self::mise_list()),
+            "search" => Self::mise_search(args),
+            "use" => Self::mise_use(args, global),
+            "outdated" => Self::mise_outdated(args),
+            "prune" => Self::mise_prune(args),
+            "exec" => Self::mise_exec(args),
+            "run" => Self::mise_run(args),
+            "watch" => Self::mise_watch(args),
+            "tasks" => Ok(Self::mise_tasks()),
+            "env" => Ok(Self::mise_env()),
+            "doctor" => Ok(Self::mise_doctor()),
+            "self-update" => Ok(Self::mise_self_update()),
+            "trust" => Self::mise_trust(args),
+            _ => Err(crate::PawanError::Tool(format!(
+                "Unknown action: {action}. See tool description for available actions."
+            ))),
+        }
+    }
+
+    fn mise_install(args: &Value) -> crate::Result<Vec<String>> {
+        let tool = args["tool"]
+            .as_str()
+            .ok_or_else(|| crate::PawanError::Tool("tool required for install".into()))?;
+        Ok(vec!["install".into(), tool.into(), "-y".into()])
+    }
+
+    fn mise_uninstall(args: &Value) -> crate::Result<Vec<String>> {
+        let tool = args["tool"]
+            .as_str()
+            .ok_or_else(|| crate::PawanError::Tool("tool required for uninstall".into()))?;
+        Ok(vec!["uninstall".into(), tool.into()])
+    }
+
+    fn mise_upgrade(args: &Value) -> crate::Result<Vec<String>> {
+        let mut v = vec!["upgrade".into()];
+        if let Some(tool) = args["tool"].as_str() {
+            v.push(tool.into());
+        }
+        Ok(v)
+    }
+
+    fn mise_list() -> Vec<String> {
+        vec!["ls".into()]
+    }
+
+    fn mise_search(args: &Value) -> crate::Result<Vec<String>> {
+        let tool = args["tool"]
+            .as_str()
+            .ok_or_else(|| crate::PawanError::Tool("tool required for search".into()))?;
+        Ok(vec!["registry".into(), tool.into()])
+    }
+
+    fn mise_use(args: &Value, global: bool) -> crate::Result<Vec<String>> {
+        let tool = args["tool"]
+            .as_str()
+            .ok_or_else(|| crate::PawanError::Tool("tool required for use".into()))?;
+        let mut v = vec!["use".into()];
+        if global {
+            v.push("--global".into());
+        }
+        v.push(tool.into());
+        Ok(v)
+    }
+
+    fn mise_outdated(args: &Value) -> crate::Result<Vec<String>> {
+        let mut v = vec!["outdated".into()];
+        if let Some(tool) = args["tool"].as_str() {
+            v.push(tool.into());
+        }
+        Ok(v)
+    }
+
+    fn mise_prune(args: &Value) -> crate::Result<Vec<String>> {
+        let mut v = vec!["prune".into(), "-y".into()];
+        if let Some(tool) = args["tool"].as_str() {
+            v.push(tool.into());
+        }
+        Ok(v)
+    }
+
+    fn mise_exec(args: &Value) -> crate::Result<Vec<String>> {
+        let tool = args["tool"]
+            .as_str()
+            .ok_or_else(|| crate::PawanError::Tool("tool required for exec".into()))?;
+        let extra = args["args"].as_str().unwrap_or("");
+        let mut v = vec!["exec".into(), tool.into(), "--".into()];
+        if !extra.is_empty() {
+            v.extend(extra.split_whitespace().map(|s| s.to_string()));
+        }
+        Ok(v)
+    }
+
+    fn mise_run(args: &Value) -> crate::Result<Vec<String>> {
+        let task = args["task"]
+            .as_str()
+            .ok_or_else(|| crate::PawanError::Tool("task required for run".into()))?;
+        let mut v = vec!["run".into(), task.into()];
+        if let Some(extra) = args["args"].as_str() {
+            v.push("--".into());
+            v.extend(extra.split_whitespace().map(|s| s.to_string()));
+        }
+        Ok(v)
+    }
+
+    fn mise_watch(args: &Value) -> crate::Result<Vec<String>> {
+        let task = args["task"]
+            .as_str()
+            .ok_or_else(|| crate::PawanError::Tool("task required for watch".into()))?;
+        let mut v = vec!["watch".into(), task.into()];
+        if let Some(extra) = args["args"].as_str() {
+            v.push("--".into());
+            v.extend(extra.split_whitespace().map(|s| s.to_string()));
+        }
+        Ok(v)
+    }
+
+    fn mise_tasks() -> Vec<String> {
+        vec!["tasks".into(), "ls".into()]
+    }
+
+    fn mise_env() -> Vec<String> {
+        vec!["env".into()]
+    }
+
+    fn mise_doctor() -> Vec<String> {
+        vec!["doctor".into()]
+    }
+
+    fn mise_self_update() -> Vec<String> {
+        vec!["self-update".into(), "-y".into()]
+    }
+
+    fn mise_trust(args: &Value) -> crate::Result<Vec<String>> {
+        let mut v = vec!["trust".into()];
+        if let Some(extra) = args["args"].as_str() {
+            v.push(extra.into());
+        }
+        Ok(v)
+    }
 }
 
 #[async_trait]
@@ -116,127 +283,10 @@ impl Tool for MiseTool {
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
-        let mise_bin = if binary_exists("mise") {
-            "mise".to_string()
-        } else {
-            let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
-            let local = format!("{}/.local/bin/mise", home);
-            if std::path::Path::new(&local).exists() {
-                local
-            } else {
-                return Err(crate::PawanError::Tool(
-                    "mise not found. Install: curl https://mise.run | sh".into(),
-                ));
-            }
-        };
-
-        let action = args["action"]
-            .as_str()
-            .ok_or_else(|| crate::PawanError::Tool("action required".into()))?;
+        let mise_bin = Self::resolve_mise_bin()?;
+        let action = Self::parse_mise_action(&args)?;
         let global = args["global"].as_bool().unwrap_or(false);
-
-        let cmd_args: Vec<String> = match action {
-            "install" => {
-                let tool = args["tool"]
-                    .as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("tool required for install".into()))?;
-                vec!["install".into(), tool.into(), "-y".into()]
-            }
-            "uninstall" => {
-                let tool = args["tool"]
-                    .as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("tool required for uninstall".into()))?;
-                vec!["uninstall".into(), tool.into()]
-            }
-            "upgrade" => {
-                let mut v = vec!["upgrade".into()];
-                if let Some(tool) = args["tool"].as_str() {
-                    v.push(tool.into());
-                }
-                v
-            }
-            "list" => vec!["ls".into()],
-            "search" => {
-                let tool = args["tool"]
-                    .as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("tool required for search".into()))?;
-                vec!["registry".into(), tool.into()]
-            }
-            "use" => {
-                let tool = args["tool"]
-                    .as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("tool required for use".into()))?;
-                let mut v = vec!["use".into()];
-                if global {
-                    v.push("--global".into());
-                }
-                v.push(tool.into());
-                v
-            }
-            "outdated" => {
-                let mut v = vec!["outdated".into()];
-                if let Some(tool) = args["tool"].as_str() {
-                    v.push(tool.into());
-                }
-                v
-            }
-            "prune" => {
-                let mut v = vec!["prune".into(), "-y".into()];
-                if let Some(tool) = args["tool"].as_str() {
-                    v.push(tool.into());
-                }
-                v
-            }
-            "exec" => {
-                let tool = args["tool"]
-                    .as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("tool required for exec".into()))?;
-                let extra = args["args"].as_str().unwrap_or("");
-                let mut v = vec!["exec".into(), tool.into(), "--".into()];
-                if !extra.is_empty() {
-                    v.extend(extra.split_whitespace().map(|s| s.to_string()));
-                }
-                v
-            }
-            "run" => {
-                let task = args["task"]
-                    .as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("task required for run".into()))?;
-                let mut v = vec!["run".into(), task.into()];
-                if let Some(extra) = args["args"].as_str() {
-                    v.push("--".into());
-                    v.extend(extra.split_whitespace().map(|s| s.to_string()));
-                }
-                v
-            }
-            "watch" => {
-                let task = args["task"]
-                    .as_str()
-                    .ok_or_else(|| crate::PawanError::Tool("task required for watch".into()))?;
-                let mut v = vec!["watch".into(), task.into()];
-                if let Some(extra) = args["args"].as_str() {
-                    v.push("--".into());
-                    v.extend(extra.split_whitespace().map(|s| s.to_string()));
-                }
-                v
-            }
-            "tasks" => vec!["tasks".into(), "ls".into()],
-            "env" => vec!["env".into()],
-            "doctor" => vec!["doctor".into()],
-            "self-update" => vec!["self-update".into(), "-y".into()],
-            "trust" => {
-                let mut v = vec!["trust".into()];
-                if let Some(extra) = args["args"].as_str() {
-                    v.push(extra.into());
-                }
-                v
-            }
-            _ => {
-                return Err(crate::PawanError::Tool(format!(
-                    "Unknown action: {action}. See tool description for available actions."
-                )))
-            }
-        };
+        let cmd_args = Self::build_mise_command(action, &args, global)?;
 
         let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
         let (stdout, stderr, success) = run_cmd(&mise_bin, &cmd_refs, &self.workspace_root)

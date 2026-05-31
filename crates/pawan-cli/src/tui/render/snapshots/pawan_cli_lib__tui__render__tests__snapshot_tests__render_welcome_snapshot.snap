@@ -1,5 +1,5 @@
 ---
-source: crates/pawan-cli/src/tui/render.rs
+source: crates/pawan-cli/src/tui/render/mod.rs
 expression: output
 ---
                                                                                 
@@ -13,7 +13,7 @@ expression: output
               │  Self-healing CLI coding agent  v0.5.7           │              
               │                                                  │              
               │  Model: test-model                               │              
-              │  Path:  [CWD]              │              
+              │  Path:  [CWD]                                    │              
               │                                                  │              
               │  Type a task, or explore:                        │              
               │  Ctrl+P  fuzzy search (commands)                 │              

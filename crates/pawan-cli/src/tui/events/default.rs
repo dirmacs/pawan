@@ -126,104 +126,149 @@ pub(crate) fn handle_panel_key(app: &mut App<'_>, key: &KeyEvent) {
     }
 }
 
-fn handle_input_panel_key(app: &mut App<'_>, key: &KeyEvent) {
-    let slash_active = app.is_slash_popup_active();
-    if slash_active {
-        match key.code {
-            KeyCode::Esc => {
-                app.reset_input();
-                app.slash_popup_selected = 0;
-            }
-            KeyCode::Up => {
-                app.slash_popup_selected = app.slash_popup_selected.saturating_sub(1);
-            }
-            KeyCode::Down => {
-                let items = app.slash_items();
-                if !items.is_empty() {
-                    app.slash_popup_selected =
-                        (app.slash_popup_selected + 1).min(items.len() - 1);
-                }
-            }
-            KeyCode::PageUp => {
-                let items = app.slash_items();
-                if !items.is_empty() {
-                    app.slash_popup_selected = app.slash_popup_selected.saturating_sub(10);
-                }
-            }
-            KeyCode::PageDown => {
-                let items = app.slash_items();
-                if !items.is_empty() {
-                    app.slash_popup_selected =
-                        (app.slash_popup_selected + 10).min(items.len() - 1);
-                }
-            }
-            KeyCode::Char('g') | KeyCode::Home => {
-                app.slash_popup_selected = 0;
-            }
-            KeyCode::Char('G') | KeyCode::End => {
-                let items = app.slash_items();
-                if !items.is_empty() {
-                    app.slash_popup_selected = items.len() - 1;
-                }
-            }
-            KeyCode::Tab => {
-                let items = app.slash_items();
-                if !items.is_empty() {
-                    app.slash_popup_selected = (app.slash_popup_selected + 1) % items.len();
-                }
-            }
-            KeyCode::Enter => {
-                let items = app.slash_items();
-                if let Some((cmd, _)) = items.get(app.slash_popup_selected) {
-                    let cmd = cmd.to_string();
-                    app.reset_input();
-                    app.slash_popup_selected = 0;
-                    app.handle_slash_command(&cmd);
-                }
-            }
-            _ => {
-                app.input.input(Input::from(*key));
-                app.slash_popup_selected = 0;
+fn handle_input_slash_popup_keys(app: &mut App<'_>, key: &KeyEvent) -> bool {
+    if !app.is_slash_popup_active() {
+        return false;
+    }
+
+    match key.code {
+        KeyCode::Esc => {
+            app.reset_input();
+            app.slash_popup_selected = 0;
+        }
+        KeyCode::Up => {
+            app.slash_popup_selected = app.slash_popup_selected.saturating_sub(1);
+        }
+        KeyCode::Down => {
+            let items = app.slash_items();
+            if !items.is_empty() {
+                app.slash_popup_selected =
+                    (app.slash_popup_selected + 1).min(items.len() - 1);
             }
         }
-    } else if key.code == KeyCode::Enter {
+        KeyCode::PageUp => {
+            let items = app.slash_items();
+            if !items.is_empty() {
+                app.slash_popup_selected = app.slash_popup_selected.saturating_sub(10);
+            }
+        }
+        KeyCode::PageDown => {
+            let items = app.slash_items();
+            if !items.is_empty() {
+                app.slash_popup_selected =
+                    (app.slash_popup_selected + 10).min(items.len() - 1);
+            }
+        }
+        KeyCode::Char('g') | KeyCode::Home => {
+            app.slash_popup_selected = 0;
+        }
+        KeyCode::Char('G') | KeyCode::End => {
+            let items = app.slash_items();
+            if !items.is_empty() {
+                app.slash_popup_selected = items.len() - 1;
+            }
+        }
+        KeyCode::Tab => {
+            let items = app.slash_items();
+            if !items.is_empty() {
+                app.slash_popup_selected = (app.slash_popup_selected + 1) % items.len();
+            }
+        }
+        KeyCode::Enter => {
+            let items = app.slash_items();
+            if let Some((cmd, _)) = items.get(app.slash_popup_selected) {
+                let cmd = cmd.to_string();
+                app.reset_input();
+                app.slash_popup_selected = 0;
+                app.handle_slash_command(&cmd);
+            }
+        }
+        _ => {
+            app.input.input(Input::from(*key));
+            app.slash_popup_selected = 0;
+        }
+    }
+    true
+}
+
+fn handle_input_submit_keys(app: &mut App<'_>, key: &KeyEvent) -> bool {
+    if key.code == KeyCode::Enter {
         app.submit_input();
-    } else if key.code == KeyCode::Up {
-        if !app.history.is_empty() {
-            let new_pos = match app.history_position {
-                None => Some(app.history.len() - 1),
-                Some(pos) if pos > 0 => Some(pos - 1),
-                _ => app.history_position,
-            };
-            if let Some(pos) = new_pos {
-                app.history_position = new_pos;
-                app.reset_input();
-                app.input.insert_str(&app.history[pos]);
+        true
+    } else {
+        false
+    }
+}
+
+fn handle_input_history_keys(app: &mut App<'_>, key: &KeyEvent) -> bool {
+    match key.code {
+        KeyCode::Up => {
+            if !app.history.is_empty() {
+                let new_pos = match app.history_position {
+                    None => Some(app.history.len() - 1),
+                    Some(pos) if pos > 0 => Some(pos - 1),
+                    _ => app.history_position,
+                };
+                if let Some(pos) = new_pos {
+                    app.history_position = new_pos;
+                    app.reset_input();
+                    app.input.insert_str(&app.history[pos]);
+                }
             }
+            true
         }
-    } else if key.code == KeyCode::Down {
-        if let Some(pos) = app.history_position {
-            if pos + 1 < app.history.len() {
-                app.history_position = Some(pos + 1);
-                app.reset_input();
-                app.input.insert_str(&app.history[pos + 1]);
-            } else {
-                app.history_position = None;
-                app.reset_input();
+        KeyCode::Down => {
+            if let Some(pos) = app.history_position {
+                if pos + 1 < app.history.len() {
+                    app.history_position = Some(pos + 1);
+                    app.reset_input();
+                    app.input.insert_str(&app.history[pos + 1]);
+                } else {
+                    app.history_position = None;
+                    app.reset_input();
+                }
             }
+            true
         }
-    } else if key.code == KeyCode::Char(':') && key.modifiers.is_empty() {
+        _ => false,
+    }
+}
+
+fn handle_input_control_keys(app: &mut App<'_>, key: &KeyEvent) -> bool {
+    if key.code == KeyCode::Char(':') && key.modifiers.is_empty() {
         let text: String = app.input.lines().join("\n");
         if text.trim().is_empty() {
             app.fuzzy_search = Some(FuzzySearchState::new(default_command_item_lines()));
         } else {
             app.input.input(Input::from(*key));
         }
+        true
     } else if key.code == KeyCode::Tab {
         app.focus = Panel::Messages;
+        true
     } else {
-        app.input.input(Input::from(*key));
+        false
     }
+}
+
+fn handle_input_editing_keys(app: &mut App<'_>, key: &KeyEvent) {
+    app.input.input(Input::from(*key));
+}
+
+fn handle_input_panel_key(app: &mut App<'_>, key: &KeyEvent) {
+    if handle_input_slash_popup_keys(app, key) {
+        return;
+    }
+    if handle_input_submit_keys(app, key) {
+        return;
+    }
+    if handle_input_history_keys(app, key) {
+        return;
+    }
+    if handle_input_control_keys(app, key) {
+        return;
+    }
+    handle_input_editing_keys(app, key);
 }
 
 fn handle_messages_panel_key(app: &mut App<'_>, key: &KeyEvent) {
