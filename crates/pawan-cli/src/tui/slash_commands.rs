@@ -60,17 +60,22 @@ impl<'a> App<'a> {
     }
 
     pub(crate) fn slash_route(&mut self, command: &str, arg: &str) {
+        if self.slash_route_session(command, arg)
+            || self.slash_route_model(command, arg)
+            || self.slash_route_agent(command, arg)
+            || self.slash_route_misc(command, arg)
+        {
+            return;
+        }
+        debug_assert!(
+            false,
+            "unregistered slash command in slash_route match: {command}"
+        );
+    }
+
+    fn slash_route_session(&mut self, command: &str, arg: &str) -> bool {
         match command {
-            "/clear" | "/c" => self.slash_clear(),
-            "/model" | "/m" => self.slash_model(arg),
-            "/tools" | "/t" => self.slash_tools(),
-            "/search" | "/s" => self.slash_search(arg),
             "/handoff" => self.slash_handoff(),
-            "/heal" | "/h" => self.slash_heal(),
-            "/quit" | "/q" | "/exit" => self.slash_quit(),
-            "/export" | "/e" => self.slash_export(arg),
-            "/diff" | "/d" => self.slash_diff(arg),
-            "/import" => self.slash_import(arg),
             "/fork" => self.slash_fork(),
             "/dump" => self.slash_dump(),
             "/save" => self.slash_save(),
@@ -82,22 +87,48 @@ impl<'a> App<'a> {
             "/load" => self.slash_load(arg),
             "/resume" => self.slash_resume(arg),
             "/new" => self.slash_new(),
-            "/compact" => self.slash_compact(arg),
-            "/help" | "/?" => self.slash_help(),
             "/session" => self.slash_session(arg),
-            "/retry" => self.slash_retry(),
+            _ => return false,
+        }
+        true
+    }
+
+    fn slash_route_model(&mut self, command: &str, arg: &str) -> bool {
+        match command {
+            "/model" | "/m" => self.slash_model(arg),
+            "/tools" | "/t" => self.slash_tools(),
             "/theme" => self.slash_theme(arg),
+            "/compact" => self.slash_compact(arg),
+            _ => return false,
+        }
+        true
+    }
+
+    fn slash_route_agent(&mut self, command: &str, arg: &str) -> bool {
+        match command {
+            "/search" | "/s" => self.slash_search(arg),
+            "/heal" | "/h" => self.slash_heal(),
+            "/retry" => self.slash_retry(),
             "/loop" => self.apply_loop_command(),
             "/goal" => self.apply_goal_command(arg),
             "/irc" => self.slash_irc(),
             "/orchestrate" => self.apply_orchestrate_command(arg.trim()),
-            _ => {
-                debug_assert!(
-                    false,
-                    "unregistered slash command in slash_route match: {command}"
-                );
-            }
+            _ => return false,
         }
+        true
+    }
+
+    fn slash_route_misc(&mut self, command: &str, arg: &str) -> bool {
+        match command {
+            "/clear" | "/c" => self.slash_clear(),
+            "/quit" | "/q" | "/exit" => self.slash_quit(),
+            "/export" | "/e" => self.slash_export(arg),
+            "/diff" | "/d" => self.slash_diff(arg),
+            "/import" => self.slash_import(arg),
+            "/help" | "/?" => self.slash_help(),
+            _ => return false,
+        }
+        true
     }
 }
 
