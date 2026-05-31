@@ -247,6 +247,47 @@ mod print {
 
         0
     }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn test_parse_output_format_text() {
+            assert_eq!(parse_output_format("text").unwrap(), OutputFormat::Text);
+        }
+
+        #[test]
+        fn test_parse_output_format_json() {
+            assert_eq!(parse_output_format("json").unwrap(), OutputFormat::Json);
+        }
+
+        #[test]
+        fn test_parse_output_format_stream_json_variants() {
+            for s in ["stream-json", "stream_json", "streamjson"] {
+                assert_eq!(
+                    parse_output_format(s).unwrap(),
+                    OutputFormat::StreamJson,
+                    "failed for {s}"
+                );
+            }
+        }
+
+        #[test]
+        fn test_parse_output_format_invalid() {
+            assert!(parse_output_format("xml").is_err());
+        }
+
+        #[test]
+        fn test_format_for_error_json() {
+            assert_eq!(format_for_error("json"), OutputFormat::Json);
+        }
+
+        #[test]
+        fn test_format_for_error_unknown_falls_back_text() {
+            assert_eq!(format_for_error("xml"), OutputFormat::Text);
+        }
+    }
 }
 
 use clap::{CommandFactory, Parser, Subcommand};
@@ -4183,3 +4224,115 @@ commit your work with meaningful messages, and leave the project in a clean stat
 
     Ok(())
 }
+
+#[cfg(test)]
+mod main_tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_git_status_categories_mixed() {
+        let status = "M  staged.rs
+ M unstaged.rs
+A  added.rs
+?? untracked.txt
+";
+        let (staged, unstaged, untracked) = parse_git_status_categories(status);
+        assert_eq!(staged, vec!["staged.rs", "added.rs"]);
+        assert_eq!(unstaged, vec!["unstaged.rs"]);
+        assert_eq!(untracked, vec!["untracked.txt"]);
+    }
+
+    #[test]
+    fn test_parse_git_status_categories_empty() {
+        let (staged, unstaged, untracked) = parse_git_status_categories("");
+        assert!(staged.is_empty());
+        assert!(unstaged.is_empty());
+        assert!(untracked.is_empty());
+    }
+
+    #[test]
+    fn test_ensure_staged_changes_nonempty() {
+        assert!(ensure_staged_changes("diff content", &[]));
+    }
+
+    #[test]
+    fn test_ensure_staged_changes_empty_diff() {
+        assert!(!ensure_staged_changes("", &[]));
+    }
+
+    #[test]
+    fn test_truncate_diff_short() {
+        let diff = "short diff";
+        assert_eq!(truncate_diff_for_prompt(diff), diff);
+    }
+
+    #[test]
+    fn test_truncate_diff_long() {
+        let diff = "x".repeat(9000);
+        let truncated = truncate_diff_for_prompt(&diff);
+        assert!(truncated.len() < diff.len());
+        assert!(truncated.contains("[diff truncated"));
+        assert!(truncated.contains("9000 total bytes"));
+    }
+
+    #[test]
+    fn test_build_commit_prompt_includes_stat() {
+        let stat = " src/main.rs | 10 +++++-----";
+        let prompt = build_commit_prompt(stat, "diff body");
+        assert!(prompt.contains(stat));
+        assert!(prompt.contains("diff body"));
+    }
+
+    #[test]
+    fn test_strip_commit_fences_clean() {
+        assert_eq!(strip_commit_message_fences("fix: bug"), "fix: bug");
+    }
+
+    #[test]
+    fn test_strip_commit_fences_with_fences() {
+        assert_eq!(
+            strip_commit_message_fences("```
+fix: bug
+```"),
+            "fix: bug"
+        );
+    }
+
+    #[test]
+    fn test_resolve_headless_prompt_from_arg() {
+        assert_eq!(
+            resolve_headless_prompt(Some("hello".into()), None).unwrap(),
+            "hello"
+        );
+    }
+
+    #[test]
+    fn test_resolve_headless_prompt_from_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("prompt.txt");
+        std::fs::write(&path, "from file").unwrap();
+        assert_eq!(
+            resolve_headless_prompt(None, Some(path)).unwrap(),
+            "from file"
+        );
+    }
+
+    #[test]
+    fn test_resolve_headless_prompt_neither() {
+        assert!(resolve_headless_prompt(None, None).is_err());
+    }
+
+    #[test]
+    fn test_strip_thinking_tags() {
+        assert_eq!(
+            strip_thinking_tags("<think>internal</think>answer"),
+            "answer"
+        );
+    }
+
+    #[test]
+    fn test_strip_thinking_tags_no_tags() {
+        assert_eq!(strip_thinking_tags("hello"), "hello");
+    }
+}
+

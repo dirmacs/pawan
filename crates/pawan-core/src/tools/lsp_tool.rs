@@ -108,17 +108,36 @@ impl Tool for AstGrepTool {
     }
 
     async fn execute(&self, args: Value) -> crate::Result<Value> {
-        ensure_binary("ast-grep", &self.workspace_root).await?;
-
         let action = args["action"]
             .as_str()
             .ok_or_else(|| crate::PawanError::Tool("action required (search or rewrite)".into()))?;
+
+        let rewrite = match action {
+            "search" => None,
+            "rewrite" => Some(
+                args["rewrite"]
+                    .as_str()
+                    .ok_or_else(|| {
+                        crate::PawanError::Tool(
+                            "rewrite pattern required for action=rewrite".into(),
+                        )
+                    })?,
+            ),
+            _ => {
+                return Err(crate::PawanError::Tool(format!(
+                    "Unknown action: {action}. Use 'search' or 'rewrite'"
+                )));
+            }
+        };
+
         let pattern = args["pattern"]
             .as_str()
             .ok_or_else(|| crate::PawanError::Tool("pattern required".into()))?;
         let path = args["path"]
             .as_str()
             .ok_or_else(|| crate::PawanError::Tool("path required".into()))?;
+
+        ensure_binary("ast-grep", &self.workspace_root).await?;
 
         let mut cmd_args: Vec<String> = vec!["run".into()];
 
@@ -135,20 +154,13 @@ impl Tool for AstGrepTool {
                 cmd_args.push(path.into());
             }
             "rewrite" => {
-                let rewrite = args["rewrite"].as_str().ok_or_else(|| {
-                    crate::PawanError::Tool("rewrite pattern required for action=rewrite".into())
-                })?;
+                let rewrite = rewrite.expect("rewrite validated above");
                 cmd_args.push("--rewrite".into());
                 cmd_args.push(rewrite.into());
                 cmd_args.push("--update-all".into());
                 cmd_args.push(path.into());
             }
-            _ => {
-                return Err(crate::PawanError::Tool(format!(
-                    "Unknown action: {}. Use 'search' or 'rewrite'",
-                    action
-                )));
-            }
+            _ => unreachable!("unknown actions rejected above"),
         }
 
         let cmd_refs: Vec<&str> = cmd_args.iter().map(|s| s.as_str()).collect();
@@ -444,5 +456,143 @@ mod tests {
         assert_eq!(tool.name(), "lsp");
         let schema = tool.parameters_schema();
         assert!(schema["properties"]["action"].is_object());
+    }
+
+    #[tokio::test]
+    async fn test_lsp_missing_action() {
+        let tmp = TempDir::new().unwrap();
+        let tool = LspTool::new(tmp.path().to_path_buf());
+        let err = tool.execute(json!({})).await.unwrap_err();
+        assert!(
+            err.to_string().contains("action required"),
+            "expected action required, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_lsp_unknown_action() {
+        let tmp = TempDir::new().unwrap();
+        let tool = LspTool::new(tmp.path().to_path_buf());
+        let err = tool
+            .execute(json!({"action": "bogus"}))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("Unknown action"),
+            "expected unknown action error, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_lsp_search_missing_pattern() {
+        let tmp = TempDir::new().unwrap();
+        let tool = LspTool::new(tmp.path().to_path_buf());
+        let err = tool
+            .execute(json!({"action": "search"}))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("pattern required"),
+            "expected pattern required, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_lsp_ssr_missing_pattern() {
+        let tmp = TempDir::new().unwrap();
+        let tool = LspTool::new(tmp.path().to_path_buf());
+        let err = tool.execute(json!({"action": "ssr"})).await.unwrap_err();
+        assert!(
+            err.to_string().contains("pattern required"),
+            "expected pattern required, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_lsp_symbols_missing_path() {
+        let tmp = TempDir::new().unwrap();
+        let tool = LspTool::new(tmp.path().to_path_buf());
+        let err = tool
+            .execute(json!({"action": "symbols"}))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("path required"),
+            "expected path required, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_lsp_symbols_nonexistent_path() {
+        let tmp = TempDir::new().unwrap();
+        let tool = LspTool::new(tmp.path().to_path_buf());
+        let err = tool
+            .execute(json!({
+                "action": "symbols",
+                "path": "/tmp/nonexistent_pawan_test.rs"
+            }))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("Failed to read"),
+            "expected read failure for missing file, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_lsp_thulp_definition() {
+        let tmp = TempDir::new().unwrap();
+        let tool = LspTool::new(tmp.path().to_path_buf());
+        let def = tool.thulp_definition();
+        assert_eq!(def.name, "lsp");
+        assert_eq!(def.parameters.len(), 4);
+        let param_names: Vec<&str> = def.parameters.iter().map(|p| p.name.as_str()).collect();
+        for name in &["action", "pattern", "path", "severity"] {
+            assert!(
+                param_names.contains(name),
+                "thulp definition missing '{name}'"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_ast_grep_missing_action() {
+        let tmp = TempDir::new().unwrap();
+        let tool = AstGrepTool::new(tmp.path().to_path_buf());
+        let err = tool.execute(json!({})).await.unwrap_err();
+        assert!(
+            err.to_string().contains("action required"),
+            "expected action required, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ast_grep_unknown_action() {
+        let tmp = TempDir::new().unwrap();
+        let tool = AstGrepTool::new(tmp.path().to_path_buf());
+        let err = tool
+            .execute(json!({"action": "bogus"}))
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("Unknown"),
+            "expected unknown action error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn test_ast_grep_thulp_definition() {
+        let tmp = TempDir::new().unwrap();
+        let tool = AstGrepTool::new(tmp.path().to_path_buf());
+        let def = tool.thulp_definition();
+        assert_eq!(def.name, "ast_grep");
+        assert_eq!(def.parameters.len(), 5);
+        let param_names: Vec<&str> = def.parameters.iter().map(|p| p.name.as_str()).collect();
+        for name in &["action", "pattern", "rewrite", "path", "lang"] {
+            assert!(
+                param_names.contains(name),
+                "thulp definition missing '{name}'"
+            );
+        }
     }
 }
