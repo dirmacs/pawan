@@ -72,3 +72,135 @@ pub(crate) fn handle_model_picker_key(app: &mut App<'_>, key: &KeyEvent) -> bool
     }
     true
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+    use crate::tui::app::App;
+    use pawan::config::TuiConfig;
+    use tokio::sync::mpsc;
+
+    fn test_app<'a>() -> App<'a> {
+        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+        let (_event_tx, event_rx) = mpsc::unbounded_channel();
+        let irc_hub = pawan::agent::IrcHub::new();
+        let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
+        let mut app = App::new(
+            TuiConfig::default(),
+            "test-model".to_string(),
+            cmd_tx,
+            event_rx,
+            irc_relay,
+        );
+        app.show_welcome = false;
+        app
+    }
+
+    fn visible_picker_app<'a>() -> App<'a> {
+        let mut app = test_app();
+        app.load_available_models();
+        app.model_picker.visible = true;
+        app
+    }
+
+    fn key(code: KeyCode) -> KeyEvent {
+        KeyEvent::new(code, KeyModifiers::NONE)
+    }
+
+    #[test]
+    fn test_model_picker_returns_false_when_hidden() {
+        let mut app = test_app();
+        app.model_picker.visible = false;
+        assert!(!handle_model_picker_key(&mut app, &key(KeyCode::Esc)));
+    }
+
+    #[test]
+    fn test_model_picker_esc_closes() {
+        let mut app = visible_picker_app();
+        app.model_picker.query.push('x');
+        app.model_picker.selected = 3;
+
+        assert!(handle_model_picker_key(&mut app, &key(KeyCode::Esc)));
+        assert!(!app.model_picker.visible);
+        assert!(app.model_picker.query.is_empty());
+        assert_eq!(app.model_picker.selected, 0);
+    }
+
+    #[test]
+    fn test_model_picker_char_input() {
+        let mut app = visible_picker_app();
+        app.model_picker.selected = 2;
+
+        assert!(handle_model_picker_key(
+            &mut app,
+            &KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE)
+        ));
+        assert_eq!(app.model_picker.query, "a");
+        assert_eq!(app.model_picker.selected, 0);
+    }
+
+    #[test]
+    fn test_model_picker_backspace() {
+        let mut app = visible_picker_app();
+        app.model_picker.query = "ab".to_string();
+        app.model_picker.selected = 2;
+
+        assert!(handle_model_picker_key(&mut app, &key(KeyCode::Backspace)));
+        assert_eq!(app.model_picker.query, "a");
+        assert_eq!(app.model_picker.selected, 0);
+    }
+
+    #[test]
+    fn test_model_picker_up_down_navigation() {
+        let mut app = visible_picker_app();
+        assert_eq!(app.model_picker.selected, 0);
+
+        assert!(handle_model_picker_key(&mut app, &key(KeyCode::Down)));
+        assert_eq!(app.model_picker.selected, 1);
+
+        assert!(handle_model_picker_key(&mut app, &key(KeyCode::Up)));
+        assert_eq!(app.model_picker.selected, 0);
+    }
+
+    #[test]
+    fn test_model_picker_page_navigation() {
+        let mut app = visible_picker_app();
+        let last = app.filtered_models().len() - 1;
+
+        assert!(handle_model_picker_key(&mut app, &key(KeyCode::PageDown)));
+        assert_eq!(app.model_picker.selected, 10.min(last));
+
+        app.model_picker.selected = 5;
+        assert!(handle_model_picker_key(&mut app, &key(KeyCode::PageDown)));
+        assert_eq!(app.model_picker.selected, last);
+
+        assert!(handle_model_picker_key(&mut app, &key(KeyCode::PageUp)));
+        assert_eq!(app.model_picker.selected, last.saturating_sub(10));
+    }
+
+    #[test]
+    fn test_model_picker_home_end() {
+        let mut app = visible_picker_app();
+        let last = app.filtered_models().len() - 1;
+        app.model_picker.selected = 4;
+
+        assert!(handle_model_picker_key(&mut app, &key(KeyCode::End)));
+        assert_eq!(app.model_picker.selected, last);
+
+        assert!(handle_model_picker_key(&mut app, &key(KeyCode::Home)));
+        assert_eq!(app.model_picker.selected, 0);
+    }
+
+    #[test]
+    fn test_model_picker_enter_closes() {
+        let mut app = visible_picker_app();
+        app.model_picker.query = "test".to_string();
+        app.model_picker.selected = 1;
+
+        assert!(handle_model_picker_key(&mut app, &key(KeyCode::Enter)));
+        assert!(!app.model_picker.visible);
+        assert!(app.model_picker.query.is_empty());
+        assert_eq!(app.model_picker.selected, 0);
+    }
+}
