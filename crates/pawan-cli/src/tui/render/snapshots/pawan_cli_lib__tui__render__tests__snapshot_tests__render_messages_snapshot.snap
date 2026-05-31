@@ -1,5 +1,5 @@
 ---
-source: crates/pawan-cli/src/tui/render.rs
+source: crates/pawan-cli/src/tui/render/mod.rs
 expression: output
 ---
 You: (now)                                                                      

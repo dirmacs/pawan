@@ -1,0 +1,24 @@
+---
+source: crates/pawan-cli/src/tui/render/mod.rs
+expression: output
+---
+                                                                                
+                                                                                
+                                                                                
+                    ┌ Model Picker (^M) ───────────────────┐                    
+                    │> ▌                                   │                    
+                    │ Meta meta/llama-3.1-70b-instruct  q90│                    
+                    │ Meta meta/llama-3.3-70b-instruct  q93│                    
+                    │ Meta meta/llama-4-maverick-17b-128e-i│                    
+                    │ Deepseek deepseek-ai/deepseek-v3.2  q│                    
+                    │ Deepseek deepseek-ai/deepseek-v4-flas│                    
+                    │ Google google/gemma-3-12b-it  q85    │                    
+                    │ Mistral mistralai/mistral-large-3-675│                    
+                    │ Qwen qwen/qwen3.5-397b-a17b  q95     │                    
+                    │ Nvidia nvidia/llama-3.1-nemotron-ultr│                    
+                    │ Stepfun stepfun-ai/step-3.7-flash  q8│                    
+                    │ Stepfun stepfun-ai/step-3.5-flash  q8│                    
+                    │ Z-Ai z-ai/glm-5.1  q90               │                    
+                    │ OpenAI openai/gpt-oss-120b  q75      │                    
+                    │                                      │                    
+                    └──────────────────────────────────────┘

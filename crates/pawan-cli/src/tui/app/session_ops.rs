@@ -118,89 +118,22 @@ impl<'a> App<'a> {
     pub(crate) fn export_as_html(&self, path: &str) -> std::result::Result<usize, String> {
         use std::io::Write;
         let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
-        writeln!(f, "<!DOCTYPE html>\n").map_err(|e| e.to_string())?;
-        writeln!(f, "<html lang='en'>\n").map_err(|e| e.to_string())?;
-        writeln!(f, "<head>\n").map_err(|e| e.to_string())?;
-        writeln!(f, "  <meta charset='UTF-8'>\n").map_err(|e| e.to_string())?;
-        writeln!(
-            f,
-            "  <meta name='viewport' content='width=device-width, initial-scale=1.0'>\n"
-        )
-        .map_err(|e| e.to_string())?;
-        writeln!(f, "  <title>Pawan Session</title>\n").map_err(|e| e.to_string())?;
-        writeln!(f, "  <style>\n").map_err(|e| e.to_string())?;
-        writeln!(f, "    body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }}\n").map_err(|e| e.to_string())?;
-        writeln!(
-            f,
-            "    .message {{ margin: 20px 0; padding: 15px; border-radius: 8px; }}\n"
-        )
-        .map_err(|e| e.to_string())?;
-        writeln!(f, "    .user {{ background-color: #e3f2fd; }}\n").map_err(|e| e.to_string())?;
-        writeln!(f, "    .assistant {{ background-color: #f3e5f5; }}\n")
-            .map_err(|e| e.to_string())?;
-        writeln!(f, "    .system {{ background-color: #f5f5f5; }}\n").map_err(|e| e.to_string())?;
-        writeln!(
-            f,
-            "    .role {{ font-weight: bold; margin-bottom: 10px; }}\n"
-        )
-        .map_err(|e| e.to_string())?;
-        writeln!(f, "    .content {{ white-space: pre-wrap; }}\n").map_err(|e| e.to_string())?;
-        writeln!(f, "    .tool-calls {{ margin-top: 10px; padding: 10px; background-color: #fff3cd; border-radius: 4px; }}\n").map_err(|e| e.to_string())?;
-        writeln!(f, "    .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; }}\n").map_err(|e| e.to_string())?;
-        writeln!(f, "  </style>\n").map_err(|e| e.to_string())?;
-        writeln!(f, "</head>\n").map_err(|e| e.to_string())?;
-        writeln!(f, "<body>\n").map_err(|e| e.to_string())?;
-        writeln!(f, "  <h1>Pawan Session</h1>\n").map_err(|e| e.to_string())?;
-        writeln!(f, "  <p><strong>Model:</strong> {}</p>\n", self.model_name)
+        write!(f, "{}", Self::build_html_header(&self.model_name))
             .map_err(|e| e.to_string())?;
         for msg in &self.messages {
-            let class = match msg.role {
-                Role::User => "user",
-                Role::Assistant => "assistant",
-                _ => "system",
-            };
-            let role_name = match msg.role {
-                Role::User => "You",
-                Role::Assistant => "Pawan",
-                _ => "System",
-            };
-            writeln!(f, "  <div class='message {}'>\n", class).map_err(|e| e.to_string())?;
-            writeln!(f, "    <div class='role'>{}</div>\n", role_name)
+            write!(f, "{}", Self::render_message_html(msg))
                 .map_err(|e| e.to_string())?;
-            writeln!(
-                f,
-                "    <div class='content'>{}</div>\n",
-                Self::html_escape(&msg.text_content())
-            )
-            .map_err(|e| e.to_string())?;
-            let tool_records = msg.tool_records();
-            if !tool_records.is_empty() {
-                writeln!(f, "    <div class='tool-calls'>\n").map_err(|e| e.to_string())?;
-                writeln!(
-                    f,
-                    "      <strong>Tool calls ({}):</strong>\n",
-                    tool_records.len()
-                )
-                .map_err(|e| e.to_string())?;
-                for tc in tool_records {
-                    let status = if tc.success { "✓" } else { "✗" };
-                    writeln!(f, "      {} `{}` — {}ms\n", status, tc.name, tc.duration_ms)
-                        .map_err(|e| e.to_string())?;
-                }
-                writeln!(f, "    </div>\n").map_err(|e| e.to_string())?;
-            }
-            writeln!(f, "  </div>\n").map_err(|e| e.to_string())?;
         }
-        writeln!(f, "  <div class='footer'>\n").map_err(|e| e.to_string())?;
-        writeln!(
+        write!(
             f,
-            "    Tokens: {} total ({} prompt, {} completion)\n",
-            self.total_tokens, self.total_prompt_tokens, self.total_completion_tokens
+            "{}",
+            Self::build_html_footer(
+                self.total_tokens,
+                self.total_prompt_tokens,
+                self.total_completion_tokens,
+            )
         )
         .map_err(|e| e.to_string())?;
-        writeln!(f, "  </div>\n").map_err(|e| e.to_string())?;
-        writeln!(f, "</body>\n").map_err(|e| e.to_string())?;
-        writeln!(f, "</html>\n").map_err(|e| e.to_string())?;
         Ok(self.messages.len())
     }
     pub(crate) fn export_as_json(&self, path: &str) -> std::result::Result<usize, String> {
@@ -279,36 +212,140 @@ impl<'a> App<'a> {
             .replace(">", "&gt;")
             .replace("\"", "&quot;")
     }
-    /// This strips noise while preserving file paths, constraints, and key context
-    pub(crate) fn generate_handoff_prompt(&self) -> String {
-        use std::collections::HashSet;
+    // ── HTML export helpers ──────────────────────────────────────────────
 
-        if self.messages.is_empty() {
-            return "No conversation context available.".to_string();
+    /// Produces the HTML document head, styles, and opening body with title.
+    fn build_html_header(model_name: &str) -> String {
+        format!(
+            "<!DOCTYPE html>\n\
+             <html lang='en'>\n\
+             <head>\n\
+             <meta charset='UTF-8'>\n\
+             <meta name='viewport' content='width=device-width, initial-scale=1.0'>\n\
+             <title>Pawan Session</title>\n\
+             <style>\n\
+             body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }}\n\
+             .message {{ margin: 20px 0; padding: 15px; border-radius: 8px; }}\n\
+             .user {{ background-color: #e3f2fd; }}\n\
+             .assistant {{ background-color: #f3e5f5; }}\n\
+             .system {{ background-color: #f5f5f5; }}\n\
+             .role {{ font-weight: bold; margin-bottom: 10px; }}\n\
+             .content {{ white-space: pre-wrap; }}\n\
+             .tool-calls {{ margin-top: 10px; padding: 10px; background-color: #fff3cd; border-radius: 4px; }}\n\
+             .footer {{ margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd; color: #666; }}\n\
+             </style>\n\
+             </head>\n\
+             <body>\n\
+             <h1>Pawan Session</h1>\n\
+             <p><strong>Model:</strong> {}</p>\n",
+            model_name
+        )
+    }
+
+    /// Closes the HTML document with a token-usage footer.
+    fn build_html_footer(total_tokens: u64, prompt_tokens: u64, completion_tokens: u64) -> String {
+        format!(
+            "<div class='footer'>\n\
+             Tokens: {} total ({} prompt, {} completion)\n\
+             </div>\n\
+             </body>\n\
+             </html>\n",
+            total_tokens, prompt_tokens, completion_tokens
+        )
+    }
+
+    /// Renders a single message as an HTML div block.
+    fn render_message_html(msg: &DisplayMessage) -> String {
+        let class = match msg.role {
+            Role::User => "user",
+            Role::Assistant => "assistant",
+            _ => "system",
+        };
+        let role_name = match msg.role {
+            Role::User => "You",
+            Role::Assistant => "Pawan",
+            _ => "System",
+        };
+        let tool_records = msg.tool_records();
+        let tool_html = if tool_records.is_empty() {
+            String::new()
+        } else {
+            Self::render_tool_calls_html(&tool_records)
+        };
+        format!(
+            "  <div class='message {}'>\n\
+             <div class='role'>{}</div>\n\
+             <div class='content'>{}</div>\n\
+             {}  </div>\n",
+            class,
+            role_name,
+            Self::html_escape(&msg.text_content()),
+            tool_html
+        )
+    }
+
+    /// Renders tool call records as an HTML block.
+    fn render_tool_calls_html(tool_records: &[&ToolCallRecord]) -> String {
+        let mut out = format!(
+            "    <div class='tool-calls'>\n\
+             <strong>Tool calls ({}):</strong>\n",
+            tool_records.len()
+        );
+        for tc in tool_records {
+            let status = if tc.success { "✓" } else { "✗" };
+            out.push_str(&format!(
+                "    {} `{}` — {}ms\n",
+                status, tc.name, tc.duration_ms
+            ));
         }
+        out.push_str("    </div>\n");
+        out
+    }
 
-        let mut context_parts = Vec::new();
-        let mut file_paths: HashSet<String> = HashSet::new();
-        let mut constraints = Vec::new();
-        let mut key_tasks = Vec::new();
+    // ── Handoff prompt helpers ────────────────────────────────────────────
 
-        // Extract key information from messages
-        for msg in &self.messages {
+    /// Extracts the last `count` messages as role/content preview pairs.
+    fn extract_recent_context(messages: &[DisplayMessage], count: usize) -> Vec<String> {
+        let recent_count = messages.len().min(count);
+        messages
+            .iter()
+            .rev()
+            .take(recent_count)
+            .rev()
+            .map(|msg| {
+                let role = match msg.role {
+                    Role::User => "User",
+                    Role::Assistant => "Assistant",
+                    _ => "System",
+                };
+                let content = msg.text_content();
+                let preview = if content.len() > 200 {
+                    format!("{}...", &content[..200])
+                } else {
+                    content
+                };
+                format!("**{}:** {}", role, preview)
+            })
+            .collect()
+    }
+
+    /// Parses message content for file path references.
+    fn extract_mentioned_files(messages: &[DisplayMessage]) -> Vec<String> {
+        use std::collections::HashSet;
+        let mut file_paths = HashSet::new();
+
+        for msg in messages {
             let content = msg.text_content();
-
-            // Extract file paths (common patterns)
             for line in content.lines() {
-                // Match file paths like src/main.rs, /path/to/file, etc.
                 if line.contains(".rs")
                     || line.contains(".ts")
                     || line.contains(".js")
                     || line.contains(".py")
                     || line.contains(".go")
                     || line.contains(".java")
-                    || line.contains("/")
-                        && (line.contains("src") || line.contains("lib") || line.contains("test"))
+                    || (line.contains("/")
+                        && (line.contains("src") || line.contains("lib") || line.contains("test")))
                 {
-                    // Extract potential file paths
                     for word in line.split_whitespace() {
                         if word.ends_with(".rs")
                             || word.ends_with(".ts")
@@ -326,18 +363,20 @@ impl<'a> App<'a> {
                         }
                     }
                 }
+            }
+        }
 
-                // Extract constraints (MUST, MUST NOT, should, etc.)
-                if line.contains("MUST")
-                    || line.contains("MUST NOT")
-                    || line.contains("should")
-                    || line.contains("constraint")
-                    || line.contains("requirement")
-                {
-                    constraints.push(line.trim().to_string());
-                }
+        let mut paths: Vec<_> = file_paths.into_iter().collect();
+        paths.sort();
+        paths
+    }
 
-                // Extract key tasks (imperative statements, TODO, etc.)
+    /// Finds TODO/task items in messages.
+    fn extract_task_items(messages: &[DisplayMessage]) -> Vec<String> {
+        let mut tasks = Vec::new();
+        for msg in messages {
+            let content = msg.text_content();
+            for line in content.lines() {
                 if line.starts_with("-")
                     || line.starts_with("*")
                     || line.contains("TODO")
@@ -346,36 +385,80 @@ impl<'a> App<'a> {
                     || line.contains("add")
                     || line.contains("create")
                 {
-                    key_tasks.push(line.trim().to_string());
+                    tasks.push(line.trim().to_string());
                 }
             }
         }
+        tasks
+    }
 
-        // Build the handoff prompt
-        context_parts.push("# Session Handoff".to_string());
-        context_parts.push(String::new());
-        context_parts.push(format!("**Model:** {}", self.model_name));
-        context_parts.push(format!("**Messages:** {}", self.messages.len()));
-        context_parts.push(format!("**Tool calls:** {}", self.session_tool_calls));
-        context_parts.push(format!("**Files edited:** {}", self.session_files_edited));
-        context_parts.push(String::new());
+    /// Finds constraint/rules mentions in messages.
+    fn extract_constraints(messages: &[DisplayMessage]) -> Vec<String> {
+        let mut constraints = Vec::new();
+        for msg in messages {
+            let content = msg.text_content();
+            for line in content.lines() {
+                if line.contains("MUST")
+                    || line.contains("MUST NOT")
+                    || line.contains("should")
+                    || line.contains("constraint")
+                    || line.contains("requirement")
+                {
+                    constraints.push(line.trim().to_string());
+                }
+            }
+        }
+        constraints
+    }
 
-        // Add file paths if any
+    /// Assembles the handoff prompt header.
+    fn build_prompt_header(
+        model_name: &str,
+        msg_count: usize,
+        tool_calls: u32,
+        files_edited: u32,
+    ) -> Vec<String> {
+        vec![
+            "# Session Handoff".to_string(),
+            String::new(),
+            format!("**Model:** {}", model_name),
+            format!("**Messages:** {}", msg_count),
+            format!("**Tool calls:** {}", tool_calls),
+            format!("**Files edited:** {}", files_edited),
+            String::new(),
+        ]
+    }
+
+    // ── Composed handoff prompt ───────────────────────────────────────────
+
+    /// This strips noise while preserving file paths, constraints, and key context
+    pub(crate) fn generate_handoff_prompt(&self) -> String {
+        if self.messages.is_empty() {
+            return "No conversation context available.".to_string();
+        }
+
+        let file_paths = Self::extract_mentioned_files(&self.messages);
+        let constraints = Self::extract_constraints(&self.messages);
+        let key_tasks = Self::extract_task_items(&self.messages);
+
+        let mut context_parts = Self::build_prompt_header(
+            &self.model_name,
+            self.messages.len(),
+            self.session_tool_calls,
+            self.session_files_edited,
+        );
+
         if !file_paths.is_empty() {
             context_parts.push("## Files Referenced".to_string());
-            let mut paths: Vec<_> = file_paths.into_iter().collect();
-            paths.sort();
-            for path in paths {
+            for path in &file_paths {
                 context_parts.push(format!("- {}", path));
             }
             context_parts.push(String::new());
         }
 
-        // Add constraints if any
         if !constraints.is_empty() {
             context_parts.push("## Constraints".to_string());
             for constraint in constraints.iter().take(10) {
-                // Limit to 10 constraints
                 context_parts.push(format!("- {}", constraint));
             }
             if constraints.len() > 10 {
@@ -384,11 +467,9 @@ impl<'a> App<'a> {
             context_parts.push(String::new());
         }
 
-        // Add key tasks if any
         if !key_tasks.is_empty() {
             context_parts.push("## Key Tasks".to_string());
             for task in key_tasks.iter().take(15) {
-                // Limit to 15 tasks
                 context_parts.push(format!("- {}", task));
             }
             if key_tasks.len() > 15 {
@@ -397,22 +478,9 @@ impl<'a> App<'a> {
             context_parts.push(String::new());
         }
 
-        // Add summary of last few messages for context
         context_parts.push("## Recent Context".to_string());
-        let recent_count = self.messages.len().min(3);
-        for msg in self.messages.iter().rev().take(recent_count).rev() {
-            let role = match msg.role {
-                Role::User => "User",
-                Role::Assistant => "Assistant",
-                _ => "System",
-            };
-            let content = msg.text_content();
-            let preview = if content.len() > 200 {
-                format!("{}...", &content[..200])
-            } else {
-                content
-            };
-            context_parts.push(format!("**{}:** {}", role, preview));
+        for entry in Self::extract_recent_context(&self.messages, 3) {
+            context_parts.push(entry);
         }
 
         context_parts.join("\n")

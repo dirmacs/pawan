@@ -174,7 +174,164 @@ impl PawanAgent {
         // Reset idle timeout for the new turn
         self.last_tool_call_time = None;
 
-        // Inject Eruka core memory before first LLM call
+        // Inject Eruka core memory and prefetch context
+        self.inject_eruka_context(user_prompt).await;
+
+        // Build effective prompt with architecture context and push to history
+        let effective_prompt = self.build_user_prompt(user_prompt)?;
+        self.history.push(Message {
+            role: Role::User,
+            content: effective_prompt,
+            tool_calls: vec![],
+            tool_result: None,
+        });
+
+        let mut all_tool_calls = Vec::new();
+        let mut total_usage = TokenUsage::default();
+        let mut iterations = 0;
+        let max_iterations = self.config.max_tool_iterations;
+
+        loop {
+            // Check idle timeout
+            if let Some(last_time) = self.last_tool_call_time {
+                let elapsed = last_time.elapsed().as_secs();
+                if elapsed > self.config.tool_call_idle_timeout_secs {
+                    return Err(PawanError::Agent(format!(
+                        "Tool idle timeout exceeded ({}s > {}s)",
+                        elapsed, self.config.tool_call_idle_timeout_secs
+                    )));
+                }
+            }
+
+            iterations += 1;
+            if iterations > max_iterations {
+                return Err(PawanError::Agent(format!(
+                    "Max tool iterations ({}) exceeded",
+                    max_iterations
+                )));
+            }
+
+            // Budget nudge + context estimation + pruning
+            self.apply_iteration_budgets(iterations, max_iterations).await;
+
+            // Dynamic tool selection: pick the most relevant tools for this query
+            let latest_query = self
+                .history
+                .iter()
+                .rev()
+                .find(|m| m.role == Role::User)
+                .map(|m| m.content.as_str())
+                .unwrap_or("");
+            let tool_defs = self.tools.select_for_query(latest_query, 12);
+            if iterations == 1 {
+                let tool_names: Vec<&str> = tool_defs.iter().map(|t| t.name.as_str()).collect();
+                tracing::info!(tools = ?tool_names, count = tool_defs.len(), "Selected tools for query");
+            }
+
+            // Update idle timeout tracker before LLM call to track time spent in generation
+            self.last_tool_call_time = Some(Instant::now());
+
+            // Resilient LLM call with retry on transient failures
+            let response = self.call_llm_with_retry(&tool_defs, on_token.as_ref()).await;
+
+            // Accumulate token usage with thinking/action split
+            if let Some(ref usage) = response.usage {
+                Self::accumulate_token_usage(
+                    usage, &mut total_usage, iterations, self.config.thinking_budget,
+                );
+            }
+
+            // Strip thinking blocks from content
+            let clean_content = Self::strip_thinking_blocks(&response.content);
+
+            if response.tool_calls.is_empty() {
+                // Guardrails for no-tool responses; returns true if conversation is complete
+                if self
+                    .handle_no_tool_response(
+                        &clean_content,
+                        user_prompt,
+                        &tool_defs,
+                        iterations,
+                        max_iterations,
+                        &response.finish_reason,
+                    )
+                    .await
+                {
+                    self.history.push(Message {
+                        role: Role::Assistant,
+                        content: clean_content.clone(),
+                        tool_calls: vec![],
+                        tool_result: None,
+                    });
+                    // Persist this completed turn to Eruka
+                    if let Some(eruka) = &self.eruka {
+                        if let Err(e) = eruka
+                            .sync_turn(user_prompt, &clean_content, &self.session_id)
+                            .await
+                        {
+                            tracing::warn!("Eruka sync_turn failed (non-fatal): {}", e);
+                        }
+                    }
+                    return Ok(AgentResponse {
+                        content: clean_content,
+                        tool_calls: all_tool_calls,
+                        iterations,
+                        usage: total_usage,
+                    });
+                }
+                continue;
+            }
+
+            // Push assistant response to history
+            self.history.push(Message {
+                role: Role::Assistant,
+                content: response.content.clone(),
+                tool_calls: response.tool_calls.clone(),
+                tool_result: None,
+            });
+
+            // Validate permissions, emit start events, partition into pending vs denied
+            let (pending, mut ordered_records, mut ordered_tool_messages, mut ordered_compile_gate) =
+                self.check_tool_permissions(
+                    &response.tool_calls,
+                    on_permission.as_ref(),
+                    on_tool.as_ref(),
+                    on_tool_start.as_ref(),
+                )
+                .await;
+
+            // Execute pending tools in parallel
+            if !pending.is_empty() {
+                let results = Self::execute_pending_tools(
+                    &self.tools,
+                    self.config.bash_timeout_secs,
+                    self.config.max_result_chars,
+                    pending,
+                    on_tool.as_ref(),
+                )
+                .await;
+                for (idx, record, tool_msg, wrote_rs) in results {
+                    ordered_records[idx] = Some(record);
+                    ordered_tool_messages[idx] = Some(tool_msg);
+                    ordered_compile_gate[idx] = wrote_rs;
+                }
+            }
+
+            // Collect ordered results and run compile gates
+            self.collect_tool_results(
+                &mut all_tool_calls,
+                &mut ordered_records,
+                &mut ordered_tool_messages,
+                &ordered_compile_gate,
+                response.tool_calls.len(),
+            )
+            .await;
+        }
+    }
+    // ─── Helper functions for execute_with_all_callbacks ───────────────
+
+    /// Inject Eruka core memory and prefetch task-relevant context into history.
+    async fn inject_eruka_context(&mut self, user_prompt: &str) {
         if let Some(eruka) = &self.eruka {
             let before_inject = self.history.len();
             if let Err(e) = eruka.inject_core_memory(&mut self.history).await {
@@ -212,667 +369,620 @@ impl PawanAgent {
                 Err(e) => tracing::warn!("Eruka prefetch failed (non-fatal): {}", e),
             }
         }
+    }
 
-        // Per-turn architecture context injection: prepend .pawan/arch.md content
-        // so key constraints stay visible even as tool-call history grows long.
-
+    /// Prepend workspace architecture context to the user prompt, if available.
+    fn build_user_prompt(&self, user_prompt: &str) -> Result<String> {
         if let Some(err) = &self.arch_context_error {
             return Err(PawanError::Config(err.clone()));
         }
-
-        let effective_prompt = match &self.arch_context {
+        Ok(match &self.arch_context {
             Some(ctx) => format!(
                 "[Workspace Architecture]\n{ctx}\n[/Workspace Architecture]\n\n{user_prompt}"
             ),
             None => user_prompt.to_string(),
-        };
+        })
+    }
 
-        self.history.push(Message {
-            role: Role::User,
-            content: effective_prompt,
-            tool_calls: vec![],
-            tool_result: None,
-        });
+    /// Nudge the model when running low on tool iterations, estimate context
+    /// size, and prune history if it exceeds the configured token budget.
+    async fn apply_iteration_budgets(&mut self, iterations: usize, max_iterations: usize) {
+        // Budget awareness: when running low on iterations, nudge the model
+        let remaining = max_iterations.saturating_sub(iterations);
+        if remaining == 3 && iterations > 1 {
+            self.history.push(Message {
+                role: Role::User,
+                content: format!(
+                    "[SYSTEM] You have {} tool iterations remaining. \
+                     Stop exploring and write the most important output now. \
+                     If you have code to write, write it immediately.",
+                    remaining
+                ),
+                tool_calls: vec![],
+                tool_result: None,
+            });
+        }
+        // Estimate context tokens
+        self.context_tokens_estimate =
+            self.history.iter().map(|m| m.content.len()).sum::<usize>() / 4;
+        if self.context_tokens_estimate > self.config.max_context_tokens {
+            // Snapshot pre-compression content to Eruka so the facts
+            // being discarded survive the prune. Non-fatal.
+            if let Some(eruka) = &self.eruka {
+                let snapshot = Self::history_snapshot_for_eruka(&self.history);
+                if let Err(e) = eruka.on_pre_compress(&snapshot, &self.session_id).await {
+                    tracing::warn!("Eruka on_pre_compress failed (non-fatal): {}", e);
+                }
+            }
+            self.prune_history();
+        }
+    }
 
-        let mut all_tool_calls = Vec::new();
-        let mut total_usage = TokenUsage::default();
-        let mut iterations = 0;
-        let max_iterations = self.config.max_tool_iterations;
-
+    /// Call the LLM backend with retry logic for transient failures.
+    /// Returns a synthetic error response after exhausting retries.
+    async fn call_llm_with_retry(
+        &mut self,
+        tool_defs: &[thulp_core::ToolDefinition],
+        on_token: Option<&TokenCallback>,
+    ) -> LLMResponse {
+        let max_llm_retries = 3;
+        let mut attempt = 0;
         loop {
-            // Check idle timeout
-            if let Some(last_time) = self.last_tool_call_time {
-                let elapsed = last_time.elapsed().as_secs();
-                if elapsed > self.config.tool_call_idle_timeout_secs {
-                    return Err(PawanError::Agent(format!(
-                        "Tool idle timeout exceeded ({}s > {}s)",
-                        elapsed, self.config.tool_call_idle_timeout_secs
-                    )));
-                }
-            }
+            attempt += 1;
+            match self
+                .backend
+                .generate(&self.history, tool_defs, on_token)
+                .await
+            {
+                Ok(resp) => return resp,
+                Err(e) => {
+                    let err_str = e.to_string();
+                    let is_transient = err_str.contains("timeout")
+                        || err_str.contains("connection")
+                        || err_str.contains("429")
+                        || err_str.contains("500")
+                        || err_str.contains("502")
+                        || err_str.contains("503")
+                        || err_str.contains("504")
+                        || err_str.contains("reset")
+                        || err_str.contains("broken pipe");
 
-            iterations += 1;
-            if iterations > max_iterations {
-                return Err(PawanError::Agent(format!(
-                    "Max tool iterations ({}) exceeded",
-                    max_iterations
-                )));
-            }
+                    if is_transient && attempt <= max_llm_retries {
+                        let delay =
+                            std::time::Duration::from_secs(2u64.pow(attempt as u32));
+                        tracing::warn!(
+                            attempt = attempt,
+                            delay_secs = delay.as_secs(),
+                            error = err_str.as_str(),
+                            "LLM call failed (transient) — retrying"
+                        );
+                        tokio::time::sleep(delay).await;
 
-            // Budget awareness: when running low on iterations, nudge the model
-            let remaining = max_iterations.saturating_sub(iterations);
-            if remaining == 3 && iterations > 1 {
-                self.history.push(Message {
-                    role: Role::User,
-                    content: format!(
-                        "[SYSTEM] You have {} tool iterations remaining. \
-                         Stop exploring and write the most important output now. \
-                         If you have code to write, write it immediately.",
-                        remaining
-                    ),
-                    tool_calls: vec![],
-                    tool_result: None,
-                });
-            }
-            // Estimate context tokens
-            self.context_tokens_estimate =
-                self.history.iter().map(|m| m.content.len()).sum::<usize>() / 4;
-            if self.context_tokens_estimate > self.config.max_context_tokens {
-                // Snapshot pre-compression content to Eruka so the facts
-                // being discarded survive the prune. Non-fatal.
-                if let Some(eruka) = &self.eruka {
-                    let snapshot = Self::history_snapshot_for_eruka(&self.history);
-                    if let Err(e) = eruka.on_pre_compress(&snapshot, &self.session_id).await {
-                        tracing::warn!("Eruka on_pre_compress failed (non-fatal): {}", e);
+                        // If context is too large, prune before retry
+                        if err_str.contains("context") || err_str.contains("token") {
+                            tracing::info!(
+                                "Pruning history before retry (possible context overflow)"
+                            );
+                            if let Some(eruka) = &self.eruka {
+                                let snapshot =
+                                    Self::history_snapshot_for_eruka(&self.history);
+                                if let Err(e) =
+                                    eruka.on_pre_compress(&snapshot, &self.session_id).await
+                                {
+                                    tracing::warn!(
+                                        "Eruka on_pre_compress failed (non-fatal): {}",
+                                        e
+                                    );
+                                }
+                            }
+                            self.prune_history();
+                        }
+                        continue;
                     }
-                }
-                self.prune_history();
-            }
 
-            // Dynamic tool selection: pick the most relevant tools for this query
-            // Extract latest user message for keyword matching
-            let latest_query = self
+                    // Non-transient or max retries exhausted — return synthetic error
+                    tracing::error!(
+                        attempt = attempt,
+                        error = err_str.as_str(),
+                        "LLM call failed permanently — returning error as content"
+                    );
+                    return LLMResponse {
+                        content: format!(
+                            "LLM error after {} attempts: {}. The task could not be completed.",
+                            attempt, err_str
+                        ),
+                        reasoning: None,
+                        tool_calls: vec![],
+                        finish_reason: "error".to_string(),
+                        usage: None,
+                    };
+                }
+            }
+        }
+    }
+
+    /// Accumulate token usage from an LLM response and enforce thinking budget.
+    fn accumulate_token_usage(
+        usage: &TokenUsage,
+        total_usage: &mut TokenUsage,
+        iterations: usize,
+        thinking_budget: usize,
+    ) {
+        total_usage.prompt_tokens += usage.prompt_tokens;
+        total_usage.completion_tokens += usage.completion_tokens;
+        total_usage.total_tokens += usage.total_tokens;
+        total_usage.reasoning_tokens += usage.reasoning_tokens;
+        total_usage.action_tokens += usage.action_tokens;
+
+        // Log token budget split per iteration
+        if usage.reasoning_tokens > 0 {
+            tracing::info!(
+                iteration = iterations,
+                think = usage.reasoning_tokens,
+                act = usage.action_tokens,
+                total = usage.completion_tokens,
+                "Token budget: think:{} act:{} (total:{})",
+                usage.reasoning_tokens,
+                usage.action_tokens,
+                usage.completion_tokens
+            );
+        }
+
+        // Thinking budget enforcement
+        if thinking_budget > 0 && usage.reasoning_tokens > thinking_budget as u64 {
+            tracing::warn!(
+                budget = thinking_budget,
+                actual = usage.reasoning_tokens,
+                "Thinking budget exceeded ({}/{} tokens)",
+                usage.reasoning_tokens,
+                thinking_budget
+            );
+        }
+    }
+
+    /// Strip `<think>` blocks from LLM response content.
+    fn strip_thinking_blocks(content: &str) -> String {
+        let mut s = content.to_string();
+        loop {
+            let lower = s.to_lowercase();
+            let open = lower.find("<think>");
+            let close = lower.find("</think>");
+            match (open, close) {
+                (Some(i), Some(j)) if j > i => {
+                    let before = s[..i].trim_end().to_string();
+                    let after = if s.len() > j + 8 {
+                        s[j + 8..].trim_start().to_string()
+                    } else {
+                        String::new()
+                    };
+                    s = if before.is_empty() {
+                        after
+                    } else if after.is_empty() {
+                        before
+                    } else {
+                        format!("{}\n{}", before, after)
+                    };
+                }
+                _ => break,
+            }
+        }
+        s
+    }
+
+    /// Handle guardrails for no-tool-call responses.
+    ///
+    /// Returns `true` if the conversation is complete (caller should return the
+    /// response), `false` if the loop should continue with a correction message.
+    async fn handle_no_tool_response(
+        &mut self,
+        clean_content: &str,
+        _user_prompt: &str,
+        tool_defs: &[thulp_core::ToolDefinition],
+        iterations: usize,
+        max_iterations: usize,
+        finish_reason: &str,
+    ) -> bool {
+        // Guardrail: detect chatty no-op (content but no tools on early iterations)
+        // Only nudge if tools are available AND response looks like planning text
+        let has_tools = !tool_defs.is_empty();
+        let lower = clean_content.to_lowercase();
+        let planning_prefix = lower.starts_with("let me")
+            || lower.starts_with("i'll help")
+            || lower.starts_with("i will help")
+            || lower.starts_with("sure, i")
+            || lower.starts_with("okay, i");
+        let looks_like_planning =
+            clean_content.len() > 200 || (planning_prefix && clean_content.len() > 50);
+        if has_tools
+            && looks_like_planning
+            && iterations == 1
+            && iterations < max_iterations
+            && finish_reason != "error"
+        {
+            tracing::warn!(
+                "No tool calls at iteration {} (content: {}B) — nudging model to use tools",
+                iterations,
+                clean_content.len()
+            );
+            self.history.push(Message {
+                role: Role::Assistant,
+                content: clean_content.to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            });
+            self.history.push(Message {
+                role: Role::User,
+                content: "You must use tools to complete this task. Do NOT just describe what you would do — actually call the tools. Start with bash or read_file.".to_string(),
+                tool_calls: vec![],
+                tool_result: None,
+            });
+            return false;
+        }
+
+        // Guardrail: detect repeated responses
+        if iterations > 1 {
+            let prev_assistant = self
                 .history
                 .iter()
                 .rev()
-                .find(|m| m.role == Role::User)
-                .map(|m| m.content.as_str())
-                .unwrap_or("");
-            let tool_defs = self.tools.select_for_query(latest_query, 12);
-            if iterations == 1 {
-                let tool_names: Vec<&str> = tool_defs.iter().map(|t| t.name.as_str()).collect();
-                tracing::info!(tools = ?tool_names, count = tool_defs.len(), "Selected tools for query");
-            }
-
-            // Update idle timeout tracker before LLM call to track time spent in generation
-            self.last_tool_call_time = Some(Instant::now());
-
-            // --- Resilient LLM call: retry on transient failures instead of crashing ---
-            let response = {
-                #[allow(unused_assignments)]
-                let mut last_err = None;
-                let max_llm_retries = 3;
-                let mut attempt = 0;
-                loop {
-                    attempt += 1;
-                    match self
-                        .backend
-                        .generate(&self.history, &tool_defs, on_token.as_ref())
-                        .await
-                    {
-                        Ok(resp) => break resp,
-                        Err(e) => {
-                            let err_str = e.to_string();
-                            let is_transient = err_str.contains("timeout")
-                                || err_str.contains("connection")
-                                || err_str.contains("429")
-                                || err_str.contains("500")
-                                || err_str.contains("502")
-                                || err_str.contains("503")
-                                || err_str.contains("504")
-                                || err_str.contains("reset")
-                                || err_str.contains("broken pipe");
-
-                            if is_transient && attempt <= max_llm_retries {
-                                let delay =
-                                    std::time::Duration::from_secs(2u64.pow(attempt as u32));
-                                tracing::warn!(
-                                    attempt = attempt,
-                                    delay_secs = delay.as_secs(),
-                                    error = err_str.as_str(),
-                                    "LLM call failed (transient) — retrying"
-                                );
-                                tokio::time::sleep(delay).await;
-
-                                // If context is too large, prune before retry
-                                if err_str.contains("context") || err_str.contains("token") {
-                                    tracing::info!(
-                                        "Pruning history before retry (possible context overflow)"
-                                    );
-                                    if let Some(eruka) = &self.eruka {
-                                        let snapshot =
-                                            Self::history_snapshot_for_eruka(&self.history);
-                                        if let Err(e) =
-                                            eruka.on_pre_compress(&snapshot, &self.session_id).await
-                                        {
-                                            tracing::warn!(
-                                                "Eruka on_pre_compress failed (non-fatal): {}",
-                                                e
-                                            );
-                                        }
-                                    }
-                                    self.prune_history();
-                                }
-                                continue;
-                            }
-
-                            // Non-transient or max retries exhausted
-                            last_err = Some(e);
-                            break {
-                                // Return a synthetic "give up" response instead of crashing
-                                tracing::error!(
-                                    attempt = attempt,
-                                    error = last_err
-                                        .as_ref()
-                                        .map(|e| e.to_string())
-                                        .unwrap_or_default()
-                                        .as_str(),
-                                    "LLM call failed permanently — returning error as content"
-                                );
-                                LLMResponse {
-                                    content: format!(
-                                        "LLM error after {} attempts: {}. The task could not be completed.",
-                                        attempt,
-                                        last_err.as_ref().map(|e| e.to_string()).unwrap_or_default()
-                                    ),
-                                    reasoning: None,
-                                    tool_calls: vec![],
-                                    finish_reason: "error".to_string(),
-                                    usage: None,
-                                }
-                            };
-                        }
-                    }
-                }
-            };
-
-            // Accumulate token usage with thinking/action split
-            if let Some(ref usage) = response.usage {
-                total_usage.prompt_tokens += usage.prompt_tokens;
-                total_usage.completion_tokens += usage.completion_tokens;
-                total_usage.total_tokens += usage.total_tokens;
-                total_usage.reasoning_tokens += usage.reasoning_tokens;
-                total_usage.action_tokens += usage.action_tokens;
-
-                // Log token budget split per iteration
-                if usage.reasoning_tokens > 0 {
-                    tracing::info!(
-                        iteration = iterations,
-                        think = usage.reasoning_tokens,
-                        act = usage.action_tokens,
-                        total = usage.completion_tokens,
-                        "Token budget: think:{} act:{} (total:{})",
-                        usage.reasoning_tokens,
-                        usage.action_tokens,
-                        usage.completion_tokens
-                    );
-                }
-
-                // Thinking budget enforcement
-                let thinking_budget = self.config.thinking_budget;
-                if thinking_budget > 0 && usage.reasoning_tokens > thinking_budget as u64 {
-                    tracing::warn!(
-                        budget = thinking_budget,
-                        actual = usage.reasoning_tokens,
-                        "Thinking budget exceeded ({}/{} tokens)",
-                        usage.reasoning_tokens,
-                        thinking_budget
-                    );
-                }
-            }
-
-            // --- Guardrail: strip thinking blocks from content ---
-            let clean_content = {
-                let mut s = response.content.clone();
-                loop {
-                    let lower = s.to_lowercase();
-                    let open = lower.find("<think>");
-                    let close = lower.find("</think>");
-                    match (open, close) {
-                        (Some(i), Some(j)) if j > i => {
-                            let before = s[..i].trim_end().to_string();
-                            let after = if s.len() > j + 8 {
-                                s[j + 8..].trim_start().to_string()
-                            } else {
-                                String::new()
-                            };
-                            s = if before.is_empty() {
-                                after
-                            } else if after.is_empty() {
-                                before
-                            } else {
-                                format!("{}\n{}", before, after)
-                            };
-                        }
-                        _ => break,
-                    }
-                }
-                s
-            };
-
-            if response.tool_calls.is_empty() {
-                // --- Guardrail: detect chatty no-op (content but no tools on early iterations) ---
-                // Only nudge if tools are available AND response looks like planning text (not a real answer)
-                let has_tools = !tool_defs.is_empty();
-                let lower = clean_content.to_lowercase();
-                let planning_prefix = lower.starts_with("let me")
-                    || lower.starts_with("i'll help")
-                    || lower.starts_with("i will help")
-                    || lower.starts_with("sure, i")
-                    || lower.starts_with("okay, i");
-                let looks_like_planning =
-                    clean_content.len() > 200 || (planning_prefix && clean_content.len() > 50);
-                if has_tools
-                    && looks_like_planning
-                    && iterations == 1
+                .find(|m| m.role == Role::Assistant && !m.content.is_empty());
+            if let Some(prev) = prev_assistant {
+                if prev.content.trim() == clean_content.trim()
                     && iterations < max_iterations
-                    && response.finish_reason != "error"
                 {
                     tracing::warn!(
-                        "No tool calls at iteration {} (content: {}B) — nudging model to use tools",
-                        iterations,
-                        clean_content.len()
+                        "Repeated response detected at iteration {} — injecting correction",
+                        iterations
                     );
                     self.history.push(Message {
                         role: Role::Assistant,
-                        content: clean_content.clone(),
+                        content: clean_content.to_string(),
                         tool_calls: vec![],
                         tool_result: None,
                     });
                     self.history.push(Message {
                         role: Role::User,
-                        content: "You must use tools to complete this task. Do NOT just describe what you would do — actually call the tools. Start with bash or read_file.".to_string(),
+                        content: "You gave the same response as before. Try a different approach. Use anchor_text in edit_file_lines, or use insert_after, or use bash with sed.".to_string(),
                         tool_calls: vec![],
                         tool_result: None,
                     });
-                    continue;
+                    return false;
                 }
+            }
+        }
 
-                // --- Guardrail: detect repeated responses ---
-                if iterations > 1 {
-                    let prev_assistant = self
-                        .history
-                        .iter()
-                        .rev()
-                        .find(|m| m.role == Role::Assistant && !m.content.is_empty());
-                    if let Some(prev) = prev_assistant {
-                        if prev.content.trim() == clean_content.trim()
-                            && iterations < max_iterations
+        true
+    }
+
+    /// Validate permissions, emit start events, and partition tool calls into
+    /// pending (ready to execute) vs denied.
+    async fn check_tool_permissions(
+        &mut self,
+        tool_calls: &[ToolCallRequest],
+        on_permission: Option<&PermissionCallback>,
+        on_tool: Option<&ToolCallback>,
+        on_tool_start: Option<&ToolStartCallback>,
+    ) -> (
+        Vec<(usize, ToolCallRequest)>,
+        Vec<Option<ToolCallRecord>>,
+        Vec<Option<Message>>,
+        Vec<bool>,
+    ) {
+        let mut ordered_records: Vec<Option<ToolCallRecord>> =
+            vec![None; tool_calls.len()];
+        let mut ordered_tool_messages: Vec<Option<Message>> =
+            vec![None; tool_calls.len()];
+        let ordered_compile_gate: Vec<bool> = vec![false; tool_calls.len()];
+        let mut pending: Vec<(usize, ToolCallRequest)> = Vec::new();
+
+        for (idx, tool_call) in tool_calls.iter().cloned().enumerate() {
+            self.tools.activate(&tool_call.name);
+
+            let perm = crate::config::ToolPermission::resolve(
+                &tool_call.name,
+                &self.config.permissions,
+            );
+            let denied = match perm {
+                crate::config::ToolPermission::Deny => Some("Tool denied by permission policy"),
+                crate::config::ToolPermission::Prompt => {
+                    if tool_call.name == "bash" {
+                        if let Some(cmd) =
+                            tool_call.arguments.get("command").and_then(|v| v.as_str())
                         {
-                            tracing::warn!(
-                                "Repeated response detected at iteration {} — injecting correction",
-                                iterations
-                            );
-                            self.history.push(Message {
-                                role: Role::Assistant,
-                                content: clean_content.clone(),
+                            if crate::tools::bash::is_read_only(cmd) {
+                                tracing::debug!(command = cmd, "Auto-allowing read-only bash command under Prompt permission");
+                                None
+                            } else if let Some(ref perm_cb) = on_permission {
+                                let args_summary = cmd.chars().take(120).collect::<String>();
+                                let rx = perm_cb(PermissionRequest {
+                                    tool_name: tool_call.name.clone(),
+                                    args_summary,
+                                });
+                                match rx.await {
+                                    Ok(true) => None,
+                                    _ => Some("User denied tool execution"),
+                                }
+                            } else {
+                                Some("Bash command requires user approval (read-only commands auto-allowed)")
+                            }
+                        } else {
+                            Some("Tool requires user approval")
+                        }
+                    } else if let Some(ref perm_cb) = on_permission {
+                        let args_summary = tool_call
+                            .arguments
+                            .to_string()
+                            .chars()
+                            .take(120)
+                            .collect::<String>();
+                        let rx = perm_cb(PermissionRequest {
+                            tool_name: tool_call.name.clone(),
+                            args_summary,
+                        });
+                        match rx.await {
+                            Ok(true) => None,
+                            _ => Some("User denied tool execution"),
+                        }
+                    } else {
+                        Some("Tool requires user approval (set permission to allow or use TUI mode)")
+                    }
+                }
+                crate::config::ToolPermission::Allow => None,
+            };
+
+            if let Some(reason) = denied {
+                let record = ToolCallRecord {
+                    id: tool_call.id.clone(),
+                    name: tool_call.name.clone(),
+                    arguments: tool_call.arguments.clone(),
+                    result: json!({"error": reason}),
+                    success: false,
+                    duration_ms: 0,
+                };
+                if let Some(ref callback) = on_tool {
+                    callback(&record);
+                }
+                ordered_records[idx] = Some(record);
+                ordered_tool_messages[idx] = Some(Message {
+                    role: Role::Tool,
+                    content: serde_json::to_string(&json!({"error": reason}))
+                        .unwrap_or_default(),
+                    tool_calls: vec![],
+                    tool_result: Some(ToolResultMessage {
+                        tool_call_id: tool_call.id.clone(),
+                        content: json!({"error": reason}),
+                        success: false,
+                    }),
+                });
+                continue;
+            }
+
+            if let Some(ref callback) = on_tool_start {
+                callback(&tool_call.name);
+            }
+
+            if let Some(tool) = self.tools.get(&tool_call.name) {
+                let schema = tool.parameters_schema();
+                if let Ok(params) = thulp_core::ToolDefinition::parse_mcp_input_schema(&schema)
+                {
+                    let thulp_def = thulp_core::ToolDefinition {
+                        name: tool_call.name.clone(),
+                        description: String::new(),
+                        parameters: params,
+                    };
+                    if let Err(e) = thulp_def.validate_args(&tool_call.arguments) {
+                        tracing::warn!(tool = tool_call.name.as_str(), error = %e, "Tool argument validation failed (continuing anyway)");
+                    }
+                }
+            }
+
+            let tool = self.tools.get(&tool_call.name);
+            let is_mutating = tool.map(|t| t.mutating()).unwrap_or(false);
+            if is_mutating {
+                if let Some(ref callback) = on_permission {
+                    let args_summary = summarize_args(&tool_call.arguments);
+                    let request = PermissionRequest {
+                        tool_name: tool_call.name.clone(),
+                        args_summary,
+                    };
+                    let permission_rx = (callback)(request);
+                    match permission_rx.await {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            let record = ToolCallRecord {
+                                id: tool_call.id.clone(),
+                                name: tool_call.name.clone(),
+                                arguments: tool_call.arguments.clone(),
+                                result: json!({"error": "Tool execution denied by user", "tool": tool_call.name}),
+                                success: false,
+                                duration_ms: 0,
+                            };
+                            if let Some(ref callback) = on_tool {
+                                callback(&record);
+                            }
+                            ordered_records[idx] = Some(record);
+                            ordered_tool_messages[idx] = Some(Message {
+                                role: Role::Tool,
+                                content: serde_json::to_string(&json!({"error": "Tool execution denied by user", "tool": tool_call.name})).unwrap_or_default(),
                                 tool_calls: vec![],
-                                tool_result: None,
+                                tool_result: Some(ToolResultMessage {
+                                    tool_call_id: tool_call.id.clone(),
+                                    content: json!({"error": "Tool execution denied by user", "tool": tool_call.name}),
+                                    success: false,
+                                }),
                             });
-                            self.history.push(Message {
-                                role: Role::User,
-                                content: "You gave the same response as before. Try a different approach. Use anchor_text in edit_file_lines, or use insert_after, or use bash with sed.".to_string(),
+                            continue;
+                        }
+                        Err(_) => {
+                            let record = ToolCallRecord {
+                                id: tool_call.id.clone(),
+                                name: tool_call.name.clone(),
+                                arguments: tool_call.arguments.clone(),
+                                result: json!({"error": "Permission channel closed", "tool": tool_call.name}),
+                                success: false,
+                                duration_ms: 0,
+                            };
+                            if let Some(ref callback) = on_tool {
+                                callback(&record);
+                            }
+                            ordered_records[idx] = Some(record);
+                            ordered_tool_messages[idx] = Some(Message {
+                                role: Role::Tool,
+                                content: serde_json::to_string(&json!({"error": "Permission channel closed", "tool": tool_call.name})).unwrap_or_default(),
                                 tool_calls: vec![],
-                                tool_result: None,
+                                tool_result: Some(ToolResultMessage {
+                                    tool_call_id: tool_call.id.clone(),
+                                    content: json!({"error": "Permission channel closed", "tool": tool_call.name}),
+                                    success: false,
+                                }),
                             });
                             continue;
                         }
                     }
+                } else {
+                    tracing::warn!(
+                        tool = tool_call.name.as_str(),
+                        "No permission callback, auto-approving mutating tool"
+                    );
                 }
-
-                self.history.push(Message {
-                    role: Role::Assistant,
-                    content: clean_content.clone(),
-                    tool_calls: vec![],
-                    tool_result: None,
-                });
-
-                // Persist this completed turn to Eruka so future prefetches
-                // and sessions can pull from it. Non-fatal on any error.
-                if let Some(eruka) = &self.eruka {
-                    if let Err(e) = eruka
-                        .sync_turn(user_prompt, &clean_content, &self.session_id)
-                        .await
-                    {
-                        tracing::warn!("Eruka sync_turn failed (non-fatal): {}", e);
-                    }
-                }
-
-                return Ok(AgentResponse {
-                    content: clean_content,
-                    tool_calls: all_tool_calls,
-                    iterations,
-                    usage: total_usage,
-                });
             }
 
-            self.history.push(Message {
-                role: Role::Assistant,
-                content: response.content.clone(),
-                tool_calls: response.tool_calls.clone(),
-                tool_result: None,
-            });
+            pending.push((idx, tool_call));
+        }
 
-            // Execute tool calls (parallel when multiple tool calls are returned)
-            let max_parallel_tools: usize = 10;
+        (pending, ordered_records, ordered_tool_messages, ordered_compile_gate)
+    }
 
-            let mut ordered_records: Vec<Option<ToolCallRecord>> =
-                vec![None; response.tool_calls.len()];
-            let mut ordered_tool_messages: Vec<Option<Message>> =
-                vec![None; response.tool_calls.len()];
-            let mut ordered_compile_gate: Vec<bool> = vec![false; response.tool_calls.len()];
+    /// Execute pending tool calls in parallel with per-tool timeout handling.
+    async fn execute_pending_tools(
+        tools: &ToolRegistry,
+        bash_timeout_secs: u64,
+        max_result_chars: usize,
+        pending: Vec<(usize, ToolCallRequest)>,
+        on_tool: Option<&ToolCallback>,
+    ) -> Vec<(usize, ToolCallRecord, Message, bool)> {
+        use futures::{stream, StreamExt};
 
-            // Phase 1: validate / permission-check / emit start events immediately.
-            let mut pending: Vec<(usize, ToolCallRequest)> = Vec::new();
-            for (idx, tool_call) in response.tool_calls.iter().cloned().enumerate() {
-                self.tools.activate(&tool_call.name);
+        let on_tool_cb = on_tool;
+        let max_parallel = std::cmp::max(1, 10);
+        stream::iter(pending)
+            .map(|(idx, tool_call)| async move {
+                let start = std::time::Instant::now();
 
-                let perm = crate::config::ToolPermission::resolve(
-                    &tool_call.name,
-                    &self.config.permissions,
-                );
-                let denied = match perm {
-                    crate::config::ToolPermission::Deny => Some("Tool denied by permission policy"),
-                    crate::config::ToolPermission::Prompt => {
-                        if tool_call.name == "bash" {
-                            if let Some(cmd) =
-                                tool_call.arguments.get("command").and_then(|v| v.as_str())
-                            {
-                                if crate::tools::bash::is_read_only(cmd) {
-                                    tracing::debug!(command = cmd, "Auto-allowing read-only bash command under Prompt permission");
-                                    None
-                                } else if let Some(ref perm_cb) = on_permission {
-                                    let args_summary = cmd.chars().take(120).collect::<String>();
-                                    let rx = perm_cb(PermissionRequest {
-                                        tool_name: tool_call.name.clone(),
-                                        args_summary,
-                                    });
-                                    match rx.await {
-                                        Ok(true) => None,
-                                        _ => Some("User denied tool execution"),
-                                    }
-                                } else {
-                                    Some("Bash command requires user approval (read-only commands auto-allowed)")
-                                }
-                            } else {
-                                Some("Tool requires user approval")
-                            }
-                        } else if let Some(ref perm_cb) = on_permission {
-                            let args_summary = tool_call
-                                .arguments
-                                .to_string()
-                                .chars()
-                                .take(120)
-                                .collect::<String>();
-                            let rx = perm_cb(PermissionRequest {
-                                tool_name: tool_call.name.clone(),
-                                args_summary,
-                            });
-                            match rx.await {
-                                Ok(true) => None,
-                                _ => Some("User denied tool execution"),
-                            }
-                        } else {
-                            Some("Tool requires user approval (set permission to allow or use TUI mode)")
-                        }
+                let result = {
+                    let tool_future = tools.execute(&tool_call.name, tool_call.arguments.clone());
+                    let timeout_dur = if tool_call.name == "bash" {
+                        std::time::Duration::from_secs(bash_timeout_secs)
+                    } else {
+                        std::time::Duration::from_secs(30)
+                    };
+                    match tokio::time::timeout(timeout_dur, tool_future).await {
+                        Ok(inner) => inner,
+                        Err(_) => Err(PawanError::Tool(format!(
+                            "Tool {} timed out after {}s",
+                            tool_call.name,
+                            timeout_dur.as_secs()
+                        ))),
                     }
-                    crate::config::ToolPermission::Allow => None,
                 };
 
-                if let Some(reason) = denied {
-                    let record = ToolCallRecord {
-                        id: tool_call.id.clone(),
-                        name: tool_call.name.clone(),
-                        arguments: tool_call.arguments.clone(),
-                        result: json!({"error": reason}),
-                        success: false,
-                        duration_ms: 0,
-                    };
-                    if let Some(ref callback) = on_tool {
-                        callback(&record);
+                let duration_ms = start.elapsed().as_millis() as u64;
+                let (mut result_value, success) = match result {
+                    Ok(v) => (v, true),
+                    Err(e) => {
+                        tracing::warn!(tool = tool_call.name.as_str(), error = %e, "Tool execution failed");
+                        (json!({"error": e.to_string(), "tool": tool_call.name, "hint": "Try a different approach or tool"}), false)
                     }
-                    ordered_records[idx] = Some(record);
-                    ordered_tool_messages[idx] = Some(Message {
-                        role: Role::Tool,
-                        content: serde_json::to_string(&json!({"error": reason}))
-                            .unwrap_or_default(),
-                        tool_calls: vec![],
-                        tool_result: Some(ToolResultMessage {
-                            tool_call_id: tool_call.id.clone(),
-                            content: json!({"error": reason}),
-                            success: false,
-                        }),
-                    });
-                    continue;
+                };
+
+                result_value = truncate_tool_result(result_value, max_result_chars);
+
+                let record = ToolCallRecord {
+                    id: tool_call.id.clone(),
+                    name: tool_call.name.clone(),
+                    arguments: tool_call.arguments.clone(),
+                    result: result_value.clone(),
+                    success,
+                    duration_ms,
+                };
+
+                if let Some(ref cb) = on_tool_cb {
+                    cb(&record);
                 }
 
-                if let Some(ref callback) = on_tool_start {
-                    callback(&tool_call.name);
-                }
+                let tool_msg = Message {
+                    role: Role::Tool,
+                    content: serde_json::to_string(&result_value).unwrap_or_default(),
+                    tool_calls: vec![],
+                    tool_result: Some(ToolResultMessage {
+                        tool_call_id: tool_call.id.clone(),
+                        content: result_value,
+                        success,
+                    }),
+                };
 
-                if let Some(tool) = self.tools.get(&tool_call.name) {
-                    let schema = tool.parameters_schema();
-                    if let Ok(params) = thulp_core::ToolDefinition::parse_mcp_input_schema(&schema)
-                    {
-                        let thulp_def = thulp_core::ToolDefinition {
-                            name: tool_call.name.clone(),
-                            description: String::new(),
-                            parameters: params,
-                        };
-                        if let Err(e) = thulp_def.validate_args(&tool_call.arguments) {
-                            tracing::warn!(tool = tool_call.name.as_str(), error = %e, "Tool argument validation failed (continuing anyway)");
-                        }
-                    }
-                }
+                let wrote_rs = success
+                    && tool_call.name == "write_file"
+                    && tool_call
+                        .arguments
+                        .get("path")
+                        .and_then(|p| p.as_str())
+                        .map(|p| p.ends_with(".rs"))
+                        .unwrap_or(false);
 
-                let tool = self.tools.get(&tool_call.name);
-                let is_mutating = tool.map(|t| t.mutating()).unwrap_or(false);
-                if is_mutating {
-                    if let Some(ref callback) = on_permission {
-                        let args_summary = summarize_args(&tool_call.arguments);
-                        let request = PermissionRequest {
-                            tool_name: tool_call.name.clone(),
-                            args_summary,
-                        };
-                        let permission_rx = (callback)(request);
-                        match permission_rx.await {
-                            Ok(true) => {}
-                            Ok(false) => {
-                                let record = ToolCallRecord {
-                                    id: tool_call.id.clone(),
-                                    name: tool_call.name.clone(),
-                                    arguments: tool_call.arguments.clone(),
-                                    result: json!({"error": "Tool execution denied by user", "tool": tool_call.name}),
-                                    success: false,
-                                    duration_ms: 0,
-                                };
-                                if let Some(ref callback) = on_tool {
-                                    callback(&record);
-                                }
-                                ordered_records[idx] = Some(record);
-                                ordered_tool_messages[idx] = Some(Message {
-                                    role: Role::Tool,
-                                    content: serde_json::to_string(&json!({"error": "Tool execution denied by user", "tool": tool_call.name})).unwrap_or_default(),
-                                    tool_calls: vec![],
-                                    tool_result: Some(ToolResultMessage {
-                                        tool_call_id: tool_call.id.clone(),
-                                        content: json!({"error": "Tool execution denied by user", "tool": tool_call.name}),
-                                        success: false,
-                                    }),
-                                });
-                                continue;
-                            }
-                            Err(_) => {
-                                let record = ToolCallRecord {
-                                    id: tool_call.id.clone(),
-                                    name: tool_call.name.clone(),
-                                    arguments: tool_call.arguments.clone(),
-                                    result: json!({"error": "Permission channel closed", "tool": tool_call.name}),
-                                    success: false,
-                                    duration_ms: 0,
-                                };
-                                if let Some(ref callback) = on_tool {
-                                    callback(&record);
-                                }
-                                ordered_records[idx] = Some(record);
-                                ordered_tool_messages[idx] = Some(Message {
-                                    role: Role::Tool,
-                                    content: serde_json::to_string(&json!({"error": "Permission channel closed", "tool": tool_call.name})).unwrap_or_default(),
-                                    tool_calls: vec![],
-                                    tool_result: Some(ToolResultMessage {
-                                        tool_call_id: tool_call.id.clone(),
-                                        content: json!({"error": "Permission channel closed", "tool": tool_call.name}),
-                                        success: false,
-                                    }),
-                                });
-                                continue;
-                            }
-                        }
-                    } else {
-                        tracing::warn!(
-                            tool = tool_call.name.as_str(),
-                            "No permission callback, auto-approving mutating tool"
-                        );
-                    }
-                }
+                (idx, record, tool_msg, wrote_rs)
+            })
+            .buffer_unordered(max_parallel)
+            .collect::<Vec<_>>()
+            .await
+    }
 
-                pending.push((idx, tool_call));
+    /// Collect ordered tool results into the history and all_tool_calls list,
+    /// and apply compile gates (cargo check after .rs file writes).
+    async fn collect_tool_results(
+        &mut self,
+        all_tool_calls: &mut Vec<ToolCallRecord>,
+        ordered_records: &mut [Option<ToolCallRecord>],
+        ordered_tool_messages: &mut [Option<Message>],
+        ordered_compile_gate: &[bool],
+        tool_calls_count: usize,
+    ) {
+        for i in 0..tool_calls_count {
+            if let Some(record) = ordered_records[i].take() {
+                all_tool_calls.push(record);
+            }
+            if let Some(msg) = ordered_tool_messages[i].take() {
+                self.history.push(msg);
             }
 
-            if !pending.is_empty() {
-                use futures::{stream, StreamExt};
-
-                let tools = &self.tools;
-                let bash_timeout_secs = self.config.bash_timeout_secs;
-                let max_result_chars = self.config.max_result_chars;
-                let on_tool_cb = on_tool.as_ref();
-
-                let max_parallel = std::cmp::max(1, max_parallel_tools);
-                let results = stream::iter(pending)
-                    .map(|(idx, tool_call)| async move {
-                        let start = std::time::Instant::now();
-
-                        let result = {
-                            let tool_future = tools.execute(&tool_call.name, tool_call.arguments.clone());
-                            let timeout_dur = if tool_call.name == "bash" {
-                                std::time::Duration::from_secs(bash_timeout_secs)
-                            } else {
-                                std::time::Duration::from_secs(30)
-                            };
-                            match tokio::time::timeout(timeout_dur, tool_future).await {
-                                Ok(inner) => inner,
-                                Err(_) => Err(PawanError::Tool(format!(
-                                    "Tool {} timed out after {}s",
-                                    tool_call.name,
-                                    timeout_dur.as_secs()
-                                ))),
-                            }
-                        };
-
-                        let duration_ms = start.elapsed().as_millis() as u64;
-                        let (mut result_value, success) = match result {
-                            Ok(v) => (v, true),
-                            Err(e) => {
-                                tracing::warn!(tool = tool_call.name.as_str(), error = %e, "Tool execution failed");
-                                (json!({"error": e.to_string(), "tool": tool_call.name, "hint": "Try a different approach or tool"}), false)
-                            }
-                        };
-
-                        result_value = truncate_tool_result(result_value, max_result_chars);
-
-                        let record = ToolCallRecord {
-                            id: tool_call.id.clone(),
-                            name: tool_call.name.clone(),
-                            arguments: tool_call.arguments.clone(),
-                            result: result_value.clone(),
-                            success,
-                            duration_ms,
-                        };
-
-                        if let Some(ref cb) = on_tool_cb {
-                            cb(&record);
-                        }
-
-                        let tool_msg = Message {
-                            role: Role::Tool,
-                            content: serde_json::to_string(&result_value).unwrap_or_default(),
-                            tool_calls: vec![],
-                            tool_result: Some(ToolResultMessage {
-                                tool_call_id: tool_call.id.clone(),
-                                content: result_value,
-                                success,
-                            }),
-                        };
-
-                        let wrote_rs = success
-                            && tool_call.name == "write_file"
-                            && tool_call
-                                .arguments
-                                .get("path")
-                                .and_then(|p| p.as_str())
-                                .map(|p| p.ends_with(".rs"))
-                                .unwrap_or(false);
-
-                        (idx, record, tool_msg, wrote_rs)
-                    })
-                    .buffer_unordered(max_parallel)
-                    .collect::<Vec<_>>()
+            if ordered_compile_gate[i] {
+                let ws = self.workspace_root.clone();
+                let check_result = tokio::process::Command::new("cargo")
+                    .arg("check")
+                    .arg("--message-format=short")
+                    .current_dir(&ws)
+                    .output()
                     .await;
-
-                for (idx, record, tool_msg, wrote_rs) in results {
-                    ordered_records[idx] = Some(record);
-                    ordered_tool_messages[idx] = Some(tool_msg);
-                    ordered_compile_gate[idx] = wrote_rs;
-                }
-            }
-
-            for i in 0..response.tool_calls.len() {
-                if let Some(record) = ordered_records[i].take() {
-                    all_tool_calls.push(record);
-                }
-                if let Some(msg) = ordered_tool_messages[i].take() {
-                    self.history.push(msg);
-                }
-
-                if ordered_compile_gate[i] {
-                    let ws = self.workspace_root.clone();
-                    let check_result = tokio::process::Command::new("cargo")
-                        .arg("check")
-                        .arg("--message-format=short")
-                        .current_dir(&ws)
-                        .output()
-                        .await;
-                    match check_result {
-                        Ok(output) if !output.status.success() => {
-                            let stderr = String::from_utf8_lossy(&output.stderr);
-                            let err_msg: String = stderr.chars().take(1500).collect();
-                            tracing::info!("Compile-gate: cargo check failed after write_file, injecting errors");
-                            self.history.push(Message {
-                                role: Role::User,
-                                content: format!(
-                                    "[SYSTEM] cargo check failed after your write_file. Fix the errors:\n{}",
-                                    err_msg
-                                ),
-                                tool_calls: vec![],
-                                tool_result: None,
-                            });
-                        }
-                        Ok(_) => {
-                            tracing::debug!("Compile-gate: cargo check passed");
-                        }
-                        Err(e) => {
-                            tracing::warn!("Compile-gate: cargo check failed to run: {}", e);
-                        }
+                match check_result {
+                    Ok(output) if !output.status.success() => {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        let err_msg: String = stderr.chars().take(1500).collect();
+                        tracing::info!("Compile-gate: cargo check failed after write_file, injecting errors");
+                        self.history.push(Message {
+                            role: Role::User,
+                            content: format!(
+                                "[SYSTEM] cargo check failed after your write_file. Fix the errors:\n{}",
+                                err_msg
+                            ),
+                            tool_calls: vec![],
+                            tool_result: None,
+                        });
+                    }
+                    Ok(_) => {
+                        tracing::debug!("Compile-gate: cargo check passed");
+                    }
+                    Err(e) => {
+                        tracing::warn!("Compile-gate: cargo check failed to run: {}", e);
                     }
                 }
             }

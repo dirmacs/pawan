@@ -81,3 +81,114 @@ impl Widget for Scrollbar {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn new_creates_scrollbar_with_defaults() {
+        let sb = Scrollbar::new(100, 10, 0);
+        assert_eq!(sb.total_items, 100);
+        assert_eq!(sb.visible_items, 10);
+        assert_eq!(sb.scroll_offset, 0);
+        assert_eq!(sb.thumb_color, Color::Cyan);
+        assert_eq!(sb.track_color, Color::Gray);
+    }
+
+    #[test]
+    fn with_colors_sets_custom_colors() {
+        let sb = Scrollbar::new(100, 10, 0).with_colors(Color::Red, Color::Blue);
+        assert_eq!(sb.thumb_color, Color::Red);
+        assert_eq!(sb.track_color, Color::Blue);
+    }
+
+    #[test]
+    fn render_noop_when_total_zero() {
+        let sb = Scrollbar::new(0, 10, 0);
+        let area = Rect::new(0, 0, 10, 10);
+        let mut buf = Buffer::empty(area);
+
+        sb.render(area, &mut buf);
+
+        assert!(buf.content().iter().all(|cell| cell.symbol() == " "));
+    }
+
+    #[test]
+    fn render_noop_when_total_equals_visible() {
+        let sb = Scrollbar::new(10, 10, 0);
+        let area = Rect::new(0, 0, 10, 10);
+        let mut buf = Buffer::empty(area);
+
+        sb.render(area, &mut buf);
+
+        assert!(buf.content().iter().all(|cell| cell.symbol() == " "));
+    }
+
+    #[test]
+    fn render_noop_when_area_has_zero_width() {
+        let sb = Scrollbar::new(100, 10, 0);
+        let area = Rect::new(0, 0, 0, 10);
+        let mut buf = Buffer::empty(area);
+
+        sb.render(area, &mut buf);
+
+        assert!(buf.content().is_empty());
+    }
+
+    #[test]
+    fn render_thumb_at_top_with_zero_offset() {
+        let sb = Scrollbar::new(100, 10, 0);
+        let area = Rect::new(0, 0, 10, 10);
+        let mut buf = Buffer::empty(area);
+        sb.render(area, &mut buf);
+        // thumb_y_rel = (0 * 10) / 100 = 0
+        // thumb_h = floor(10 * 10 / 100) = 1
+        // First row should be THUMB_CHAR
+        assert_eq!(buf[(9, 0)].symbol(), THUMB_CHAR.to_string());
+    }
+
+    #[test]
+    fn render_uses_track_and_thumb_chars() {
+        let sb = Scrollbar::new(100, 10, 50);
+        let area = Rect::new(0, 0, 10, 10);
+        let mut buf = Buffer::empty(area);
+        sb.render(area, &mut buf);
+
+        let thumb_count = (0..area.height)
+            .filter(|&y| buf[(9, y)].symbol() == THUMB_CHAR.to_string())
+            .count();
+        let track_count = (0..area.height)
+            .filter(|&y| buf[(9, y)].symbol() == TRACK_CHAR.to_string())
+            .count();
+
+        assert!(thumb_count > 0, "Should have thumb cells");
+        assert!(track_count > 0, "Should have track cells");
+    }
+
+    #[test]
+    fn render_produces_correct_thumb_height() {
+        let sb = Scrollbar::new(20, 5, 0);
+        let area = Rect::new(0, 0, 10, 10);
+        let mut buf = Buffer::empty(area);
+        sb.render(area, &mut buf);
+
+        let thumb_count = (0..area.height)
+            .filter(|&y| buf[(9, y)].symbol() == THUMB_CHAR.to_string())
+            .count();
+
+        assert_eq!(thumb_count, 2);
+    }
+
+    #[test]
+    fn render_thumb_position_calculated_correctly() {
+        // At offset 50 with total 100, thumb should be at position 5
+        let sb = Scrollbar::new(100, 10, 50);
+        let area = Rect::new(0, 0, 10, 10);
+        let mut buf = Buffer::empty(area);
+        sb.render(area, &mut buf);
+        // thumb_y_rel = (50 * 10) / 100 = 5
+        // thumb starts at row 5
+        assert_eq!(buf[(9, 5)].symbol(), THUMB_CHAR.to_string());
+    }
+}

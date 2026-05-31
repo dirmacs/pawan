@@ -308,155 +308,151 @@ pub struct ErrorSolution {
     pub prevention: String,
 }
 
+/// Extract raw text content for a named `## ` section from the summary.
+/// Returns everything between this section's header and the next `## ` (or EOF),
+/// trimmed of leading/trailing whitespace.
+fn extract_section_content<'a>(summary: &'a str, name: &str) -> &'a str {
+    let marker = format!("## {name}");
+    let start = match summary.find(&marker) {
+        Some(pos) => pos + marker.len(),
+        None => return "",
+    };
+    let rest = &summary[start..];
+    let end = rest.find("\n## ").unwrap_or(rest.len());
+    rest[..end].trim()
+}
+
+/// Parse a named text field from the summary (joins non-empty lines, trims).
+///
+/// Handles scalar text fields such as *User Intent* and *Current State*.
+pub fn parse_summary_field(summary: &str, field_name: &str) -> String {
+    extract_section_content(summary, field_name)
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Parse bullet-list items (`- ` prefix) from section text.
+///
+/// Covers *Key Decisions* and *Warnings and Notes*.
+pub fn parse_token_counts(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| line.trim().strip_prefix("- ").map(String::from))
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+/// Parse `### File: …` subsections from the *Code Changes* section.
+///
+/// Each `### File: <path>` header starts a new [`CodeChange`] entry; the
+/// following `- **Change** / **Rationale** / **Impact**` lines populate it.
+pub fn parse_compressed_sections(text: &str) -> Vec<CodeChange> {
+    let mut changes = Vec::new();
+    let mut current: Option<CodeChange> = None;
+
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(file) = line.strip_prefix("### File: ") {
+            if let Some(cc) = current.take() {
+                if !cc.file.is_empty() {
+                    changes.push(cc);
+                }
+            }
+            current = Some(CodeChange {
+                file: file.to_string(),
+                change: String::new(),
+                rationale: String::new(),
+                impact: String::new(),
+            });
+        } else if let Some(ref mut cc) = current {
+            if let Some(v) = line.strip_prefix("- **Change**: ") {
+                cc.change = v.to_string();
+            } else if let Some(v) = line.strip_prefix("- **Rationale**: ") {
+                cc.rationale = v.to_string();
+            } else if let Some(v) = line.strip_prefix("- **Impact**: ") {
+                cc.impact = v.to_string();
+            }
+        }
+    }
+    if let Some(cc) = current {
+        if !cc.file.is_empty() {
+            changes.push(cc);
+        }
+    }
+    changes
+}
+
+/// Parse `### Error: …` subsections from the *Errors and Solutions* section.
+///
+/// Each `### Error: <desc>` header starts a new [`ErrorSolution`] entry; the
+/// following `- **Location** / **Solution** / **Prevention**` lines populate it.
+pub fn parse_preserved_sections(text: &str) -> Vec<ErrorSolution> {
+    let mut errors = Vec::new();
+    let mut current: Option<ErrorSolution> = None;
+
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(err) = line.strip_prefix("### Error: ") {
+            if let Some(e) = current.take() {
+                if !e.error.is_empty() {
+                    errors.push(e);
+                }
+            }
+            current = Some(ErrorSolution {
+                error: err.to_string(),
+                location: String::new(),
+                solution: String::new(),
+                prevention: String::new(),
+            });
+        } else if let Some(ref mut e) = current {
+            if let Some(v) = line.strip_prefix("- **Location**: ") {
+                e.location = v.to_string();
+            } else if let Some(v) = line.strip_prefix("- **Solution**: ") {
+                e.solution = v.to_string();
+            } else if let Some(v) = line.strip_prefix("- **Prevention**: ") {
+                e.prevention = v.to_string();
+            }
+        }
+    }
+    if let Some(e) = current {
+        if !e.error.is_empty() {
+            errors.push(e);
+        }
+    }
+    errors
+}
+
+/// Parse numbered-list items (`1. `, `2. `, …) from section text.
+///
+/// Covers *Debugging Steps* and *Next Steps*.
+fn parse_numbered_items(text: &str) -> Vec<String> {
+    text.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            let after_digit = trimmed.strip_prefix(|c: char| c.is_ascii_digit())?;
+            after_digit.strip_prefix(". ").map(String::from)
+        })
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
 /// Parse a structured compaction summary from LLM output
 ///
 /// This is a simple parser that extracts sections from the structured format.
 /// It's designed to be robust to minor variations in formatting.
 pub fn parse_compaction_summary(summary: &str) -> Result<ParsedCompactionSummary, String> {
-    let mut parsed = ParsedCompactionSummary {
-        user_intent: String::new(),
-        key_decisions: Vec::new(),
-        code_changes: Vec::new(),
-        errors_and_solutions: Vec::new(),
-        debugging_steps: Vec::new(),
-        warnings_and_notes: Vec::new(),
-        current_state: String::new(),
-        next_steps: Vec::new(),
-    };
-
-    let lines: Vec<&str> = summary.lines().collect();
-    let mut current_section: Option<String> = None;
-    let mut current_code_change: Option<CodeChange> = None;
-    let mut current_error: Option<ErrorSolution> = None;
-
-    for line in lines {
-        let line = line.trim();
-
-        // Detect section headers
-        if let Some(rest) = line.strip_prefix("## ") {
-            current_section = Some(rest.to_string());
-            continue;
-        }
-
-        // Detect subsection headers (###)
-        if let Some(subsection) = line.strip_prefix("### ") {
-            let subsection = subsection.to_string();
-
-            // If we were building a code change, save it
-            if let Some(code_change) = current_code_change.take() {
-                if !code_change.file.is_empty() {
-                    parsed.code_changes.push(code_change);
-                }
-            }
-
-            // If we were building an error solution, save it
-            if let Some(error) = current_error.take() {
-                if !error.error.is_empty() {
-                    parsed.errors_and_solutions.push(error);
-                }
-            }
-
-            // Start new code change or error
-            if let Some(file) = subsection.strip_prefix("File: ") {
-                current_code_change = Some(CodeChange {
-                    file: file.to_string(),
-                    change: String::new(),
-                    rationale: String::new(),
-                    impact: String::new(),
-                });
-            } else if let Some(error) = subsection.strip_prefix("Error: ") {
-                current_error = Some(ErrorSolution {
-                    error: error.to_string(),
-                    location: String::new(),
-                    solution: String::new(),
-                    prevention: String::new(),
-                });
-            }
-
-            continue;
-        }
-
-        // Process content based on current section
-        match current_section.as_deref() {
-            Some("User Intent") => {
-                parsed.user_intent.push_str(line);
-                parsed.user_intent.push(' ');
-            }
-            Some("Key Decisions") => {
-                if let Some(item) = line.strip_prefix("- ") {
-                    parsed.key_decisions.push(item.to_string());
-                }
-            }
-            Some("Code Changes") => {
-                if let Some(ref mut code_change) = current_code_change {
-                    if let Some(rest) = line.strip_prefix("- **Change**: ") {
-                        code_change.change = rest.to_string();
-                    } else if let Some(rest) = line.strip_prefix("- **Rationale**: ") {
-                        code_change.rationale = rest.to_string();
-                    } else if let Some(rest) = line.strip_prefix("- **Impact**: ") {
-                        code_change.impact = rest.to_string();
-                    }
-                }
-            }
-            Some("Errors and Solutions") => {
-                if let Some(ref mut error) = current_error {
-                    if let Some(rest) = line.strip_prefix("- **Location**: ") {
-                        error.location = rest.to_string();
-                    } else if let Some(rest) = line.strip_prefix("- **Solution**: ") {
-                        error.solution = rest.to_string();
-                    } else if let Some(rest) = line.strip_prefix("- **Prevention**: ") {
-                        error.prevention = rest.to_string();
-                    }
-                }
-            }
-            Some("Debugging Steps") => {
-                if let Some(rest) = line
-                    .strip_prefix("1. ")
-                    .or_else(|| line.strip_prefix("2. "))
-                    .or_else(|| line.strip_prefix("3. "))
-                {
-                    parsed.debugging_steps.push(rest.to_string());
-                }
-            }
-            Some("Warnings and Notes") => {
-                if let Some(item) = line.strip_prefix("- ") {
-                    parsed.warnings_and_notes.push(item.to_string());
-                }
-            }
-            Some("Current State") => {
-                parsed.current_state.push_str(line);
-                parsed.current_state.push(' ');
-            }
-            Some("Next Steps") => {
-                if let Some(rest) = line
-                    .strip_prefix("1. ")
-                    .or_else(|| line.strip_prefix("2. "))
-                    .or_else(|| line.strip_prefix("3. "))
-                {
-                    parsed.next_steps.push(rest.to_string());
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // Save any remaining code change or error
-    if let Some(code_change) = current_code_change {
-        if !code_change.file.is_empty() {
-            parsed.code_changes.push(code_change);
-        }
-    }
-    if let Some(error) = current_error {
-        if !error.error.is_empty() {
-            parsed.errors_and_solutions.push(error);
-        }
-    }
-
-    // Trim whitespace
-    parsed.user_intent = parsed.user_intent.trim().to_string();
-    parsed.current_state = parsed.current_state.trim().to_string();
-
-    Ok(parsed)
+    Ok(ParsedCompactionSummary {
+        user_intent: parse_summary_field(summary, "User Intent"),
+        key_decisions: parse_token_counts(extract_section_content(summary, "Key Decisions")),
+        code_changes: parse_compressed_sections(extract_section_content(summary, "Code Changes")),
+        errors_and_solutions: parse_preserved_sections(extract_section_content(summary, "Errors and Solutions")),
+        debugging_steps: parse_numbered_items(extract_section_content(summary, "Debugging Steps")),
+        warnings_and_notes: parse_token_counts(extract_section_content(summary, "Warnings and Notes")),
+        current_state: parse_summary_field(summary, "Current State"),
+        next_steps: parse_numbered_items(extract_section_content(summary, "Next Steps")),
+    })
 }
 
 /// Convert a parsed compaction summary back to a message
