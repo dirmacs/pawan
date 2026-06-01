@@ -293,6 +293,7 @@ mod print {
 use clap::{CommandFactory, Parser, Subcommand};
 use owo_colors::OwoColorize;
 use pawan::{agent::PawanAgent, config::PawanConfig, healing::Healer, PawanError, Result};
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -789,7 +790,7 @@ fn read_print_prompt(explicit: Option<String>) -> Result<String> {
         }
         return Ok(p);
     }
-    if atty::is(atty::Stream::Stdin) {
+    if std::io::stdin().is_terminal() {
         return Err(PawanError::Config(
             "--print requires --message/--print-prompt when stdin is a TTY; otherwise pipe a prompt on stdin"
                 .to_string(),
@@ -940,9 +941,8 @@ async fn run() -> Result<()> {
     let resume_id = resolve_session_resume(&cli, &config)?;
 
     // Resume via --session / --continue uses non-TUI (headless) REPL, matching /session behavior.
-    let no_tui = cli.no_tui
-        || cli.session.is_some()
-        || (cli.continue_session && resume_id.is_some());
+    let no_tui =
+        cli.no_tui || cli.session.is_some() || (cli.continue_session && resume_id.is_some());
 
     match cli.command {
         None | Some(Commands::Chat { resume: None }) => {
@@ -1260,9 +1260,7 @@ fn fetch_git_porcelain_status(workspace: &Path) -> Result<Option<String>> {
     Ok(Some(status_text.into_owned()))
 }
 
-fn parse_git_status_categories(
-    status_text: &str,
-) -> (Vec<String>, Vec<String>, Vec<String>) {
+fn parse_git_status_categories(status_text: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
     let mut staged: Vec<String> = Vec::new();
     let mut unstaged: Vec<String> = Vec::new();
     let mut untracked: Vec<String> = Vec::new();
@@ -1290,11 +1288,7 @@ fn parse_git_status_categories(
     (staged, unstaged, untracked)
 }
 
-fn print_commit_status_summary(
-    staged: &[String],
-    unstaged: &[String],
-    untracked: &[String],
-) {
+fn print_commit_status_summary(staged: &[String], unstaged: &[String], untracked: &[String]) {
     if !staged.is_empty() {
         println!("{}", "Staged:".green().bold());
         for f in staged {
@@ -1549,13 +1543,7 @@ async fn run_commit(
     let (staged, unstaged, untracked) = parse_git_status_categories(&status_text);
     print_commit_status_summary(&staged, &unstaged, &untracked);
 
-    if !stage_commit_changes(
-        &workspace,
-        stage_all,
-        &staged,
-        &unstaged,
-        &untracked,
-    )? {
+    if !stage_commit_changes(&workspace, stage_all, &staged, &unstaged, &untracked)? {
         return Ok(());
     }
 
@@ -2729,10 +2717,7 @@ fn close_task_bead(
     Ok(())
 }
 
-fn handle_task_dep_action(
-    store: &pawan::tasks::BeadStore,
-    action: DepAction,
-) -> Result<()> {
+fn handle_task_dep_action(store: &pawan::tasks::BeadStore, action: DepAction) -> Result<()> {
     use pawan::tasks::BeadId;
 
     match action {
@@ -3262,7 +3247,6 @@ async fn run_mcp_list(config: PawanConfig) -> Result<()> {
     Ok(())
 }
 
-
 fn resolve_headless_prompt(prompt: Option<String>, file: Option<PathBuf>) -> Result<String> {
     match (prompt, file) {
         (Some(p), _) => Ok(p),
@@ -3544,7 +3528,7 @@ fn emit_headless_text_output(response: &pawan::agent::AgentResponse, verbose: bo
         println!();
     }
 
-    let use_color = atty::is(atty::Stream::Stderr);
+    let use_color = std::io::stderr().is_terminal();
     let tc_count = response.tool_calls.len();
     let success_count = response.tool_calls.iter().filter(|t| t.success).count();
     let fail_count = tc_count - success_count;
@@ -3633,7 +3617,11 @@ fn emit_headless_text_output(response: &pawan::agent::AgentResponse, verbose: bo
     if verbose {}
 }
 
-fn emit_headless_output(response: &pawan::agent::AgentResponse, output_format: &str, verbose: bool) {
+fn emit_headless_output(
+    response: &pawan::agent::AgentResponse,
+    output_format: &str,
+    verbose: bool,
+) {
     match output_format {
         "json" => emit_headless_json_output(response),
         _ => emit_headless_text_output(response, verbose),
@@ -3687,7 +3675,7 @@ async fn run_headless(
     run_headless_preflight_or_exit(&mut agent, output_format).await;
 
     let is_json = output_format == "json";
-    let use_color = !is_json && atty::is(atty::Stream::Stderr);
+    let use_color = !is_json && std::io::stderr().is_terminal();
 
     if !is_json {
         print_headless_run_header(&agent, &prompt_text, use_color);
@@ -4291,9 +4279,11 @@ A  added.rs
     #[test]
     fn test_strip_commit_fences_with_fences() {
         assert_eq!(
-            strip_commit_message_fences("```
+            strip_commit_message_fences(
+                "```
 fix: bug
-```"),
+```"
+            ),
             "fix: bug"
         );
     }
@@ -4335,4 +4325,3 @@ fix: bug
         assert_eq!(strip_thinking_tags("hello"), "hello");
     }
 }
-

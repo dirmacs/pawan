@@ -58,7 +58,10 @@ pub(crate) enum AgentCommand {
     Execute(String),
     SwitchModel(String),
     /// Route an IRC-style message to another agent id (or "all")
-    IrcSend { to: String, body: String },
+    IrcSend {
+        to: String,
+        body: String,
+    },
     Quit,
 }
 

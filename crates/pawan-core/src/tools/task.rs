@@ -11,12 +11,12 @@ use crate::config::PawanConfig;
 use crate::tools::{bash, batch, edit, file, git, lsp_tool, mise, native, ToolRegistry, ToolTier};
 use crate::{PawanError, Result};
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use futures::stream::{self, StreamExt};
 use tokio::sync::Semaphore;
 use tokio::time::timeout;
 
@@ -442,7 +442,8 @@ impl TaskTool {
                 let model = model.clone();
                 async move {
                     let _permit = sem.acquire().await.expect("semaphore");
-                    let label = TaskTool::short_label(item.description.as_deref(), &item.assignment);
+                    let label =
+                        TaskTool::short_label(item.description.as_deref(), &item.assignment);
                     let result = tool
                         .run_subagent(
                             &item.agent,

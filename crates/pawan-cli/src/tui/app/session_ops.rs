@@ -118,11 +118,9 @@ impl<'a> App<'a> {
     pub(crate) fn export_as_html(&self, path: &str) -> std::result::Result<usize, String> {
         use std::io::Write;
         let mut f = std::fs::File::create(path).map_err(|e| e.to_string())?;
-        write!(f, "{}", Self::build_html_header(&self.model_name))
-            .map_err(|e| e.to_string())?;
+        write!(f, "{}", Self::build_html_header(&self.model_name)).map_err(|e| e.to_string())?;
         for msg in &self.messages {
-            write!(f, "{}", Self::render_message_html(msg))
-                .map_err(|e| e.to_string())?;
+            write!(f, "{}", Self::render_message_html(msg)).map_err(|e| e.to_string())?;
         }
         write!(
             f,

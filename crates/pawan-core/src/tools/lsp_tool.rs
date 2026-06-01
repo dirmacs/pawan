@@ -114,15 +114,9 @@ impl Tool for AstGrepTool {
 
         let rewrite = match action {
             "search" => None,
-            "rewrite" => Some(
-                args["rewrite"]
-                    .as_str()
-                    .ok_or_else(|| {
-                        crate::PawanError::Tool(
-                            "rewrite pattern required for action=rewrite".into(),
-                        )
-                    })?,
-            ),
+            "rewrite" => Some(args["rewrite"].as_str().ok_or_else(|| {
+                crate::PawanError::Tool("rewrite pattern required for action=rewrite".into())
+            })?),
             _ => {
                 return Err(crate::PawanError::Tool(format!(
                     "Unknown action: {action}. Use 'search' or 'rewrite'"
@@ -473,10 +467,7 @@ mod tests {
     async fn test_lsp_unknown_action() {
         let tmp = TempDir::new().unwrap();
         let tool = LspTool::new(tmp.path().to_path_buf());
-        let err = tool
-            .execute(json!({"action": "bogus"}))
-            .await
-            .unwrap_err();
+        let err = tool.execute(json!({"action": "bogus"})).await.unwrap_err();
         assert!(
             err.to_string().contains("Unknown action"),
             "expected unknown action error, got: {err}"
@@ -487,10 +478,7 @@ mod tests {
     async fn test_lsp_search_missing_pattern() {
         let tmp = TempDir::new().unwrap();
         let tool = LspTool::new(tmp.path().to_path_buf());
-        let err = tool
-            .execute(json!({"action": "search"}))
-            .await
-            .unwrap_err();
+        let err = tool.execute(json!({"action": "search"})).await.unwrap_err();
         assert!(
             err.to_string().contains("pattern required"),
             "expected pattern required, got: {err}"
@@ -570,10 +558,7 @@ mod tests {
     async fn test_ast_grep_unknown_action() {
         let tmp = TempDir::new().unwrap();
         let tool = AstGrepTool::new(tmp.path().to_path_buf());
-        let err = tool
-            .execute(json!({"action": "bogus"}))
-            .await
-            .unwrap_err();
+        let err = tool.execute(json!({"action": "bogus"})).await.unwrap_err();
         assert!(
             err.to_string().contains("Unknown"),
             "expected unknown action error, got: {err}"

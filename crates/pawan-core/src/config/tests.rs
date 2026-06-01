@@ -641,107 +641,107 @@ fn test_load_empty_toml_file_returns_defaults() {
 }
 #[test]
 fn test_default_config_version() {
-assert_eq!(default_config_version(), 1);
+    assert_eq!(default_config_version(), 1);
 }
 
 #[test]
 fn test_default_tool_idle_timeout() {
-assert_eq!(default_tool_idle_timeout(), 300);
+    assert_eq!(default_tool_idle_timeout(), 300);
 }
 
 #[test]
 fn test_config_version_field_exists() {
-let config = PawanConfig::default();
-assert_eq!(config.config_version, 1);
+    let config = PawanConfig::default();
+    assert_eq!(config.config_version, 1);
 }
 
 #[test]
 fn test_tool_idle_timeout_field_exists() {
-let config = PawanConfig::default();
-assert_eq!(config.tool_call_idle_timeout_secs, 300);
+    let config = PawanConfig::default();
+    assert_eq!(config.tool_call_idle_timeout_secs, 300);
 }
 
 #[test]
 fn test_migration_result_fields() {
-let result = MigrationResult {
-    migrated: true,
-    from_version: 0,
-    to_version: 1,
-    backup_path: Some(std::path::PathBuf::from("/tmp/backup.toml")),
-};
-assert!(result.migrated);
-assert_eq!(result.from_version, 0);
-assert_eq!(result.to_version, 1);
-assert!(result.backup_path.is_some());
+    let result = MigrationResult {
+        migrated: true,
+        from_version: 0,
+        to_version: 1,
+        backup_path: Some(std::path::PathBuf::from("/tmp/backup.toml")),
+    };
+    assert!(result.migrated);
+    assert_eq!(result.from_version, 0);
+    assert_eq!(result.to_version, 1);
+    assert!(result.backup_path.is_some());
 }
 
 #[test]
 fn test_migrate_to_latest_no_migration_needed() {
-let mut config = PawanConfig {
-    config_version: 1, // Already at latest version
-    ..Default::default()
-};
+    let mut config = PawanConfig {
+        config_version: 1, // Already at latest version
+        ..Default::default()
+    };
 
-let result = migrate_to_latest(&mut config, None);
+    let result = migrate_to_latest(&mut config, None);
 
-assert!(
-    !result.migrated,
-    "Should not migrate if already at latest version"
-);
-assert_eq!(result.from_version, 1);
-assert_eq!(result.to_version, 1);
+    assert!(
+        !result.migrated,
+        "Should not migrate if already at latest version"
+    );
+    assert_eq!(result.from_version, 1);
+    assert_eq!(result.to_version, 1);
 }
 
 #[test]
 fn test_migrate_to_latest_performs_migration() {
-let mut config = PawanConfig {
-    config_version: 0, // Old version
-    ..Default::default()
-};
+    let mut config = PawanConfig {
+        config_version: 0, // Old version
+        ..Default::default()
+    };
 
-let result = migrate_to_latest(&mut config, None);
+    let result = migrate_to_latest(&mut config, None);
 
-assert!(result.migrated, "Should migrate from old version");
-assert_eq!(result.from_version, 0);
-assert_eq!(result.to_version, 1);
-assert_eq!(config.config_version, 1, "Config version should be updated");
+    assert!(result.migrated, "Should migrate from old version");
+    assert_eq!(result.from_version, 0);
+    assert_eq!(result.to_version, 1);
+    assert_eq!(config.config_version, 1, "Config version should be updated");
 }
 
 #[test]
 fn test_migrate_to_v1_adds_default_fields() {
-let mut config = PawanConfig {
-    config_version: 0,
-    ..Default::default()
-};
+    let mut config = PawanConfig {
+        config_version: 0,
+        ..Default::default()
+    };
 
-let result = migration::migrate_to_v1(&mut config);
+    let result = migration::migrate_to_v1(&mut config);
 
-assert!(result.is_ok(), "Migration should succeed");
-assert_eq!(result.unwrap(), 1, "Should return new version");
-assert_eq!(config.config_version, 1, "Config version should be updated");
+    assert!(result.is_ok(), "Migration should succeed");
+    assert_eq!(result.unwrap(), 1, "Should return new version");
+    assert_eq!(config.config_version, 1, "Config version should be updated");
 }
 
 #[test]
 fn test_migration_result_no_migration() {
-let result = MigrationResult::no_migration(1);
+    let result = MigrationResult::no_migration(1);
 
-assert!(!result.migrated, "Should indicate no migration");
-assert_eq!(result.from_version, 1);
-assert_eq!(result.to_version, 1);
-assert!(result.backup_path.is_none(), "Should not have backup path");
+    assert!(!result.migrated, "Should indicate no migration");
+    assert_eq!(result.from_version, 1);
+    assert_eq!(result.to_version, 1);
+    assert!(result.backup_path.is_none(), "Should not have backup path");
 }
 
 #[test]
 fn test_migration_result_with_backup() {
-let backup_path = std::path::PathBuf::from("/tmp/backup.toml");
-let result = MigrationResult::new(0, 1, Some(backup_path.clone()));
+    let backup_path = std::path::PathBuf::from("/tmp/backup.toml");
+    let result = MigrationResult::new(0, 1, Some(backup_path.clone()));
 
-assert!(result.migrated, "Should indicate migration occurred");
-assert_eq!(result.from_version, 0);
-assert_eq!(result.to_version, 1);
-assert_eq!(
-    result.backup_path,
-    Some(backup_path),
-    "Should have backup path"
-);
+    assert!(result.migrated, "Should indicate migration occurred");
+    assert_eq!(result.from_version, 0);
+    assert_eq!(result.to_version, 1);
+    assert_eq!(
+        result.backup_path,
+        Some(backup_path),
+        "Should have backup path"
+    );
 }

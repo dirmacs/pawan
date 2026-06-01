@@ -38,9 +38,9 @@ pub mod memory;
 pub mod memory_fence;
 pub mod skill_distillation;
 pub mod skills;
+pub mod subagent;
 #[cfg(feature = "tasks")]
 pub mod tasks;
-pub mod subagent;
 pub mod tools;
 
 pub use crate::injection_detector::{
