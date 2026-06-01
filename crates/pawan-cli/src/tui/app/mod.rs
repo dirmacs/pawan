@@ -9,6 +9,7 @@ mod session_ops;
 mod state;
 
 // Re-export parent `tui` modules so submodules can keep using `super::types`, etc.
+pub(crate) use super::effects;
 pub(crate) use super::fuzzy_search;
 pub(crate) use super::model_catalog;
 pub(crate) use super::queue_panel;

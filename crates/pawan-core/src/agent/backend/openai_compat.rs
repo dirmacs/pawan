@@ -720,6 +720,15 @@ impl OpenAiCompatBackend {
             "stream": stream
         });
 
+        // Request a final usage chunk during streaming. Without this, many
+        // OpenAI-compatible providers (e.g. vLLM/SGLang serving Qwen) omit
+        // `usage` entirely from the stream, leaving token/context widgets at
+        // zero — while others (StepFun) send it regardless. Setting it makes
+        // token accounting consistent across every model/provider.
+        if stream {
+            request_body["stream_options"] = json!({ "include_usage": true });
+        }
+
         // Only include tools if non-empty AND model supports tool use
         if !api_tools.is_empty() && Self::supports_tool_use(&self.cfg.model) {
             request_body["tools"] = json!(api_tools);

@@ -12,7 +12,7 @@ pub(crate) mod theme;
 mod highlight;
 mod layout;
 
-pub mod scrollbar;
+pub(crate) mod effects;
 pub mod status_bar;
 // activity_panel removed — tool activity shown inline in chat
 pub mod queue_panel;
