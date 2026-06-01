@@ -692,6 +692,8 @@ impl<'a> App<'a> {
         match super::theme::set_theme(name) {
             Ok(()) => {
                 self.current_theme = name.to_string();
+                // Fade the accent toward the new palette's colour.
+                animate_core::Animate::set(&mut self.accent_tween, super::theme::current().accent);
                 self.restyle_input();
                 self.status = format!("Theme: {name}");
             }

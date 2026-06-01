@@ -9,12 +9,13 @@ expression: output
                                                                                 
                                                                                 
                                                                                 
-                                                                                
-          ┌ Permission Required ─────────────────────────────────────┐          
-          │Tool: bash                                                │          
-          │Args: echo hello                                          │          
-          │                                                          │          
-          │ y  Allow   n  Deny   a  Allow all                        │          
-          │                                                          │          
-          │                                                          │          
-          └──────────────────────────────────────────────────────────┘
+       ╭ ⚠  Permission Required ────────────────────────────────────────╮       
+       │                                                                │       
+       │  tool  bash                                                    │       
+       │                                                                │       
+       │  arguments                                                     │       
+       │  echo hello                                                    │       
+       │                                                                │       
+       │   Y  Allow    N  Deny    A  Allow all                          │       
+       │                                                                │       
+       ╰────────────────────────────────────────────────────────────────╯

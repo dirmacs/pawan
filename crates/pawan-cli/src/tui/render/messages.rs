@@ -7,13 +7,14 @@ use crate::tui::highlight::SyntaxHighlighter;
 use crate::tui::theme::{self, current as theme_current};
 use crate::tui::types::*;
 use pawan::agent::Role;
-use ratatui::layout::Rect;
+use ratatui::layout::{Position, Rect, Size};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
+use tui_scrollview::{ScrollView, ScrollViewState, ScrollbarVisibility};
 
 impl<'a> App<'a> {
     pub(crate) fn render_messages(&self, f: &mut Frame, area: Rect) {
@@ -28,51 +29,37 @@ impl<'a> App<'a> {
 
         // Streaming state: render the in-progress assistant message
         if self.processing {
-            if let Some(ref state) = self.streaming {
-                if !state.blocks.is_empty() {
-                    lines.push(Line::from(vec![Span::styled(
-                        "Pawan: ",
-                        Style::default()
-                            .fg(Color::Green)
-                            .add_modifier(Modifier::BOLD),
-                    )]));
+            let has_blocks = self
+                .streaming
+                .as_ref()
+                .map(|s| !s.blocks.is_empty())
+                .unwrap_or(false);
+            if has_blocks {
+                lines.push(Line::from(vec![Span::styled(
+                    " Pawan ",
+                    Style::default()
+                        .fg(theme.background)
+                        .bg(theme.success)
+                        .add_modifier(Modifier::BOLD),
+                )]));
+                if let Some(state) = self.streaming.as_ref() {
                     for block in &state.blocks {
                         Self::render_block_to_lines(block, true, &mut lines);
                     }
-                } else {
-                    lines.push(Line::from(vec![Span::styled(
-                        "  Pawan is thinking...",
-                        Style::default()
-                            .fg(Color::Yellow)
-                            .add_modifier(Modifier::ITALIC),
-                    )]));
                 }
             } else {
+                // Animated spinner (ratatui-cheese) replaces the static label.
                 lines.push(Line::from(vec![Span::styled(
-                    "  Pawan is thinking...",
+                    format!("  {} Pawan is thinking…", self.spinner.frame_str()),
                     Style::default()
-                        .fg(Color::Yellow)
+                        .fg(theme.warning)
                         .add_modifier(Modifier::ITALIC),
                 )]));
             }
         }
 
-        let total_lines = lines.len();
-        let visible_height = area.height as usize;
-        let max_offset = total_lines.saturating_sub(visible_height);
-        let scroll_offset = if self.scroll == usize::MAX {
-            max_offset // auto-scroll to bottom
-        } else {
-            self.scroll.min(max_offset)
-        };
-
-        // Subtle scroll indicator: bottom-right percentage
-        let scroll_pct = if total_lines > visible_height {
-            let pct = (scroll_offset * 100).checked_div(max_offset).unwrap_or(100);
-            format!("[{}%]", pct)
-        } else {
-            String::new()
-        };
+        let content_h = lines.len().max(1).min(u16::MAX as usize) as u16;
+        let content_w = area.width.max(1);
 
         // Search indicator: subtle top overlay
         let search_hint = if self.search_mode {
@@ -83,10 +70,23 @@ impl<'a> App<'a> {
             String::new()
         };
 
-        let paragraph = Paragraph::new(lines)
-            .style(Style::default().fg(theme.foreground).bg(theme.surface))
-            .scroll((scroll_offset as u16, 0));
-        f.render_widget(paragraph, area);
+        // tui-scrollview owns offset clamping + scrollbar rendering, replacing the
+        // previous manual `Paragraph::scroll` math and bespoke percentage overlay.
+        let mut scroll_view = ScrollView::new(Size::new(content_w, content_h))
+            .horizontal_scrollbar_visibility(ScrollbarVisibility::Never)
+            .vertical_scrollbar_visibility(ScrollbarVisibility::Automatic);
+        scroll_view.render_widget(
+            Paragraph::new(lines).style(Style::default().fg(theme.foreground).bg(theme.surface)),
+            Rect::new(0, 0, content_w, content_h),
+        );
+
+        let mut sv_state = ScrollViewState::new();
+        if self.scroll == usize::MAX {
+            sv_state.scroll_to_bottom();
+        } else {
+            sv_state.set_offset(Position::new(0, self.scroll.min(u16::MAX as usize) as u16));
+        }
+        f.render_stateful_widget(scroll_view, area, &mut sv_state);
 
         // Render search hint as a subtle top overlay
         if !search_hint.is_empty() {
@@ -96,22 +96,6 @@ impl<'a> App<'a> {
             )]);
             let hint_area = Rect::new(area.x, area.y, area.width.min(40), 1);
             f.render_widget(Paragraph::new(hint_line), hint_area);
-        }
-
-        // Render scroll % as a subtle bottom-right overlay
-        if !scroll_pct.is_empty() {
-            let pct_w = scroll_pct.len() as u16 + 1;
-            let pct_area = Rect::new(
-                area.x + area.width.saturating_sub(pct_w),
-                area.y + area.height.saturating_sub(1),
-                pct_w,
-                1,
-            );
-            let pct_line = Line::from(vec![Span::styled(
-                scroll_pct,
-                Style::default().fg(theme.muted),
-            )]);
-            f.render_widget(Paragraph::new(pct_line), pct_area);
         }
     }
 
@@ -124,21 +108,11 @@ impl<'a> App<'a> {
         lines: &mut Vec<Line<'static>>,
     ) {
         let theme = theme_current();
-        let (prefix, style) = match msg.role {
-            Role::User => (
-                "You",
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Role::Assistant => (
-                "Pawan",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Role::System => ("System", Style::default().fg(Color::Yellow)),
-            Role::Tool => ("Tool", Style::default().fg(Color::Magenta)),
+        let (label, badge_bg) = match msg.role {
+            Role::User => (" You ", theme.accent),
+            Role::Assistant => (" Pawan ", theme.success),
+            Role::System => (" System ", theme.warning),
+            Role::Tool => (" Tool ", theme.accent_dim),
         };
 
         let elapsed = now.duration_since(msg.timestamp);
@@ -153,8 +127,14 @@ impl<'a> App<'a> {
         };
 
         lines.push(Line::from(vec![
-            Span::styled(format!("{}: ", prefix), style),
-            Span::styled(format!("({})", time_str), Style::default().fg(theme.muted)),
+            Span::styled(
+                label,
+                Style::default()
+                    .fg(theme.background)
+                    .bg(badge_bg)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!("  {}", time_str), Style::default().fg(theme.muted)),
         ]));
 
         // Use cached block lines if available; otherwise render fresh
@@ -201,74 +181,90 @@ impl<'a> App<'a> {
                 name,
                 args_summary,
                 state,
-            } => match state.as_ref() {
-                ToolBlockState::Running => {
-                    lines.push(Line::from(vec![
-                        Span::styled("  ⚙ ", Style::default().fg(Color::Yellow)),
-                        Span::styled(
-                            format!("Running {}...", name),
-                            Style::default()
-                                .fg(Color::Yellow)
-                                .add_modifier(Modifier::ITALIC),
-                        ),
-                    ]));
-                }
-                ToolBlockState::Done { record, expanded } => {
-                    let icon = if record.success { "✓" } else { "✗" };
-                    let color = if record.success {
-                        Color::Green
-                    } else {
-                        Color::Red
-                    };
-                    let mut spans = vec![
-                        Span::styled(format!("  {} ", icon), Style::default().fg(color)),
-                        Span::styled(
-                            name.clone(),
-                            Style::default()
-                                .fg(Color::Magenta)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                    ];
-                    if !args_summary.is_empty() {
-                        spans.push(Span::styled(
-                            format!("({})", args_summary),
-                            Style::default().fg(theme.muted),
-                        ));
-                    }
-                    spans.push(Span::styled(
-                        format!(" {}ms", record.duration_ms),
-                        Style::default().fg(theme.muted),
-                    ));
-                    lines.push(Line::from(spans));
-
-                    if *expanded {
-                        let result_str = format_tool_result(&record.result);
-                        for result_line in result_str.lines().take(20) {
-                            lines.push(Line::from(Span::styled(
-                                format!("    {}", result_line),
-                                Style::default().fg(theme.muted),
-                            )));
-                        }
-                        let total = result_str.lines().count();
-                        if total > 20 {
-                            lines.push(Line::from(Span::styled(
-                                format!("    ... ({} more lines)", total - 20),
+            } => {
+                // Leading spacer gives each tool call breathing room in the flow.
+                lines.push(Line::from(""));
+                match state.as_ref() {
+                    ToolBlockState::Running => {
+                        lines.push(Line::from(vec![
+                            Span::styled("  ╭ ", Style::default().fg(theme.accent_dim)),
+                            Span::styled("⚙ ", Style::default().fg(theme.warning)),
+                            Span::styled(
+                                format!("running {}", name),
                                 Style::default()
-                                    .fg(theme.muted)
-                                    .add_modifier(Modifier::ITALIC),
-                            )));
+                                    .fg(theme.warning)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled(" …", Style::default().fg(theme.muted)),
+                        ]));
+                    }
+                    ToolBlockState::Done { record, expanded } => {
+                        let (icon, color) = if record.success {
+                            ("✓", theme.tool_success)
+                        } else {
+                            ("✗", theme.tool_error)
+                        };
+                        // Header row: icon + tool name + args + duration.
+                        let mut header = vec![
+                            Span::styled("  ╭─ ", Style::default().fg(theme.accent_dim)),
+                            Span::styled(
+                                format!("{} ", icon),
+                                Style::default().fg(color).add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled(
+                                name.clone(),
+                                Style::default()
+                                    .fg(theme.accent)
+                                    .add_modifier(Modifier::BOLD),
+                            ),
+                        ];
+                        if !args_summary.is_empty() {
+                            header.push(Span::styled(
+                                format!(" {}", args_summary),
+                                Style::default().fg(theme.muted),
+                            ));
                         }
-                    } else {
-                        let preview = one_line_preview(&record.result, 60);
-                        if !preview.is_empty() {
-                            lines.push(Line::from(Span::styled(
-                                format!("    {}", preview),
-                                Style::default().fg(theme.muted).add_modifier(Modifier::DIM),
-                            )));
+                        header.push(Span::styled(
+                            format!("  · {}ms", record.duration_ms),
+                            Style::default().fg(theme.subtle),
+                        ));
+                        lines.push(Line::from(header));
+
+                        // Body: result framed with a left accent bar. Collapsed
+                        // still shows a useful window (6 lines); expanded shows up
+                        // to 40 so users can actually read what executed.
+                        let result_str = format_tool_result(&record.result);
+                        let total = result_str.lines().count();
+                        let max_lines = if *expanded { 40 } else { 6 };
+                        let mut shown = 0usize;
+                        for result_line in result_str.lines().take(max_lines) {
+                            lines.push(Line::from(vec![
+                                Span::styled("  │ ", Style::default().fg(theme.accent_dim)),
+                                Span::styled(
+                                    result_line.to_string(),
+                                    Style::default().fg(theme.foreground),
+                                ),
+                            ]));
+                            shown += 1;
                         }
+                        if total > shown {
+                            lines.push(Line::from(vec![
+                                Span::styled("  │ ", Style::default().fg(theme.accent_dim)),
+                                Span::styled(
+                                    format!("… {} more lines — press e to expand", total - shown),
+                                    Style::default()
+                                        .fg(theme.muted)
+                                        .add_modifier(Modifier::ITALIC),
+                                ),
+                            ]));
+                        }
+                        lines.push(Line::from(Span::styled(
+                            "  ╰─",
+                            Style::default().fg(theme.accent_dim),
+                        )));
                     }
                 }
-            },
+            }
         }
     }
 
@@ -294,16 +290,18 @@ impl<'a> App<'a> {
                         line_offset += content.lines().count().max(1);
                     }
                     ContentBlock::ToolCall { state, .. } => {
+                        // Mirror render layout: leading blank + header (or running
+                        // line), then for completed calls the framed body + footer.
+                        line_offset += 2;
                         if let ToolBlockState::Done { expanded, record } = state.as_ref() {
-                            line_offset += 1; // summary line
-                            if *expanded {
-                                line_offset +=
-                                    format_tool_result(&record.result).lines().count().min(21);
-                            } else {
-                                line_offset += 1; // preview line
+                            let total = format_tool_result(&record.result).lines().count();
+                            let max_lines = if *expanded { 40 } else { 6 };
+                            let shown = total.min(max_lines);
+                            line_offset += shown;
+                            if total > shown {
+                                line_offset += 1; // "more lines" hint
                             }
-                        } else {
-                            line_offset += 1;
+                            line_offset += 1; // footer
                         }
                     }
                 }

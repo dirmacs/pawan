@@ -10,7 +10,6 @@ expression: output
                                                                                 
                     ┌ Fuzzy search (Ctrl+P, Ctrl+F) ───────┐                    
                     │> help▌                               │                    
-                    │/? — Show help (shorthand)            │                    
                     │/help — Show this help list           │                    
                     │                                      │                    
                     └──────────────────────────────────────┘
