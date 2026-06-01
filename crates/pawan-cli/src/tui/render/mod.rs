@@ -29,6 +29,7 @@ use std::io::{self, Stdout};
 use std::sync::OnceLock;
 use std::time::Instant;
 use tokio::sync::mpsc;
+use animate_core::Animate;
 
 use super::app::App;
 use super::highlight::SyntaxHighlighter;
@@ -74,6 +75,17 @@ impl<'a> App<'a> {
         let input_lines = self.input.lines().len();
         let input_height = (input_lines + 2).clamp(3, 10) as u16;
         let theme = super::theme::current();
+        // Per-frame effect clock (clamped delta) + spinner advance. Effects are
+        // suppressed under `cfg!(test)` so snapshot renders stay deterministic.
+        let fx_on = !cfg!(test);
+        let fx_tick = super::effects::frame_tick(&mut self.last_frame);
+        self.spinner.tick(fx_tick.into());
+        // Advance value tweens (token roll, context glide, accent fade) on the
+        // same clock as the cell effects. Suppressed under test for determinism.
+        if fx_on {
+            super::effects::advance_value_clock(fx_tick);
+            self.advance_value_animations();
+        }
 
         // Full background fill
         f.render_widget(ratatui::widgets::Clear, area);
@@ -93,14 +105,35 @@ impl<'a> App<'a> {
             area
         };
 
+        let model_short = {
+            let m = &self.model_name;
+            m.rsplit('/').next().unwrap_or(m).to_string()
+        };
         let shell = Block::default()
             .borders(Borders::ALL)
+            .border_type(ratatui::widgets::BorderType::Rounded)
             .border_style(Style::default().fg(theme.border))
-            .title(" pawan · Messages ")
-            .title_style(
-                Style::default()
-                    .fg(theme.accent)
-                    .add_modifier(Modifier::BOLD),
+            .title_top(
+                Line::from(vec![
+                    Span::styled("◆ ", Style::default().fg(theme.accent)),
+                    Span::styled(
+                        "pawan",
+                        Style::default()
+                            .fg(theme.accent)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("  ", Style::default()),
+                    Span::styled(model_short, Style::default().fg(theme.muted)),
+                    Span::styled(" ", Style::default()),
+                ])
+                .left_aligned(),
+            )
+            .title_bottom(
+                Line::from(Span::styled(
+                    " F1 help · e expand · Tab focus · Ctrl+Q quit ",
+                    Style::default().fg(theme.subtle),
+                ))
+                .right_aligned(),
             )
             .style(Style::default().bg(theme.surface));
         let content_area = shell.inner(shell_area);
@@ -112,6 +145,15 @@ impl<'a> App<'a> {
 
         // Messages stay full-width inside the restored main shell.
         self.render_messages(f, layout.msg_area);
+        // Fade freshly finalized assistant turns into view.
+        if fx_on {
+            if let Some(fx) = self.content_fx.as_mut() {
+                fx.process(fx_tick, f.buffer_mut(), layout.msg_area);
+                if fx.done() {
+                    self.content_fx = None;
+                }
+            }
+        }
 
         // Queue panel (compact, only when tasks are running)
         self.queue_panel.view(f, layout.queue_area);
@@ -127,24 +169,59 @@ impl<'a> App<'a> {
         // Status bar at the bottom
         self.status_bar
             .view(f, layout.status_area, &self.status_bar_context());
+        // Pulse the status strip on token/context updates.
+        if fx_on {
+            if let Some(fx) = self.status_fx.as_mut() {
+                fx.process(fx_tick, f.buffer_mut(), layout.status_area);
+                if fx.done() {
+                    self.status_fx = None;
+                }
+            }
+        }
 
-        // Overlays (modals take precedence)
-        if self.permission_dialog.is_some() {
-            self.render_permission_dialog(f);
+        // Overlays (modals take precedence). Animated modals return their area so
+        // a sweep-in effect can be applied on the frame they first appear.
+        let overlay_area: Option<Rect> = if self.permission_dialog.is_some() {
+            Some(self.render_permission_dialog(f))
         } else if self.model_picker.visible {
-            self.render_model_selector(f);
+            Some(self.render_model_selector(f))
         } else if self.irc_compose_open {
             self.render_irc_compose(f);
+            None
         } else if self.session_browser_open {
             self.render_session_browser(f);
+            None
         } else if self.help_overlay {
-            self.render_help_overlay(f);
+            Some(self.render_help_overlay(f))
         } else if self.fuzzy_search.is_some() {
-            self.render_fuzzy_search(f);
+            Some(self.render_fuzzy_search(f))
+        } else {
+            None
+        };
+
+        let overlay_active = overlay_area.is_some();
+        if fx_on {
+            if overlay_active && !self.overlay_was_active {
+                self.popup_fx = Some(super::effects::popup_open(theme.surface_elevated));
+            }
+            if let Some(rect) = overlay_area {
+                if let Some(fx) = self.popup_fx.as_mut() {
+                    fx.process(fx_tick, f.buffer_mut(), rect);
+                    if fx.done() {
+                        self.popup_fx = None;
+                    }
+                }
+            }
         }
+        self.overlay_was_active = overlay_active;
     }
     pub(crate) fn render_input(&mut self, f: &mut Frame, area: Rect) {
-        let accent_color = self.accent_transition.resolve();
+        // Animated accent (folds the former `ColorTransition`); raw under test.
+        let accent_color = if cfg!(test) {
+            theme_current().accent
+        } else {
+            *self.accent_tween.get()
+        };
 
         // Input separator carries focus/processing state without boxing the textarea.
         let sep_style = if self.focus == Panel::Input {
@@ -205,10 +282,17 @@ impl<'a> App<'a> {
         } else {
             None
         };
-        let context_pct = if self.context_estimate > 0 {
-            (self.context_estimate as f32 / 128_000.0).clamp(0.0, 1.0)
+        // Animated values roll/glide toward their targets; raw under test so
+        // snapshots stay deterministic.
+        let total_tokens = if cfg!(test) {
+            self.total_tokens
         } else {
-            0.0
+            self.token_tween.get().round() as u64
+        };
+        let context_pct = if cfg!(test) {
+            Self::context_fraction(self.context_estimate)
+        } else {
+            *self.ctx_tween.get()
         };
 
         StatusBarContext {
@@ -217,13 +301,42 @@ impl<'a> App<'a> {
             mode_style,
             goal_active: self.goal_mode,
             loop_active: self.loop_mode,
-            total_tokens: self.total_tokens,
+            total_tokens,
             context_pct,
             iteration: self.iteration_count,
             branch: None,
             timestamp: Local::now().format("%H:%M").to_string(),
             thinking_label,
         }
+    }
+
+    /// Context-usage fraction (0.0..=1.0) for a given token estimate. Shared by
+    /// the status strip and the value-tween target so they never diverge.
+    pub(crate) fn context_fraction(estimate: usize) -> f32 {
+        if estimate > 0 {
+            (estimate as f32 / 128_000.0).clamp(0.0, 1.0)
+        } else {
+            0.0
+        }
+    }
+
+    /// Advance the per-frame value tweens. Targets are (re)set only when they
+    /// actually move so the easing clock isn't restarted every frame; the accent
+    /// target is set separately on `/theme` switch.
+    pub(crate) fn advance_value_animations(&mut self) {
+        let tokens = self.total_tokens as f64;
+        if (*self.token_tween.target() - tokens).abs() >= 1.0 {
+            self.token_tween.set(tokens);
+        }
+        self.token_tween.update();
+
+        let pct = Self::context_fraction(self.context_estimate);
+        if (*self.ctx_tween.target() - pct).abs() >= f32::EPSILON {
+            self.ctx_tween.set(pct);
+        }
+        self.ctx_tween.update();
+
+        self.accent_tween.update();
     }
 }
 
@@ -295,8 +408,8 @@ mod tests {
         );
         // StatusBar renders model name + mode badge + token bar; status text moved to overlay
         assert!(
-            content.contains("Messages"),
-            "Messages panel title should render"
+            content.contains("pawan"),
+            "Branded shell title should render"
         );
         assert!(content.contains("Input"), "Input panel title should render");
     }
@@ -369,8 +482,8 @@ mod tests {
         terminal.draw(|f| app.ui(f)).unwrap();
 
         let content = buffer_to_string(terminal.backend().buffer());
-        assert!(content.contains("You:"), "Should render user prefix");
-        assert!(content.contains("Pawan:"), "Should render assistant prefix");
+        assert!(content.contains("You"), "Should render user badge");
+        assert!(content.contains("Pawan"), "Should render assistant badge");
         assert!(
             content.contains("Hello pawan"),
             "Should render user message"
@@ -1543,11 +1656,13 @@ mod tests {
     }
 
     #[test]
-    fn test_slash_shorthand() {
+    fn test_slash_shorthand_removed() {
         let mut app = test_app();
         app.handle_slash_command("/c");
-        // /c is alias for /clear
-        assert!(app.messages.is_empty());
+        // Shorthand aliases were removed: `/c` is no longer an alias for `/clear`
+        // and is reported as an unknown command instead.
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.messages[0].text_content().contains("Unknown command"));
     }
 
     #[test]
@@ -2502,7 +2617,7 @@ mod tests {
     // ===== Scroll indicator tests =====
 
     #[test]
-    fn test_scroll_indicator_in_title() {
+    fn test_scrollbar_appears_when_overflowing() {
         let mut app = test_app();
         // Add enough messages to exceed the visible area so scroll indicator appears
         for i in 0..20 {
@@ -2522,10 +2637,10 @@ mod tests {
                 text.push_str(buf[(x, y)].symbol());
             }
         }
-        // Scroll indicator now shows percentage when content exceeds visible area
+        // tui-scrollview draws a vertical scrollbar (arrow glyphs) on overflow.
         assert!(
-            text.contains("[") && text.contains("%]"),
-            "Should show scroll percentage indicator, got:\n{}",
+            text.contains('\u{25b2}') || text.contains('\u{25bc}'),
+            "Should show scrollbar arrows, got:\n{}",
             &text[..300.min(text.len())]
         );
     }
@@ -3168,7 +3283,7 @@ mod tests {
         #[test]
         fn test_render_help_overlay_snapshot() {
             let app = test_app();
-            let output = render_snapshot(80, 24, |f| app.render_help_overlay(f));
+            let output = render_snapshot(80, 24, |f| { app.render_help_overlay(f); });
             insta::assert_snapshot!(output);
         }
 
@@ -3177,7 +3292,7 @@ mod tests {
             let mut app = test_app();
             app.load_available_models();
             app.model_picker.visible = true;
-            let output = render_snapshot(80, 24, |f| app.render_model_selector(f));
+            let output = render_snapshot(80, 24, |f| { app.render_model_selector(f); });
             insta::assert_snapshot!(output);
         }
 
@@ -3187,7 +3302,7 @@ mod tests {
             let mut fs = FuzzySearchState::new(default_command_item_lines());
             fs.filter("help");
             app.fuzzy_search = Some(fs);
-            let output = render_snapshot(80, 24, |f| app.render_fuzzy_search(f));
+            let output = render_snapshot(80, 24, |f| { app.render_fuzzy_search(f); });
             insta::assert_snapshot!(output);
         }
 
@@ -3200,7 +3315,7 @@ mod tests {
                 args_summary: "echo hello".to_string(),
                 respond: Some(tx),
             });
-            let output = render_snapshot(80, 24, |f| app.render_permission_dialog(f));
+            let output = render_snapshot(80, 24, |f| { app.render_permission_dialog(f); });
             insta::assert_snapshot!(output);
         }
 

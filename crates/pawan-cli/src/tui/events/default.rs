@@ -293,7 +293,7 @@ fn handle_messages_panel_key(app: &mut App<'_>, key: &KeyEvent) {
         KeyCode::PageDown => app.scroll = app.scroll.saturating_add(10),
         KeyCode::Char('g') | KeyCode::Home => app.scroll = 0,
         KeyCode::Char('G') | KeyCode::End => {
-            app.scroll = app.messages.len().saturating_sub(1);
+            app.scroll = usize::MAX;
         }
         KeyCode::Char('/') => {
             app.search_mode = true;
