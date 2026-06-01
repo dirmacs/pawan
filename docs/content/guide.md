@@ -73,6 +73,25 @@ pawan
 pawan explain src/main.rs
 ```
 
+## What's New in v0.5.9
+
+### TUI Redesign
+
+- **Single-letter slash commands removed** — `/c /m /t /s /h /q /e /d /? /ss` deleted; long forms only
+- **Token/ctx widget fix** — `stream_options.include_usage` for providers that omit streamed usage by default
+- **Auto-scroll pinned** — `usize::MAX` sentinel replaces message-index math
+- **Permission popup redesign** — rounded border, themed title, padded content, Y/N/A badges
+- **Tool-call transparency** — framed cards, 6-line collapsed / 40-line expanded, footer hints
+- **Aesthetic redesign** — rounded borders, branded `◆ pawan` title, badge-pill role headers, muted timestamps
+
+### Motion & value animation
+
+- **`animate-core` value tweens** — rolling token counts (600ms cubic-out), eased ctx% bar (450ms cubic-out), accent-colour fade on `/theme` switches
+- **`tachyonfx` cell effects** — content reveal, popup sweep-in, status pulse (suppressed under `cfg!(test)`)
+- **`tui-scrollview`** — automatic vertical scrollbar replaces manual `[%]` indicator
+- **`ratatui-cheese` spinner** — animated "Pawan is thinking..." replaces static label
+- **`Rect::centered()`** — all overlay modals use centered constraints
+
 ## What's New in v0.5.8
 
 ### TUI Reliability & Polish
@@ -82,6 +101,7 @@ pawan explain src/main.rs
 - **Polished bottom status bar** — model, tokens, context percentage/bar, iteration, and timestamp are visually separated
 - **Expanded TUI tests** — key-event regressions and Ratatui TestBackend assertions cover `/theme`, placeholder styling, and status formatting
 - **Test suite expansion** — 60 new tests for 0%-coverage functions (LspTool, InjectionDetector, main helpers, TUI model picker); 1779 total tests passing across 18 suites
+
 
 ## Configuration
 

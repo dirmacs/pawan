@@ -57,7 +57,25 @@ The core claim:
 
 The short version: **pawan is the vibe-coding runtime for people whose production language already fights bad code for them.** If you're using Rust in anger, that's the feature you want.
 
+## What's New in v0.5.9
+
+### TUI redesign
+- Single-letter slash commands removed (`/c /m /t /s /h /q /e /d /? /ss`); long forms only
+- Token/ctx widget fixed for providers that omit streamed usage (`stream_options.include_usage`)
+- Auto-scroll pinned to bottom (`usize::MAX` sentinel for "pin to bottom")
+- Redesigned permission popup — rounded border, themed title, padded content, Y/N/A badges
+- Improved tool-call transparency — framed cards, 6-line collapsed / 40-line expanded, footer hints
+- Aesthetic redesign — rounded borders, branded `◆ pawan` title, badge-pill role headers, muted timestamps
+
+### Motion & value animation
+- `animate-core` value tweens — rolling token counts (600ms cubic-out), eased ctx% bar (450ms cubic-out), accent-colour fade on `/theme` switches
+- `tachyonfx` cell effects — content reveal, popup sweep-in, status pulse
+- `tui-scrollview` adoption — automatic vertical scrollbar
+- `ratatui-cheese` spinner — animated "Pawan is thinking..." replaces static label
+- `Rect::centered()` — all overlay modals use centered constraints
+
 ## What's New in v0.5.8
+
 
 ### TUI reliability — /theme, input contrast, status polish
 - `/theme nord`, `/theme onedark`, `/theme gruvbox`, and other argument-bearing slash commands now submit correctly when pressing Enter
@@ -186,7 +204,7 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.5.8)
+## TUI (v0.5.9)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets
