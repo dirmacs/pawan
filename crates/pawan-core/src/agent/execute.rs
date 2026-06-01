@@ -2,8 +2,8 @@
 
 use super::{
     prepare_recalled_context, AgentResponse, LLMResponse, Message, PawanAgent, PermissionCallback,
-    PermissionRequest, Role, TokenCallback, TokenUsage, ToolCallback, ToolCallRecord,
-    ToolCallRequest, ToolResultMessage, ToolStartCallback,
+    PermissionRequest, Role, TokenCallback, TokenUsage, ToolCallRecord, ToolCallRequest,
+    ToolCallback, ToolResultMessage, ToolStartCallback,
 };
 use crate::coordinator::{CoordinatorResult, ToolCallingConfig, ToolCoordinator};
 use crate::tools::ToolRegistry;
@@ -127,7 +127,6 @@ pub(crate) fn summarize_args(args: &serde_json::Value) -> String {
     }
 }
 
-
 impl PawanAgent {
     /// Execute a single prompt with tool calling support
     pub async fn execute(&mut self, user_prompt: &str) -> Result<AgentResponse> {
@@ -212,7 +211,8 @@ impl PawanAgent {
             }
 
             // Budget nudge + context estimation + pruning
-            self.apply_iteration_budgets(iterations, max_iterations).await;
+            self.apply_iteration_budgets(iterations, max_iterations)
+                .await;
 
             // Dynamic tool selection: pick the most relevant tools for this query
             let latest_query = self
@@ -232,12 +232,17 @@ impl PawanAgent {
             self.last_tool_call_time = Some(Instant::now());
 
             // Resilient LLM call with retry on transient failures
-            let response = self.call_llm_with_retry(&tool_defs, on_token.as_ref()).await;
+            let response = self
+                .call_llm_with_retry(&tool_defs, on_token.as_ref())
+                .await;
 
             // Accumulate token usage with thinking/action split
             if let Some(ref usage) = response.usage {
                 Self::accumulate_token_usage(
-                    usage, &mut total_usage, iterations, self.config.thinking_budget,
+                    usage,
+                    &mut total_usage,
+                    iterations,
+                    self.config.thinking_budget,
                 );
             }
 
@@ -448,8 +453,7 @@ impl PawanAgent {
                         || err_str.contains("broken pipe");
 
                     if is_transient && attempt <= max_llm_retries {
-                        let delay =
-                            std::time::Duration::from_secs(2u64.pow(attempt as u32));
+                        let delay = std::time::Duration::from_secs(2u64.pow(attempt as u32));
                         tracing::warn!(
                             attempt = attempt,
                             delay_secs = delay.as_secs(),
@@ -464,8 +468,7 @@ impl PawanAgent {
                                 "Pruning history before retry (possible context overflow)"
                             );
                             if let Some(eruka) = &self.eruka {
-                                let snapshot =
-                                    Self::history_snapshot_for_eruka(&self.history);
+                                let snapshot = Self::history_snapshot_for_eruka(&self.history);
                                 if let Err(e) =
                                     eruka.on_pre_compress(&snapshot, &self.session_id).await
                                 {
@@ -627,9 +630,7 @@ impl PawanAgent {
                 .rev()
                 .find(|m| m.role == Role::Assistant && !m.content.is_empty());
             if let Some(prev) = prev_assistant {
-                if prev.content.trim() == clean_content.trim()
-                    && iterations < max_iterations
-                {
+                if prev.content.trim() == clean_content.trim() && iterations < max_iterations {
                     tracing::warn!(
                         "Repeated response detected at iteration {} — injecting correction",
                         iterations
@@ -668,20 +669,16 @@ impl PawanAgent {
         Vec<Option<Message>>,
         Vec<bool>,
     ) {
-        let mut ordered_records: Vec<Option<ToolCallRecord>> =
-            vec![None; tool_calls.len()];
-        let mut ordered_tool_messages: Vec<Option<Message>> =
-            vec![None; tool_calls.len()];
+        let mut ordered_records: Vec<Option<ToolCallRecord>> = vec![None; tool_calls.len()];
+        let mut ordered_tool_messages: Vec<Option<Message>> = vec![None; tool_calls.len()];
         let ordered_compile_gate: Vec<bool> = vec![false; tool_calls.len()];
         let mut pending: Vec<(usize, ToolCallRequest)> = Vec::new();
 
         for (idx, tool_call) in tool_calls.iter().cloned().enumerate() {
             self.tools.activate(&tool_call.name);
 
-            let perm = crate::config::ToolPermission::resolve(
-                &tool_call.name,
-                &self.config.permissions,
-            );
+            let perm =
+                crate::config::ToolPermission::resolve(&tool_call.name, &self.config.permissions);
             let denied = match perm {
                 crate::config::ToolPermission::Deny => Some("Tool denied by permission policy"),
                 crate::config::ToolPermission::Prompt => {
@@ -690,7 +687,10 @@ impl PawanAgent {
                             tool_call.arguments.get("command").and_then(|v| v.as_str())
                         {
                             if crate::tools::bash::is_read_only(cmd) {
-                                tracing::debug!(command = cmd, "Auto-allowing read-only bash command under Prompt permission");
+                                tracing::debug!(
+                                    command = cmd,
+                                    "Auto-allowing read-only bash command under Prompt permission"
+                                );
                                 None
                             } else if let Some(ref perm_cb) = on_permission {
                                 let args_summary = cmd.chars().take(120).collect::<String>();
@@ -724,7 +724,9 @@ impl PawanAgent {
                             _ => Some("User denied tool execution"),
                         }
                     } else {
-                        Some("Tool requires user approval (set permission to allow or use TUI mode)")
+                        Some(
+                            "Tool requires user approval (set permission to allow or use TUI mode)",
+                        )
                     }
                 }
                 crate::config::ToolPermission::Allow => None,
@@ -745,8 +747,7 @@ impl PawanAgent {
                 ordered_records[idx] = Some(record);
                 ordered_tool_messages[idx] = Some(Message {
                     role: Role::Tool,
-                    content: serde_json::to_string(&json!({"error": reason}))
-                        .unwrap_or_default(),
+                    content: serde_json::to_string(&json!({"error": reason})).unwrap_or_default(),
                     tool_calls: vec![],
                     tool_result: Some(ToolResultMessage {
                         tool_call_id: tool_call.id.clone(),
@@ -763,8 +764,7 @@ impl PawanAgent {
 
             if let Some(tool) = self.tools.get(&tool_call.name) {
                 let schema = tool.parameters_schema();
-                if let Ok(params) = thulp_core::ToolDefinition::parse_mcp_input_schema(&schema)
-                {
+                if let Ok(params) = thulp_core::ToolDefinition::parse_mcp_input_schema(&schema) {
                     let thulp_def = thulp_core::ToolDefinition {
                         name: tool_call.name.clone(),
                         description: String::new(),
@@ -850,7 +850,12 @@ impl PawanAgent {
             pending.push((idx, tool_call));
         }
 
-        (pending, ordered_records, ordered_tool_messages, ordered_compile_gate)
+        (
+            pending,
+            ordered_records,
+            ordered_tool_messages,
+            ordered_compile_gate,
+        )
     }
 
     /// Execute pending tool calls in parallel with per-tool timeout handling.
@@ -967,7 +972,9 @@ impl PawanAgent {
                     Ok(output) if !output.status.success() => {
                         let stderr = String::from_utf8_lossy(&output.stderr);
                         let err_msg: String = stderr.chars().take(1500).collect();
-                        tracing::info!("Compile-gate: cargo check failed after write_file, injecting errors");
+                        tracing::info!(
+                            "Compile-gate: cargo check failed after write_file, injecting errors"
+                        );
                         self.history.push(Message {
                             role: Role::User,
                             content: format!(

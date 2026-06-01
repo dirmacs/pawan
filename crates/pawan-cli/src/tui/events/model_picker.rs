@@ -76,8 +76,8 @@ pub(crate) fn handle_model_picker_key(app: &mut App<'_>, key: &KeyEvent) -> bool
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use crate::tui::app::App;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use pawan::config::TuiConfig;
     use tokio::sync::mpsc;
 

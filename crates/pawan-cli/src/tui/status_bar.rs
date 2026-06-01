@@ -216,7 +216,10 @@ mod tests {
     use super::*;
     #[test]
     fn abbrev_model_returns_full_when_narrow_false() {
-        assert_eq!(abbrev_model("nvidia/llama-3.1-nemotron", false), "nvidia/llama-3.1-nemotron");
+        assert_eq!(
+            abbrev_model("nvidia/llama-3.1-nemotron", false),
+            "nvidia/llama-3.1-nemotron"
+        );
     }
     #[test]
     fn abbrev_model_short_names_unchanged() {
@@ -227,7 +230,10 @@ mod tests {
     fn abbrev_model_long_truncates_with_ellipsis() {
         // Input is 56 chars, output should be 20 chars + 1 ellipsis = 21 chars
         // Note: .len() returns bytes; ellipsis is 3 bytes, so use .chars().count()
-        let result = abbrev_model("nvidia/this-is-a-very-long-model-name-that-exceeds-limit", true);
+        let result = abbrev_model(
+            "nvidia/this-is-a-very-long-model-name-that-exceeds-limit",
+            true,
+        );
         assert_eq!(result.chars().count(), 21);
         assert!(result.starts_with('…'));
     }

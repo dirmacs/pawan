@@ -60,8 +60,7 @@ pub(crate) fn handle_session_browser_key(app: &mut App<'_>, key: &KeyEvent) -> b
         KeyCode::Down => {
             let sessions = app.filtered_sessions().len();
             if sessions > 0 {
-                app.session_browser_selected =
-                    (app.session_browser_selected + 1).min(sessions - 1);
+                app.session_browser_selected = (app.session_browser_selected + 1).min(sessions - 1);
             }
         }
         KeyCode::PageUp => {
@@ -142,8 +141,7 @@ fn handle_input_slash_popup_keys(app: &mut App<'_>, key: &KeyEvent) -> bool {
         KeyCode::Down => {
             let items = app.slash_items();
             if !items.is_empty() {
-                app.slash_popup_selected =
-                    (app.slash_popup_selected + 1).min(items.len() - 1);
+                app.slash_popup_selected = (app.slash_popup_selected + 1).min(items.len() - 1);
             }
         }
         KeyCode::PageUp => {
@@ -155,8 +153,7 @@ fn handle_input_slash_popup_keys(app: &mut App<'_>, key: &KeyEvent) -> bool {
         KeyCode::PageDown => {
             let items = app.slash_items();
             if !items.is_empty() {
-                app.slash_popup_selected =
-                    (app.slash_popup_selected + 10).min(items.len() - 1);
+                app.slash_popup_selected = (app.slash_popup_selected + 10).min(items.len() - 1);
             }
         }
         KeyCode::Char('g') | KeyCode::Home => {

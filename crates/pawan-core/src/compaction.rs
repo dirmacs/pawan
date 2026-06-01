@@ -447,9 +447,15 @@ pub fn parse_compaction_summary(summary: &str) -> Result<ParsedCompactionSummary
         user_intent: parse_summary_field(summary, "User Intent"),
         key_decisions: parse_token_counts(extract_section_content(summary, "Key Decisions")),
         code_changes: parse_compressed_sections(extract_section_content(summary, "Code Changes")),
-        errors_and_solutions: parse_preserved_sections(extract_section_content(summary, "Errors and Solutions")),
+        errors_and_solutions: parse_preserved_sections(extract_section_content(
+            summary,
+            "Errors and Solutions",
+        )),
         debugging_steps: parse_numbered_items(extract_section_content(summary, "Debugging Steps")),
-        warnings_and_notes: parse_token_counts(extract_section_content(summary, "Warnings and Notes")),
+        warnings_and_notes: parse_token_counts(extract_section_content(
+            summary,
+            "Warnings and Notes",
+        )),
         current_state: parse_summary_field(summary, "Current State"),
         next_steps: parse_numbered_items(extract_section_content(summary, "Next Steps")),
     })
@@ -965,7 +971,10 @@ None
         assert_eq!(parsed.code_changes.len(), 2);
         assert_eq!(parsed.code_changes[0].file, "src/main.rs");
         assert_eq!(parsed.code_changes[0].change, "Added health endpoint");
-        assert_eq!(parsed.code_changes[0].rationale, "Needed for Kubernetes probes");
+        assert_eq!(
+            parsed.code_changes[0].rationale,
+            "Needed for Kubernetes probes"
+        );
         assert_eq!(parsed.code_changes[0].impact, "/health now returns 200");
         assert_eq!(parsed.code_changes[1].file, "src/lib.rs");
     }
@@ -1004,9 +1013,15 @@ None
         let parsed = parse_compaction_summary(summary).unwrap();
 
         assert_eq!(parsed.errors_and_solutions.len(), 1);
-        assert_eq!(parsed.errors_and_solutions[0].error, "Rust compiler error E0432");
+        assert_eq!(
+            parsed.errors_and_solutions[0].error,
+            "Rust compiler error E0432"
+        );
         assert_eq!(parsed.errors_and_solutions[0].location, "src/main.rs:10");
-        assert_eq!(parsed.errors_and_solutions[0].solution, "Added missing import");
+        assert_eq!(
+            parsed.errors_and_solutions[0].solution,
+            "Added missing import"
+        );
         assert_eq!(
             parsed.errors_and_solutions[0].prevention,
             "Run cargo check before committing"
@@ -1081,7 +1096,10 @@ None
         let parsed = parse_compaction_summary(summary).unwrap();
 
         assert_eq!(parsed.warnings_and_notes.len(), 2);
-        assert_eq!(parsed.warnings_and_notes[0], "The config file uses TOML format");
+        assert_eq!(
+            parsed.warnings_and_notes[0],
+            "The config file uses TOML format"
+        );
     }
 
     #[test]

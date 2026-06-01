@@ -1,0 +1,61 @@
+# Pawan security advisory suppressions.
+#
+# Each entry below corresponds to a GitHub-Actions security issue filed
+# against dirmacs/pawan by the dependabot/rustsec audit bot. Every entry
+# was investigated, documented, and the issue closed. Adding a RUSTSEC
+# ID here means:
+#   1. We have reviewed the advisory against the current lockfile + code.
+#   2. We have a recorded justification (the linked issue).
+#   3. The corresponding tracking issue is closed.
+#
+# Re-evaluate any entry if the locked version changes, a new code path
+# is introduced, or the upstream advisory scope changes.
+
+[advisories]
+ignore = [
+  # rsa Marvin Attack — pawan has no RSA signing path; ares-server is HS256-only
+  # for all in-tree JWT use, and pawan-api has no JWT path at all.
+  "RUSTSEC-2023-0071", # dirmacs/pawan#1
+
+  # rustls-webpki CRL distribution-point matching — patched 0.103.13 is already
+  # on the active HTTPS path. Legacy 0.102.8 (tonic → rs-utcp → thulp-mcp)
+  # does not fetch CRLs, so the matching bug is not reachable.
+  "RUSTSEC-2026-0049", # dirmacs/pawan#2, #3
+
+  # rustls-webpki URI name-constraint handling — pawan does not enforce URI
+  # name constraints on either the active or the legacy TLS path.
+  "RUSTSEC-2026-0098", # dirmacs/pawan#17, #19
+
+  # rustls-webpki wildcard + name-constraint handling — pawan does not enforce
+  # name constraints, and 0.103.13 is past the affected version.
+  "RUSTSEC-2026-0099", # dirmacs/pawan#18, #20
+
+  # rustls-webpki CRL parsing panic — pawan does not configure CRL fetching;
+  # 0.103.13 is past the affected version.
+  "RUSTSEC-2026-0104", # dirmacs/pawan#21, #22
+
+  # backoff (unmaintained) — transitive only via async-openai/ares-server.
+  # Pawan's own retry backoff is in-tree at pawan-core/src/agent/openai_compat.rs
+  # and does not depend on this crate. Deferring pending upstream.
+  "RUSTSEC-2025-0012", # dirmacs/pawan#5
+
+  # bincode (unmaintained) — transitive only via syntect (syntax-asset bundling)
+  # and the webrtc chain. No direct bincode use in any pawan workspace crate.
+  # Deferring pending the upstream syntect upgrade.
+  "RUSTSEC-2025-0141", # dirmacs/pawan#6
+
+  # instant (unmaintained) — transitive only via backoff (itself transitive).
+  # Clears once #5 lands.
+  "RUSTSEC-2024-0384", # dirmacs/pawan#7
+
+  # rustls-pemfile (unmaintained) — transitive via reqwest/tonic on the legacy
+  # rs-utcp → thulp-mcp → pawan-mcp path. Pawan does not parse PEM directly.
+  # Deferring pending the rs-utcp/thulp-mcp refactor.
+  "RUSTSEC-2025-0134", # dirmacs/pawan#10, #11
+
+  # yaml-rust (unmaintained) — transitive only via syntect, used solely for
+  # bundled syntax-asset metadata; it does not parse user YAML. Pawan's own
+  # YAML parsing (if any) uses serde_yaml. The historical DoS (YAML_LOADED_AT)
+  # is patched in 0.4.5.
+  "RUSTSEC-2024-0320", # dirmacs/pawan#12
+]

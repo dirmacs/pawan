@@ -176,13 +176,25 @@ mod tests {
         panel.set_entries(vec![entry("a", TaskStatus::Pending)]);
         assert_eq!(panel.height_hint(), 1);
 
-        panel.set_entries((0..6).map(|i| entry(&format!("t{i}"), TaskStatus::Running)).collect());
+        panel.set_entries(
+            (0..6)
+                .map(|i| entry(&format!("t{i}"), TaskStatus::Running))
+                .collect(),
+        );
         assert_eq!(panel.height_hint(), 1);
 
-        panel.set_entries((0..7).map(|i| entry(&format!("t{i}"), TaskStatus::Running)).collect());
+        panel.set_entries(
+            (0..7)
+                .map(|i| entry(&format!("t{i}"), TaskStatus::Running))
+                .collect(),
+        );
         assert_eq!(panel.height_hint(), 2);
 
-        panel.set_entries((0..13).map(|i| entry(&format!("t{i}"), TaskStatus::Done)).collect());
+        panel.set_entries(
+            (0..13)
+                .map(|i| entry(&format!("t{i}"), TaskStatus::Done))
+                .collect(),
+        );
         assert_eq!(panel.height_hint(), 3);
     }
 

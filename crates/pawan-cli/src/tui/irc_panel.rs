@@ -69,11 +69,7 @@ impl<'a> App<'a> {
     pub(crate) fn open_irc_compose(&mut self) {
         self.irc_compose_open = true;
         self.irc_compose_input.clear();
-        let peers = self
-            .irc_relay
-            .lock()
-            .expect("irc relay lock")
-            .list_peers();
+        let peers = self.irc_relay.lock().expect("irc relay lock").list_peers();
         if peers.is_empty() {
             self.messages.push(DisplayMessage::new_text(
                 Role::System,
@@ -134,7 +130,12 @@ impl<'a> App<'a> {
         if inner.height > 1 {
             f.render_widget(
                 Paragraph::new(input_line),
-                Rect::new(inner.x, inner.y + 1, inner.width, inner.height.saturating_sub(1)),
+                Rect::new(
+                    inner.x,
+                    inner.y + 1,
+                    inner.width,
+                    inner.height.saturating_sub(1),
+                ),
             );
         }
     }
@@ -173,9 +174,7 @@ mod tests {
         (app, cmd_rx)
     }
 
-    fn test_app_with_hub<'a>(
-        irc_hub: &IrcHub,
-    ) -> (App<'a>, mpsc::UnboundedReceiver<AgentCommand>) {
+    fn test_app_with_hub<'a>(irc_hub: &IrcHub) -> (App<'a>, mpsc::UnboundedReceiver<AgentCommand>) {
         let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
         let irc_relay = Arc::new(Mutex::new(irc_hub.join("main")));
@@ -325,9 +324,7 @@ mod tests {
 
         let backend = TestBackend::new(80, 24);
         let mut terminal = Terminal::new(backend).unwrap();
-        terminal
-            .draw(|f| app.render_irc_compose(f))
-            .unwrap();
+        terminal.draw(|f| app.render_irc_compose(f)).unwrap();
 
         let text: String = terminal
             .backend()
@@ -357,7 +354,8 @@ mod tests {
         app.irc_compose_open = true;
         app.status = "Ready".into();
         app.irc_compose_input = "	  
-".into();
+"
+        .into();
 
         app.submit_irc_compose();
 
