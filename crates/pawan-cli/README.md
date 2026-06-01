@@ -1,6 +1,13 @@
-# pawan v0.5.8
+# pawan v0.5.9
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 34 tools, and cross-session memory.
+
+## What's New in v0.5.9
+
+- **TUI redesign** — single-letter slash commands removed; token/ctx widget fixed for non-OpenAI providers; auto-scroll pinned to bottom; redesigned permission popup; framed tool-call cards with collapse/expand; rounded borders, branded `◆ pawan` title, badge-pill role headers
+- **`animate-core` value tweens** — rolling token counts, eased ctx% bar, accent-colour fade on `/theme` switches (replaces hand-rolled `ColorTransition`)
+- **tachyonfx cell effects** — content reveal, popup sweep-in, status pulse (suppressed under test)
+- **tui-scrollview / ratatui-cheese / Rect::centered()** — automatic scrollbar, animated spinner, centered modals
 
 ## What's New in v0.5.8
 
