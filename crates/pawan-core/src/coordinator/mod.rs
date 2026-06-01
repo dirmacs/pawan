@@ -477,7 +477,6 @@ impl<R: TaskRunner> TaskScheduleCoordinator<R> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -733,7 +732,10 @@ mod tests {
 
         assert_eq!(result.tool_calls.len(), 1);
         let record = &result.tool_calls[0];
-        assert!(!record.success, "timed-out tool must be marked unsuccessful");
+        assert!(
+            !record.success,
+            "timed-out tool must be marked unsuccessful"
+        );
         assert_eq!(
             record.result.get("error").and_then(|v| v.as_str()),
             Some("tool execution timed out")

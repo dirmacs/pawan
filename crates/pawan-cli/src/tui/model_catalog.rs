@@ -1,7 +1,7 @@
 //! Dynamic NVIDIA model catalog — live fetch with hardcoded fallback.
 use super::types::ModelInfo;
-use std::time::Duration;
 use serde::Deserialize;
+use std::time::Duration;
 
 /// Fetch live model list from a custom endpoint URL. Returns sorted vec on success.
 /// 5-second timeout; on any failure returns None (caller uses fallback).
@@ -33,9 +33,9 @@ pub async fn fetch_live_models_from(endpoint_url: &str) -> Option<Vec<ModelInfo>
         .into_iter()
         .map(|m| {
             let id = m.id;
-            let provider = m.owned_by.unwrap_or_else(|| {
-                id.split('/').next().unwrap_or("unknown").to_string()
-            });
+            let provider = m
+                .owned_by
+                .unwrap_or_else(|| id.split('/').next().unwrap_or("unknown").to_string());
             ModelInfo {
                 quality_score: quality_score_for(&id),
                 id,
@@ -56,7 +56,6 @@ pub async fn fetch_live_models_from(endpoint_url: &str) -> Option<Vec<ModelInfo>
 pub async fn fetch_live_models() -> Option<Vec<ModelInfo>> {
     fetch_live_models_from("https://integrate.api.nvidia.com/v1/models").await
 }
-
 
 /// Score a model based on known vendor/model-family prefixes.
 fn score_by_vendor(model_id: &str) -> Option<u8> {
@@ -151,19 +150,71 @@ pub fn quality_score_for(model_id: &str) -> u8 {
 /// Keep this as a curated subset — the live API is the primary source.
 pub fn default_models() -> Vec<ModelInfo> {
     vec![
-        ModelInfo { id: "meta/llama-3.1-70b-instruct".into(), provider: "Meta".into(), quality_score: quality_score_for("meta/llama-3.1-70b-instruct") },
-        ModelInfo { id: "meta/llama-3.3-70b-instruct".into(), provider: "Meta".into(), quality_score: quality_score_for("meta/llama-3.3-70b-instruct") },
-        ModelInfo { id: "meta/llama-4-maverick-17b-128e-instruct".into(), provider: "Meta".into(), quality_score: quality_score_for("meta/llama-4-maverick-17b-128e-instruct") },
-        ModelInfo { id: "deepseek-ai/deepseek-v3.2".into(), provider: "Deepseek".into(), quality_score: quality_score_for("deepseek-ai/deepseek-v3.2") },
-        ModelInfo { id: "deepseek-ai/deepseek-v4-flash".into(), provider: "Deepseek".into(), quality_score: quality_score_for("deepseek-ai/deepseek-v4-flash") },
-        ModelInfo { id: "google/gemma-3-12b-it".into(), provider: "Google".into(), quality_score: quality_score_for("google/gemma-3-12b-it") },
-        ModelInfo { id: "mistralai/mistral-large-3-675b-instruct-2512".into(), provider: "Mistral".into(), quality_score: quality_score_for("mistralai/mistral-large-3-675b-instruct-2512") },
-        ModelInfo { id: "qwen/qwen3.5-397b-a17b".into(), provider: "Qwen".into(), quality_score: quality_score_for("qwen/qwen3.5-397b-a17b") },
-        ModelInfo { id: "nvidia/llama-3.1-nemotron-ultra-253b-v1".into(), provider: "Nvidia".into(), quality_score: quality_score_for("nvidia/llama-3.1-nemotron-ultra-253b-v1") },
-        ModelInfo { id: "stepfun-ai/step-3.7-flash".into(), provider: "Stepfun".into(), quality_score: quality_score_for("stepfun-ai/step-3.7-flash") },
-        ModelInfo { id: "stepfun-ai/step-3.5-flash".into(), provider: "Stepfun".into(), quality_score: quality_score_for("stepfun-ai/step-3.5-flash") },
-        ModelInfo { id: "z-ai/glm-5.1".into(), provider: "Z-Ai".into(), quality_score: quality_score_for("z-ai/glm-5.1") },
-        ModelInfo { id: "openai/gpt-oss-120b".into(), provider: "OpenAI".into(), quality_score: quality_score_for("openai/gpt-oss-120b") },
+        ModelInfo {
+            id: "meta/llama-3.1-70b-instruct".into(),
+            provider: "Meta".into(),
+            quality_score: quality_score_for("meta/llama-3.1-70b-instruct"),
+        },
+        ModelInfo {
+            id: "meta/llama-3.3-70b-instruct".into(),
+            provider: "Meta".into(),
+            quality_score: quality_score_for("meta/llama-3.3-70b-instruct"),
+        },
+        ModelInfo {
+            id: "meta/llama-4-maverick-17b-128e-instruct".into(),
+            provider: "Meta".into(),
+            quality_score: quality_score_for("meta/llama-4-maverick-17b-128e-instruct"),
+        },
+        ModelInfo {
+            id: "deepseek-ai/deepseek-v3.2".into(),
+            provider: "Deepseek".into(),
+            quality_score: quality_score_for("deepseek-ai/deepseek-v3.2"),
+        },
+        ModelInfo {
+            id: "deepseek-ai/deepseek-v4-flash".into(),
+            provider: "Deepseek".into(),
+            quality_score: quality_score_for("deepseek-ai/deepseek-v4-flash"),
+        },
+        ModelInfo {
+            id: "google/gemma-3-12b-it".into(),
+            provider: "Google".into(),
+            quality_score: quality_score_for("google/gemma-3-12b-it"),
+        },
+        ModelInfo {
+            id: "mistralai/mistral-large-3-675b-instruct-2512".into(),
+            provider: "Mistral".into(),
+            quality_score: quality_score_for("mistralai/mistral-large-3-675b-instruct-2512"),
+        },
+        ModelInfo {
+            id: "qwen/qwen3.5-397b-a17b".into(),
+            provider: "Qwen".into(),
+            quality_score: quality_score_for("qwen/qwen3.5-397b-a17b"),
+        },
+        ModelInfo {
+            id: "nvidia/llama-3.1-nemotron-ultra-253b-v1".into(),
+            provider: "Nvidia".into(),
+            quality_score: quality_score_for("nvidia/llama-3.1-nemotron-ultra-253b-v1"),
+        },
+        ModelInfo {
+            id: "stepfun-ai/step-3.7-flash".into(),
+            provider: "Stepfun".into(),
+            quality_score: quality_score_for("stepfun-ai/step-3.7-flash"),
+        },
+        ModelInfo {
+            id: "stepfun-ai/step-3.5-flash".into(),
+            provider: "Stepfun".into(),
+            quality_score: quality_score_for("stepfun-ai/step-3.5-flash"),
+        },
+        ModelInfo {
+            id: "z-ai/glm-5.1".into(),
+            provider: "Z-Ai".into(),
+            quality_score: quality_score_for("z-ai/glm-5.1"),
+        },
+        ModelInfo {
+            id: "openai/gpt-oss-120b".into(),
+            provider: "OpenAI".into(),
+            quality_score: quality_score_for("openai/gpt-oss-120b"),
+        },
     ]
 }
 #[cfg(test)]
@@ -187,14 +238,21 @@ mod tests {
     fn test_default_models_not_empty() {
         let models = default_models();
         assert!(!models.is_empty());
-        assert!(models.len() >= 10, "Should have at least 10 fallback models");
+        assert!(
+            models.len() >= 10,
+            "Should have at least 10 fallback models"
+        );
     }
 
     #[test]
     fn test_default_models_have_valid_ids() {
         for m in default_models() {
             assert!(!m.id.is_empty());
-            assert!(m.id.contains('/'), "Model ID should be provider/name: {}", m.id);
+            assert!(
+                m.id.contains('/'),
+                "Model ID should be provider/name: {}",
+                m.id
+            );
             assert!(m.quality_score > 0);
         }
     }
@@ -272,7 +330,9 @@ mod integration_tests {
             .await;
 
         let url = format!("{}/v1/models", mock_server.uri());
-        let models = fetch_live_models_from(&url).await.expect("mock should return models");
+        let models = fetch_live_models_from(&url)
+            .await
+            .expect("mock should return models");
         assert_eq!(models.len(), 2);
         assert!(
             models[0].quality_score >= models[1].quality_score,
@@ -320,4 +380,3 @@ mod integration_tests {
         }
     }
 }
-

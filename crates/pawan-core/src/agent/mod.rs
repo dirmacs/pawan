@@ -20,8 +20,8 @@ pub mod session_store;
 
 mod construction;
 mod execute;
-pub mod session;
 pub mod irc;
+pub mod session;
 
 pub use irc::{IrcHub, IrcMessage, IrcRelay};
 
@@ -34,8 +34,8 @@ pub use events::{
 use crate::config::PawanConfig;
 use crate::tools::ToolRegistry;
 use backend::LlmBackend;
-use std::time::Instant;
 use std::path::PathBuf;
+use std::time::Instant;
 
 /// The main Pawan agent — handles conversation, tool calling, and self-healing.
 ///
@@ -79,7 +79,6 @@ pub struct PawanAgent {
     /// Timestamp of last tool call completion for idle timeout tracking
     last_tool_call_time: Option<Instant>,
 }
-
 
 pub(crate) fn sanitize_memory_content(content: &str) -> String {
     // Escape XML-like tags so recalled context cannot inject structured prompt blocks.
@@ -172,8 +171,8 @@ use execute::truncate_tool_result;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::PawanError;
     use crate::agent::backend::mock::{MockBackend, MockResponse};
+    use crate::PawanError;
     use serde_json::{json, Value};
     use serial_test::serial;
     use std::sync::Arc;

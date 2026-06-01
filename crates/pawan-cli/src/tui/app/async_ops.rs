@@ -8,10 +8,7 @@ use crossterm::{
 use pawan::agent::{AgentResponse, IrcHub, PawanAgent, Role, ToolCallRecord};
 use pawan::config::TuiConfig;
 use pawan::{PawanError, Result};
-use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-};
+use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io::{self, Stdout};
 use std::time::Instant;
 use tokio::sync::mpsc;
@@ -123,8 +120,7 @@ impl<'a> App<'a> {
             .streaming
             .get_or_insert_with(|| StreamingAssistantState { blocks: Vec::new() });
         // Freeze current text block
-        if let Some(ContentBlock::Text { streaming, .. }) = state.blocks.last_mut()
-        {
+        if let Some(ContentBlock::Text { streaming, .. }) = state.blocks.last_mut() {
             *streaming = false;
         }
         state.blocks.push(ContentBlock::ToolCall {
@@ -162,8 +158,7 @@ impl<'a> App<'a> {
             self.session_files_edited += 1;
         }
         let icon = if record.success { "✓" } else { "✗" };
-        self.status =
-            format!("{} {} ({}ms)", icon, record.name, record.duration_ms);
+        self.status = format!("{} {} ({}ms)", icon, record.name, record.duration_ms);
     }
 
     fn process_permission_request_event(
@@ -232,9 +227,8 @@ impl<'a> App<'a> {
                 self.total_completion_tokens += resp.usage.completion_tokens;
                 self.total_reasoning_tokens += resp.usage.reasoning_tokens;
                 self.total_action_tokens += resp.usage.action_tokens;
-                self.context_estimate = (self.total_prompt_tokens
-                    + self.total_completion_tokens)
-                    as usize;
+                self.context_estimate =
+                    (self.total_prompt_tokens + self.total_completion_tokens) as usize;
                 if resp.usage.total_tokens > 0 {
                     self.status_fx = Some(crate::tui::effects::status_pulse(
                         crate::tui::theme::current().accent,
@@ -247,13 +241,10 @@ impl<'a> App<'a> {
                         .as_deref()
                         .map(|o| format!("Goal mode: checking objective — {o}"))
                         .unwrap_or_else(|| {
-                            "Goal mode: checking if objective achieved..."
-                                .to_string()
+                            "Goal mode: checking if objective achieved...".to_string()
                         });
-                    self.messages.push(DisplayMessage::new_text(
-                        Role::System,
-                        hint.clone(),
-                    ));
+                    self.messages
+                        .push(DisplayMessage::new_text(Role::System, hint.clone()));
                     self.status = hint;
                 }
                 self.scroll = usize::MAX;

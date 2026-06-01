@@ -5,9 +5,7 @@
 
 pub use super::session_store::*;
 
-use super::{
-    fence_external_system_messages_for_resume, Message, PawanAgent, Role,
-};
+use super::{fence_external_system_messages_for_resume, Message, PawanAgent, Role};
 use crate::config::PawanConfig;
 use crate::tools::ToolDefinition;
 use crate::Result;

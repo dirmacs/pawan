@@ -39,7 +39,9 @@ impl LancorBackend {
         let url = base_url.into();
         // Validate URL before passing to client
         if url.is_empty() {
-            return Err(PawanError::Llm("lancor client init failed: empty URL".into()));
+            return Err(PawanError::Llm(
+                "lancor client init failed: empty URL".into(),
+            ));
         }
         if url::Url::parse(&url).is_err() {
             return Err(PawanError::Llm(format!(
@@ -64,7 +66,9 @@ impl LancorBackend {
     ) -> Result<Self> {
         let url = base_url.into();
         if url.is_empty() {
-            return Err(PawanError::Llm("lancor client init failed: empty URL".into()));
+            return Err(PawanError::Llm(
+                "lancor client init failed: empty URL".into(),
+            ));
         }
         if url::Url::parse(&url).is_err() {
             return Err(PawanError::Llm(format!(

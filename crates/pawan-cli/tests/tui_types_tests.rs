@@ -4,8 +4,8 @@
 //! from src/tui/types.rs that don’t require a terminal.
 
 use pawan_cli_lib::tui::types::{
-    format_tool_result, strip_reasoning_tags, summarize_args,
-    ContentBlock, ExportFormat, KeybindContext, Panel, SessionSortMode, ToolBlockState,
+    format_tool_result, strip_reasoning_tags, summarize_args, ContentBlock, ExportFormat,
+    KeybindContext, Panel, SessionSortMode, ToolBlockState,
 };
 
 use pawan::agent::{ToolCallRecord, ToolCallRequest};
@@ -59,9 +59,9 @@ fn test_export_format_extension() {
     assert_eq!(ExportFormat::Txt.extension(), ".txt");
 }
 
-    // ============================================================================
+// ============================================================================
 // summarize_args Tests
-    // ============================================================================
+// ============================================================================
 
 #[test]
 fn test_summarize_args_empty_object() {
@@ -108,9 +108,9 @@ fn test_summarize_args_string_value() {
     assert_eq!(result, "");
 }
 
-    // ============================================================================
+// ============================================================================
 // format_tool_result Tests
-    // ============================================================================
+// ============================================================================
 
 #[test]
 fn test_format_tool_result_string() {
@@ -155,16 +155,19 @@ fn test_format_tool_result_empty_string() {
     assert_eq!(formatted, "");
 }
 
-    // ============================================================================
+// ============================================================================
 // strip_reasoning_tags Tests
-    // ============================================================================
+// ============================================================================
 
 #[test]
 fn test_strip_reasoning_tags_with_think_tags() {
     let input = "Hello <think>inner content</think> world";
     let stripped = strip_reasoning_tags(input);
     // Debug: check stripped is shorter
-    assert!(stripped.len() < input.len(), "expected stripping to reduce length");
+    assert!(
+        stripped.len() < input.len(),
+        "expected stripping to reduce length"
+    );
     assert!(stripped.starts_with("Hello "));
     assert!(stripped.ends_with(" world"));
     assert!(!stripped.contains("inner content"));
@@ -211,13 +214,16 @@ fn test_strip_reasoning_tags_multiline() {
     assert!(stripped.contains("End"));
 }
 
-    // ============================================================================
+// ============================================================================
 // ContentBlock Tests
-    // ============================================================================
+// ============================================================================
 
 #[test]
 fn test_content_block_text() {
-    let block = ContentBlock::Text { content: "hello".to_string(), streaming: false };
+    let block = ContentBlock::Text {
+        content: "hello".to_string(),
+        streaming: false,
+    };
     match block {
         ContentBlock::Text { content, streaming } => {
             assert_eq!(content, "hello");
@@ -229,7 +235,10 @@ fn test_content_block_text() {
 
 #[test]
 fn test_content_block_text_streaming() {
-    let block = ContentBlock::Text { content: "streaming".to_string(), streaming: true };
+    let block = ContentBlock::Text {
+        content: "streaming".to_string(),
+        streaming: true,
+    };
     match block {
         ContentBlock::Text { streaming, .. } => {
             assert!(streaming);
@@ -255,15 +264,15 @@ fn test_content_block_tool_call() {
     }
 }
 
-    // ============================================================================
+// ============================================================================
 // ToolBlockState Tests
-    // ============================================================================
+// ============================================================================
 
 #[test]
 fn test_tool_block_state_running() {
     let state = ToolBlockState::Running;
     match state {
-        ToolBlockState::Running => { }
+        ToolBlockState::Running => {}
         ToolBlockState::Done { .. } => panic!("expected Running"),
     }
 }
@@ -283,7 +292,10 @@ fn test_tool_block_state_done() {
         success: true,
         duration_ms: 100,
     };
-    let state = ToolBlockState::Done { record, expanded: false };
+    let state = ToolBlockState::Done {
+        record,
+        expanded: false,
+    };
     match state {
         ToolBlockState::Done { expanded, .. } => assert!(!expanded),
         ToolBlockState::Running => panic!("expected Done"),
@@ -305,22 +317,25 @@ fn test_tool_block_state_done_expanded_on_error() {
         success: false,
         duration_ms: 50,
     };
-    let state = ToolBlockState::Done { record, expanded: true };
+    let state = ToolBlockState::Done {
+        record,
+        expanded: true,
+    };
     match state {
         ToolBlockState::Done { expanded, .. } => assert!(expanded),
         ToolBlockState::Running => panic!("expected Done"),
     }
 }
 
-    // ============================================================================
+// ============================================================================
 // Panel Tests
-    // ============================================================================
+// ============================================================================
 
 #[test]
 fn test_panel_input() {
     let panel = Panel::Input;
     match panel {
-        Panel::Input => { }
+        Panel::Input => {}
         Panel::Messages => panic!("expected Input"),
     }
 }
@@ -329,20 +344,20 @@ fn test_panel_input() {
 fn test_panel_messages() {
     let panel = Panel::Messages;
     match panel {
-        Panel::Messages => { }
+        Panel::Messages => {}
         Panel::Input => panic!("expected Messages"),
     }
 }
 
-    // ============================================================================
+// ============================================================================
 // KeybindContext Tests
-    // ============================================================================
+// ============================================================================
 
 #[test]
 fn test_keybind_context_input() {
     let ctx = KeybindContext::Input;
     match ctx {
-        KeybindContext::Input => { }
+        KeybindContext::Input => {}
         _ => panic!("expected Input"),
     }
 }
@@ -351,7 +366,7 @@ fn test_keybind_context_input() {
 fn test_keybind_context_normal() {
     let ctx = KeybindContext::Normal;
     match ctx {
-        KeybindContext::Normal => { }
+        KeybindContext::Normal => {}
         _ => panic!("expected Normal"),
     }
 }
@@ -360,7 +375,7 @@ fn test_keybind_context_normal() {
 fn test_keybind_context_command() {
     let ctx = KeybindContext::Command;
     match ctx {
-        KeybindContext::Command => { }
+        KeybindContext::Command => {}
         _ => panic!("expected Command"),
     }
 }
@@ -369,7 +384,7 @@ fn test_keybind_context_command() {
 fn test_keybind_context_help() {
     let ctx = KeybindContext::Help;
     match ctx {
-        KeybindContext::Help => { }
+        KeybindContext::Help => {}
         _ => panic!("expected Help"),
     }
 }
@@ -378,20 +393,20 @@ fn test_keybind_context_help() {
 fn test_keybind_context_model_picker() {
     let ctx = KeybindContext::ModelPicker;
     match ctx {
-        KeybindContext::ModelPicker => { }
+        KeybindContext::ModelPicker => {}
         _ => panic!("expected ModelPicker"),
     }
 }
 
-    // ============================================================================
+// ============================================================================
 // SessionSortMode Tests
-    // ============================================================================
+// ============================================================================
 
 #[test]
 fn test_session_sort_mode_newest_first() {
     let mode = SessionSortMode::NewestFirst;
     match mode {
-        SessionSortMode::NewestFirst => { }
+        SessionSortMode::NewestFirst => {}
         _ => panic!("expected NewestFirst"),
     }
 }
@@ -400,7 +415,7 @@ fn test_session_sort_mode_newest_first() {
 fn test_session_sort_mode_alphabetical() {
     let mode = SessionSortMode::Alphabetical;
     match mode {
-        SessionSortMode::Alphabetical => { }
+        SessionSortMode::Alphabetical => {}
         _ => panic!("expected Alphabetical"),
     }
 }
@@ -409,14 +424,14 @@ fn test_session_sort_mode_alphabetical() {
 fn test_session_sort_mode_most_used() {
     let mode = SessionSortMode::MostUsed;
     match mode {
-        SessionSortMode::MostUsed => { }
+        SessionSortMode::MostUsed => {}
         _ => panic!("expected MostUsed"),
     }
 }
 
-    // ============================================================================
+// ============================================================================
 // ToolCallRequest Tests
-    // ============================================================================
+// ============================================================================
 
 #[test]
 fn test_tool_call_request_fields() {
@@ -471,9 +486,9 @@ fn test_tool_call_record_failed() {
     assert!(!record.success);
 }
 
-    // ============================================================================
+// ============================================================================
 // Edge Cases
-    // ============================================================================
+// ============================================================================
 
 #[test]
 fn test_export_format_case_insensitive_all() {

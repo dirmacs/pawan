@@ -88,8 +88,7 @@ fn test_context_response_parsing() {
             {"name": "architecture", "value": "agent-based", "category": "design"}
         ]
     });
-    let resp: pawan::eruka_bridge::ContextResponse =
-        serde_json::from_value(json).unwrap();
+    let resp: pawan::eruka_bridge::ContextResponse = serde_json::from_value(json).unwrap();
     let fields = resp.fields.unwrap();
     assert_eq!(fields.len(), 3);
     assert_eq!(fields[0].name.as_deref(), Some("project"));
@@ -106,8 +105,7 @@ fn test_context_response_null_fields() {
             {"name": null, "value": null, "category": null}
         ]
     });
-    let resp: pawan::eruka_bridge::ContextResponse =
-        serde_json::from_value(json).unwrap();
+    let resp: pawan::eruka_bridge::ContextResponse = serde_json::from_value(json).unwrap();
     let fields = resp.fields.unwrap();
     assert_eq!(fields.len(), 3);
 }
@@ -115,16 +113,14 @@ fn test_context_response_null_fields() {
 #[test]
 fn test_context_response_no_fields() {
     let json = json!({});
-    let resp: pawan::eruka_bridge::ContextResponse =
-        serde_json::from_value(json).unwrap();
+    let resp: pawan::eruka_bridge::ContextResponse = serde_json::from_value(json).unwrap();
     assert!(resp.fields.is_none());
 }
 
 #[test]
 fn test_context_response_empty_fields_array() {
     let json = json!({"fields": []});
-    let resp: pawan::eruka_bridge::ContextResponse =
-        serde_json::from_value(json).unwrap();
+    let resp: pawan::eruka_bridge::ContextResponse = serde_json::from_value(json).unwrap();
     assert!(resp.fields.is_some());
     assert!(resp.fields.unwrap().is_empty());
 }
@@ -152,10 +148,12 @@ fn test_search_result_parsing() {
         {"content": "Another hit", "field_name": "session:456", "score": 0.8},
         {"content": "Lower relevance", "field_name": null, "score": 0.3}
     ]);
-    let results: Vec<pawan::eruka_bridge::SearchResult> =
-        serde_json::from_value(json).unwrap();
+    let results: Vec<pawan::eruka_bridge::SearchResult> = serde_json::from_value(json).unwrap();
     assert_eq!(results.len(), 3);
-    assert_eq!(results[0].content.as_deref(), Some("Found this in archival"));
+    assert_eq!(
+        results[0].content.as_deref(),
+        Some("Found this in archival")
+    );
     assert_eq!(results[0].field_name.as_deref(), Some("session:123"));
     assert_eq!(results[0].score, Some(0.95));
     assert!(results[2].field_name.is_none());

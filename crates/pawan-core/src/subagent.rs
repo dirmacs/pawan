@@ -38,11 +38,7 @@ fn tracker() -> &'static Mutex<HashMap<String, SubagentRun>> {
 }
 
 impl SubagentHandle {
-    pub fn start(
-        label: impl Into<String>,
-        source: &str,
-        agent_type: Option<String>,
-    ) -> Self {
+    pub fn start(label: impl Into<String>, source: &str, agent_type: Option<String>) -> Self {
         let id = uuid::Uuid::new_v4().to_string();
         let short_id = id[..8.min(id.len())].to_string();
         let run = SubagentRun {
@@ -127,7 +123,9 @@ mod tests {
         h.clear_tool();
         h.complete_ok();
         let snap = snapshot_queue(60_000);
-        assert!(snap.iter().any(|r| r.id == h.id() && r.state == SubagentState::Done));
+        assert!(snap
+            .iter()
+            .any(|r| r.id == h.id() && r.state == SubagentState::Done));
         h.dismiss();
         assert!(snapshot_queue(60_000).is_empty());
     }
@@ -219,10 +217,9 @@ mod tests {
         let h = SubagentHandle::start("still running", "task", None);
         std::thread::sleep(std::time::Duration::from_millis(100));
         let snap = snapshot_queue(1);
-        assert!(
-            snap.iter()
-                .any(|r| r.id == h.id() && r.state == SubagentState::Running)
-        );
+        assert!(snap
+            .iter()
+            .any(|r| r.id == h.id() && r.state == SubagentState::Running));
         h.dismiss();
     }
 

@@ -253,10 +253,7 @@ impl Tool for SpawnAgentTool {
                 if status.success() {
                     progress.complete_ok();
                 } else {
-                    progress.complete_err(format!(
-                        "exit code {}",
-                        status.code().unwrap_or(-1)
-                    ));
+                    progress.complete_err(format!("exit code {}", status.code().unwrap_or(-1)));
                 }
                 let out = json!({
                     "success": status.success(),
