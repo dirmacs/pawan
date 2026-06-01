@@ -79,7 +79,6 @@ getrandom = "0.2"
 syntect = { version = "5.2", default-features = false, features = ["default-fancy", "onig"] }
 tracing = { workspace = true }
 termimad = "0.34"
-atty = "0.2.14"
 
 # Clipboard support for /dump
 arboard = "3.4"

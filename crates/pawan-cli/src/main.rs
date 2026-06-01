@@ -293,6 +293,7 @@ mod print {
 use clap::{CommandFactory, Parser, Subcommand};
 use owo_colors::OwoColorize;
 use pawan::{agent::PawanAgent, config::PawanConfig, healing::Healer, PawanError, Result};
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 #[derive(Parser)]
@@ -789,7 +790,7 @@ fn read_print_prompt(explicit: Option<String>) -> Result<String> {
         }
         return Ok(p);
     }
-    if atty::is(atty::Stream::Stdin) {
+    if std::io::stdin().is_terminal() {
         return Err(PawanError::Config(
             "--print requires --message/--print-prompt when stdin is a TTY; otherwise pipe a prompt on stdin"
                 .to_string(),
@@ -3544,7 +3545,7 @@ fn emit_headless_text_output(response: &pawan::agent::AgentResponse, verbose: bo
         println!();
     }
 
-    let use_color = atty::is(atty::Stream::Stderr);
+    let use_color = std::io::stderr().is_terminal();
     let tc_count = response.tool_calls.len();
     let success_count = response.tool_calls.iter().filter(|t| t.success).count();
     let fail_count = tc_count - success_count;
@@ -3687,7 +3688,7 @@ async fn run_headless(
     run_headless_preflight_or_exit(&mut agent, output_format).await;
 
     let is_json = output_format == "json";
-    let use_color = !is_json && atty::is(atty::Stream::Stderr);
+    let use_color = !is_json && std::io::stderr().is_terminal();
 
     if !is_json {
         print_headless_run_header(&agent, &prompt_text, use_color);
