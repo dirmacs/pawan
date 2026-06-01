@@ -223,6 +223,10 @@ impl<'a> App<'a> {
                 if let Some(last) = self.messages.last_mut() {
                     last.block_lines_cached();
                 }
+                // Fade the finalized turn into view.
+                self.content_fx = Some(crate::tui::effects::content_reveal(
+                    crate::tui::theme::current().surface,
+                ));
                 self.total_tokens += resp.usage.total_tokens;
                 self.total_prompt_tokens += resp.usage.prompt_tokens;
                 self.total_completion_tokens += resp.usage.completion_tokens;
@@ -231,6 +235,11 @@ impl<'a> App<'a> {
                 self.context_estimate = (self.total_prompt_tokens
                     + self.total_completion_tokens)
                     as usize;
+                if resp.usage.total_tokens > 0 {
+                    self.status_fx = Some(crate::tui::effects::status_pulse(
+                        crate::tui::theme::current().accent,
+                    ));
+                }
                 self.status = format!("Done ({} iterations)", resp.iterations);
                 if self.goal_mode {
                     let hint = self
@@ -247,7 +256,7 @@ impl<'a> App<'a> {
                     ));
                     self.status = hint;
                 }
-                self.scroll = self.messages.len().saturating_sub(1);
+                self.scroll = usize::MAX;
             }
             Err(e) => {
                 self.streaming = None;
@@ -256,7 +265,10 @@ impl<'a> App<'a> {
                     Role::Assistant,
                     format!("Error: {}", e),
                 ));
-                self.scroll = self.messages.len().saturating_sub(1);
+                self.content_fx = Some(crate::tui::effects::content_reveal(
+                    crate::tui::theme::current().surface,
+                ));
+                self.scroll = usize::MAX;
             }
         }
     }

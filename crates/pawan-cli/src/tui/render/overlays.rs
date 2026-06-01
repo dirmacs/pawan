@@ -5,7 +5,7 @@
 use crate::tui::app::App;
 use crate::tui::theme::current as theme_current;
 use crate::tui::types::*;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
@@ -30,7 +30,7 @@ impl<'a> App<'a> {
             })
             .collect()
     }
-    pub(crate) fn render_model_selector(&self, f: &mut Frame) {
+    pub(crate) fn render_model_selector(&self, f: &mut Frame) -> Rect {
         let area = f.area();
         let models = self.filtered_models();
         let selected = self
@@ -127,81 +127,122 @@ impl<'a> App<'a> {
             })
             .collect();
         f.render_widget(List::new(visible_items), list_area);
+        selector_area
     }
-    pub(crate) fn render_permission_dialog(&self, f: &mut Frame) {
+    pub(crate) fn render_permission_dialog(&self, f: &mut Frame) -> Rect {
         let dialog = match &self.permission_dialog {
             Some(d) => d,
-            None => return,
+            None => return Rect::new(0, 0, 0, 0),
+        };
+        let theme = theme_current();
+        let area = f.area();
+
+        let width = 66u16.min(area.width.saturating_sub(4)).max(40);
+        // Inner text width: border (2) + horizontal padding (2*2).
+        let inner_w = width.saturating_sub(6).max(8) as usize;
+
+        // Wrap the argument summary across up to three lines (char-based so it
+        // never panics on long unbroken tokens like file paths).
+        let args = dialog.args_summary.trim();
+        let arg_lines: Vec<String> = if args.is_empty() {
+            Vec::new()
+        } else {
+            let chars: Vec<char> = args.chars().collect();
+            let mut rows: Vec<String> = chars
+                .chunks(inner_w)
+                .take(3)
+                .map(|c| c.iter().collect())
+                .collect();
+            if chars.len() > inner_w * 3 {
+                if let Some(last) = rows.last_mut() {
+                    last.pop();
+                    last.push('…');
+                }
+            }
+            rows
         };
 
-        let area = f.area();
-        let width = 60u16.min(area.width.saturating_sub(4));
-        let height = 8u16;
-        let x = (area.width.saturating_sub(width)) / 2;
-        let y = (area.height.saturating_sub(height)) / 2;
-        let popup_area = ratatui::layout::Rect::new(x, y, width, height);
-
-        // Clear background
-        f.render_widget(ratatui::widgets::Clear, popup_area);
-
-        let text = vec![
-            Line::from(vec![
-                Span::styled(
-                    "Tool: ",
-                    Style::default()
-                        .fg(Color::Yellow)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(&dialog.tool_name),
-            ]),
-            Line::from(vec![
-                Span::styled("Args: ", Style::default().fg(theme_current().muted)),
-                Span::raw(if dialog.args_summary.len() > 45 {
-                    format!("{}...", &dialog.args_summary[..42])
-                } else {
-                    dialog.args_summary.clone()
-                }),
-            ]),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled(
-                    " y ",
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Green)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" Allow  "),
-                Span::styled(
-                    " n ",
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Red)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" Deny  "),
-                Span::styled(
-                    " a ",
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw(" Allow all"),
-            ]),
-        ];
-
-        let block = Block::default()
-            .title(" Permission Required ")
-            .title_style(
+        let mut text: Vec<Line> = Vec::new();
+        text.push(Line::from(vec![
+            Span::styled("tool  ", Style::default().fg(theme.muted)),
+            Span::styled(
+                dialog.tool_name.clone(),
                 Style::default()
-                    .fg(Color::Yellow)
+                    .fg(theme.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+        text.push(Line::from(""));
+        text.push(Line::from(Span::styled(
+            "arguments",
+            Style::default().fg(theme.muted),
+        )));
+        if arg_lines.is_empty() {
+            text.push(Line::from(Span::styled(
+                "(none)",
+                Style::default()
+                    .fg(theme.subtle)
+                    .add_modifier(Modifier::ITALIC),
+            )));
+        } else {
+            for l in &arg_lines {
+                text.push(Line::from(Span::styled(
+                    l.clone(),
+                    Style::default().fg(theme.foreground),
+                )));
+            }
+        }
+        text.push(Line::from(""));
+
+        let key = |k: &str, bg: Color| {
+            Span::styled(
+                format!(" {k} "),
+                Style::default()
+                    .fg(theme.background)
+                    .bg(bg)
                     .add_modifier(Modifier::BOLD),
             )
+        };
+        text.push(Line::from(vec![
+            key("Y", theme.success),
+            Span::styled(" Allow   ", Style::default().fg(theme.foreground)),
+            key("N", theme.error),
+            Span::styled(" Deny   ", Style::default().fg(theme.foreground)),
+            key("A", theme.accent),
+            Span::styled(" Allow all", Style::default().fg(theme.foreground)),
+        ]));
+
+        let content_h = text.len() as u16;
+        let height = (content_h + 4).min(area.height.saturating_sub(2)); // padding(2) + border(2)
+        let popup_area = area.centered(Constraint::Length(width), Constraint::Length(height));
+
+        // Drop shadow for an elevated feel.
+        if popup_area.x + width < area.width && popup_area.y + height < area.height {
+            let shadow =
+                ratatui::layout::Rect::new(popup_area.x + 1, popup_area.y + 1, width, height);
+            f.render_widget(ratatui::widgets::Clear, shadow);
+            f.render_widget(
+                Block::default().style(Style::default().bg(theme.background)),
+                shadow,
+            );
+        }
+
+        f.render_widget(ratatui::widgets::Clear, popup_area);
+
+        let block = Block::default()
+            .title(Span::styled(
+                " ⚠  Permission Required ",
+                Style::default()
+                    .fg(theme.warning)
+                    .add_modifier(Modifier::BOLD),
+            ))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow));
-        let paragraph = Paragraph::new(text).block(block);
-        f.render_widget(paragraph, popup_area);
+            .border_type(ratatui::widgets::BorderType::Rounded)
+            .border_style(Style::default().fg(theme.border_focused))
+            .padding(ratatui::widgets::Padding::new(2, 2, 1, 1))
+            .style(Style::default().bg(theme.surface_elevated));
+        f.render_widget(Paragraph::new(text).block(block), popup_area);
+        popup_area
     }
 
     /// Check if the inline slash popup should be shown.
@@ -382,7 +423,7 @@ impl<'a> App<'a> {
         f.render_widget(Paragraph::new(text), inner);
     }
 
-    pub(crate) fn render_help_overlay(&self, f: &mut Frame) {
+    pub(crate) fn render_help_overlay(&self, f: &mut Frame) -> Rect {
         let area = f.area();
         let w = 48u16.min(area.width.saturating_sub(4));
         let h = 16u16.min(area.height.saturating_sub(4));
@@ -463,11 +504,12 @@ impl<'a> App<'a> {
             ]),
         ];
         f.render_widget(Paragraph::new(shortcuts), inner);
+        help_area
     }
 
-    pub(crate) fn render_fuzzy_search(&self, f: &mut Frame) {
+    pub(crate) fn render_fuzzy_search(&self, f: &mut Frame) -> Rect {
         let Some(fs) = &self.fuzzy_search else {
-            return;
+            return Rect::new(0, 0, 0, 0);
         };
         let area = f.area();
         // Center: 50% width, up to 22 lines tall (query + up to 20+ result rows, capped in state)
@@ -535,5 +577,6 @@ impl<'a> App<'a> {
             })
             .collect();
         f.render_widget(List::new(visible_items), list_area);
+        modal_area
     }
 }

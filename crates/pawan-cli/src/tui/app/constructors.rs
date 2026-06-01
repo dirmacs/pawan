@@ -80,7 +80,9 @@ impl<'a> App<'a> {
             orchestrate_task: None,
             model_fetch_rx: None,
             current_theme: "default".to_string(),
-            accent_transition: super::theme::ColorTransition::new(super::theme::current().accent),
+            accent_tween: super::effects::accent_fade_tween(super::theme::current().accent),
+            token_tween: super::effects::token_roll_tween(),
+            ctx_tween: super::effects::ctx_glide_tween(),
             queue_panel: super::queue_panel::QueuePanel::new(),
             status_bar: super::status_bar::StatusBar::new(),
             permission_dialog: None,
@@ -106,6 +108,14 @@ impl<'a> App<'a> {
             irc_compose_open: false,
             irc_compose_input: String::new(),
             irc_relay,
+            last_frame: Instant::now(),
+            content_fx: None,
+            popup_fx: None,
+            status_fx: None,
+            overlay_was_active: false,
+            spinner: ratatui_cheese::spinner::SpinnerState::new(
+                ratatui_cheese::spinner::SpinnerType::Dot,
+            ),
         }
     }
 
