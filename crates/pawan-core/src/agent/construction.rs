@@ -1,12 +1,12 @@
 //! PawanAgent construction — factory, backend selection, and builder methods.
 
+use super::backend::openai_compat::{OpenAiCompatBackend, OpenAiCompatConfig};
+use super::backend::LlmBackend;
 use super::PawanAgent;
 use crate::config::{LlmProvider, PawanConfig};
 use crate::credentials;
 use crate::tools::ToolRegistry;
 use crate::{PawanError, Result};
-use super::backend::openai_compat::{OpenAiCompatBackend, OpenAiCompatConfig};
-use super::backend::LlmBackend;
 use std::path::PathBuf;
 
 pub(crate) fn probe_local_endpoint(url: &str) -> bool {

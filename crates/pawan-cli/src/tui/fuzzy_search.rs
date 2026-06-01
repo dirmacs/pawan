@@ -150,7 +150,11 @@ mod tests {
     }
     #[test]
     fn test_filter_case_insensitive() {
-        let items = vec!["Apple".to_string(), "BANANA".to_string(), "Cherry".to_string()];
+        let items = vec![
+            "Apple".to_string(),
+            "BANANA".to_string(),
+            "Cherry".to_string(),
+        ];
         let mut search = FuzzySearchState::new(items);
         search.filter("BAN");
         assert_eq!(search.results.len(), 1);

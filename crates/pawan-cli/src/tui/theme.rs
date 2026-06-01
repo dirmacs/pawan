@@ -41,7 +41,6 @@ const fn rgb(r: u8, g: u8, b: u8) -> Color {
     Color::Rgb(r, g, b)
 }
 
-
 const DEFAULT: Theme = Theme {
     name: "default",
     background: rgb(0x00, 0x00, 0x00),

@@ -941,9 +941,8 @@ async fn run() -> Result<()> {
     let resume_id = resolve_session_resume(&cli, &config)?;
 
     // Resume via --session / --continue uses non-TUI (headless) REPL, matching /session behavior.
-    let no_tui = cli.no_tui
-        || cli.session.is_some()
-        || (cli.continue_session && resume_id.is_some());
+    let no_tui =
+        cli.no_tui || cli.session.is_some() || (cli.continue_session && resume_id.is_some());
 
     match cli.command {
         None | Some(Commands::Chat { resume: None }) => {
@@ -1261,9 +1260,7 @@ fn fetch_git_porcelain_status(workspace: &Path) -> Result<Option<String>> {
     Ok(Some(status_text.into_owned()))
 }
 
-fn parse_git_status_categories(
-    status_text: &str,
-) -> (Vec<String>, Vec<String>, Vec<String>) {
+fn parse_git_status_categories(status_text: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
     let mut staged: Vec<String> = Vec::new();
     let mut unstaged: Vec<String> = Vec::new();
     let mut untracked: Vec<String> = Vec::new();
@@ -1291,11 +1288,7 @@ fn parse_git_status_categories(
     (staged, unstaged, untracked)
 }
 
-fn print_commit_status_summary(
-    staged: &[String],
-    unstaged: &[String],
-    untracked: &[String],
-) {
+fn print_commit_status_summary(staged: &[String], unstaged: &[String], untracked: &[String]) {
     if !staged.is_empty() {
         println!("{}", "Staged:".green().bold());
         for f in staged {
@@ -1550,13 +1543,7 @@ async fn run_commit(
     let (staged, unstaged, untracked) = parse_git_status_categories(&status_text);
     print_commit_status_summary(&staged, &unstaged, &untracked);
 
-    if !stage_commit_changes(
-        &workspace,
-        stage_all,
-        &staged,
-        &unstaged,
-        &untracked,
-    )? {
+    if !stage_commit_changes(&workspace, stage_all, &staged, &unstaged, &untracked)? {
         return Ok(());
     }
 
@@ -2730,10 +2717,7 @@ fn close_task_bead(
     Ok(())
 }
 
-fn handle_task_dep_action(
-    store: &pawan::tasks::BeadStore,
-    action: DepAction,
-) -> Result<()> {
+fn handle_task_dep_action(store: &pawan::tasks::BeadStore, action: DepAction) -> Result<()> {
     use pawan::tasks::BeadId;
 
     match action {
@@ -3263,7 +3247,6 @@ async fn run_mcp_list(config: PawanConfig) -> Result<()> {
     Ok(())
 }
 
-
 fn resolve_headless_prompt(prompt: Option<String>, file: Option<PathBuf>) -> Result<String> {
     match (prompt, file) {
         (Some(p), _) => Ok(p),
@@ -3634,7 +3617,11 @@ fn emit_headless_text_output(response: &pawan::agent::AgentResponse, verbose: bo
     if verbose {}
 }
 
-fn emit_headless_output(response: &pawan::agent::AgentResponse, output_format: &str, verbose: bool) {
+fn emit_headless_output(
+    response: &pawan::agent::AgentResponse,
+    output_format: &str,
+    verbose: bool,
+) {
     match output_format {
         "json" => emit_headless_json_output(response),
         _ => emit_headless_text_output(response, verbose),
@@ -4292,9 +4279,11 @@ A  added.rs
     #[test]
     fn test_strip_commit_fences_with_fences() {
         assert_eq!(
-            strip_commit_message_fences("```
+            strip_commit_message_fences(
+                "```
 fix: bug
-```"),
+```"
+            ),
             "fix: bug"
         );
     }
@@ -4336,4 +4325,3 @@ fix: bug
         assert_eq!(strip_thinking_tags("hello"), "hello");
     }
 }
-

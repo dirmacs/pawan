@@ -100,10 +100,8 @@ impl<'a> App<'a> {
                 Role::System,
                 format!("Orchestration task: {task}"),
             ));
-            self.status_bar.flash(format!(
-                "Orchestrate: {}",
-                Self::truncate_status(task, 48)
-            ));
+            self.status_bar
+                .flash(format!("Orchestrate: {}", Self::truncate_status(task, 48)));
         }
     }
 
@@ -127,14 +125,11 @@ impl<'a> App<'a> {
 
 impl<'a> App<'a> {
     pub(crate) fn slash_clear(&mut self) {
-
         self.messages.clear();
         self.status = "Cleared".to_string();
-    
     }
 
     pub(crate) fn slash_model(&mut self, arg: &str) {
-
         if arg.is_empty() {
             // Open visual model selector
             self.load_available_models();
@@ -144,21 +139,17 @@ impl<'a> App<'a> {
         } else {
             self.switch_model(arg.to_string());
         }
-    
     }
 
     pub(crate) fn slash_tools(&mut self) {
-
         self.messages.push(DisplayMessage::new_text(Role::System,
             "Core: bash, read_file, write_file, edit_file, ast_grep, glob_search, grep_search\n\
              Standard: git (status/diff/add/commit/log/blame/branch/checkout/stash), agents, edit modes\n\
              Extended: rg, fd, sd, tree, mise, zoxide, lsp\n\
              MCP: mcp_daedra_web_search, mcp_daedra_visit_page"));
-    
     }
 
     pub(crate) fn slash_search(&mut self, arg: &str) {
-
         if arg.is_empty() {
             self.messages.push(DisplayMessage::new_text(
                 Role::System,
@@ -177,11 +168,9 @@ impl<'a> App<'a> {
             self.status = format!("Searching: {}", arg);
             let _ = self.cmd_tx.send(AgentCommand::Execute(search_prompt));
         }
-    
     }
 
     pub(crate) fn slash_handoff(&mut self) {
-
         if self.messages.is_empty() {
             self.messages.push(DisplayMessage::new_text(
                 Role::System,
@@ -196,11 +185,9 @@ impl<'a> App<'a> {
                 .push(DisplayMessage::new_text(Role::System, handoff_prompt));
             self.status = "Handoff complete".to_string();
         }
-    
     }
 
     pub(crate) fn slash_heal(&mut self) {
-
         self.messages
             .push(DisplayMessage::new_text(Role::User, "/heal"));
         self.processing = true;
@@ -208,17 +195,13 @@ impl<'a> App<'a> {
         let _ = self.cmd_tx.send(AgentCommand::Execute(
             "Run cargo check and cargo test. Fix any errors you find.".to_string(),
         ));
-    
     }
 
     pub(crate) fn slash_quit(&mut self) {
-
         self.should_quit = true;
-    
     }
 
     pub(crate) fn slash_export(&mut self, arg: &str) {
-
         let (path, format) = if arg.contains("--format") {
             let parts: Vec<&str> = arg.splitn(3, ' ').collect();
             let format_str = parts.get(2).unwrap_or(&"md");
@@ -239,11 +222,9 @@ impl<'a> App<'a> {
                 format!("Export failed: {}", e),
             )),
         }
-    
     }
 
     pub(crate) fn slash_diff(&mut self, arg: &str) {
-
         // Show git diff for current directory
         use std::process::Command;
         // Parse optional '--cached' flag and optional path argument
@@ -383,16 +364,18 @@ impl<'a> App<'a> {
         let path_str = path.to_string_lossy().to_string();
         match self.export_as_markdown(&path_str) {
             Ok(n) => match std::fs::read_to_string(&path_str) {
-                Ok(content) => match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(content)) {
-                    Ok(()) => self.messages.push(DisplayMessage::new_text(
-                        Role::System,
-                        format!("Copied {n} messages to clipboard"),
-                    )),
-                    Err(e) => self.messages.push(DisplayMessage::new_text(
-                        Role::System,
-                        format!("Failed to copy to clipboard: {e}"),
-                    )),
-                },
+                Ok(content) => {
+                    match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(content)) {
+                        Ok(()) => self.messages.push(DisplayMessage::new_text(
+                            Role::System,
+                            format!("Copied {n} messages to clipboard"),
+                        )),
+                        Err(e) => self.messages.push(DisplayMessage::new_text(
+                            Role::System,
+                            format!("Failed to copy to clipboard: {e}"),
+                        )),
+                    }
+                }
                 Err(e) => self.messages.push(DisplayMessage::new_text(
                     Role::System,
                     format!("Failed to read dump file: {e}"),
@@ -485,10 +468,8 @@ impl<'a> App<'a> {
                 if results.len() > 20 {
                     lines.push("... (truncated)".to_string());
                 }
-                self.messages.push(DisplayMessage::new_text(
-                    Role::System,
-                    lines.join("\n"),
-                ));
+                self.messages
+                    .push(DisplayMessage::new_text(Role::System, lines.join("\n")));
             }
             Err(e) => {
                 self.messages.push(DisplayMessage::new_text(
@@ -615,7 +596,9 @@ impl<'a> App<'a> {
         self.messages = Self::messages_from_session(result.messages);
         let compacted = self.messages.len();
         let pct = if original > 0 {
-            ((original.saturating_sub(compacted)) * 100).checked_div(original).unwrap_or(0)
+            ((original.saturating_sub(compacted)) * 100)
+                .checked_div(original)
+                .unwrap_or(0)
         } else {
             0
         };
@@ -623,10 +606,8 @@ impl<'a> App<'a> {
             "Compacted: {original} → {compacted} messages ({pct}% reduction, ~{} tokens saved)",
             result.tokens_saved
         );
-        self.messages.push(DisplayMessage::new_text(
-            Role::System,
-            self.status.clone(),
-        ));
+        self.messages
+            .push(DisplayMessage::new_text(Role::System, self.status.clone()));
     }
 
     pub(crate) fn slash_help(&mut self) {
@@ -637,10 +618,8 @@ impl<'a> App<'a> {
             .map(|c| format!("{} — {}", c.name, c.description))
             .collect();
         lines.sort_by_key(|a| a.to_ascii_lowercase());
-        self.messages.push(DisplayMessage::new_text(
-            Role::System,
-            lines.join("\n"),
-        ));
+        self.messages
+            .push(DisplayMessage::new_text(Role::System, lines.join("\n")));
     }
 
     pub(crate) fn slash_session(&mut self, arg: &str) {
@@ -813,7 +792,10 @@ impl<'a> App<'a> {
         for token in arg.split_whitespace() {
             if let Some(days) = token.strip_suffix('d').and_then(|n| n.parse::<u32>().ok()) {
                 policy.max_age_days = Some(days);
-            } else if let Some(max) = token.strip_suffix('s').and_then(|n| n.parse::<usize>().ok()) {
+            } else if let Some(max) = token
+                .strip_suffix('s')
+                .and_then(|n| n.parse::<usize>().ok())
+            {
                 policy.max_sessions = Some(max);
             }
         }

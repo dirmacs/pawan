@@ -5,6 +5,7 @@
 mod messages;
 mod overlays;
 
+use animate_core::Animate;
 use crossterm::{
     event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
     execute,
@@ -29,7 +30,6 @@ use std::io::{self, Stdout};
 use std::sync::OnceLock;
 use std::time::Instant;
 use tokio::sync::mpsc;
-use animate_core::Animate;
 
 use super::app::App;
 use super::highlight::SyntaxHighlighter;
@@ -1440,15 +1440,11 @@ mod tests {
         let mut app = test_app();
         app.handle_slash_command("/goal ship the feature");
         assert!(app.goal_mode);
-        assert_eq!(
-            app.goal_objective.as_deref(),
-            Some("ship the feature")
-        );
-        assert!(
-            app.messages
-                .iter()
-                .any(|m| m.text_content().contains("ship the feature"))
-        );
+        assert_eq!(app.goal_objective.as_deref(), Some("ship the feature"));
+        assert!(app
+            .messages
+            .iter()
+            .any(|m| m.text_content().contains("ship the feature")));
         let ctx = app.status_bar_context();
         assert!(ctx.goal_active);
         assert!(!ctx.loop_active);
@@ -1471,22 +1467,19 @@ mod tests {
         app.iteration_count = 3;
         app.handle_slash_command("/loop");
         assert!(app.loop_mode);
-        assert!(
-            app.messages
-                .iter()
-                .any(|m| m.text_content().contains("iteration 3"))
-        );
+        assert!(app
+            .messages
+            .iter()
+            .any(|m| m.text_content().contains("iteration 3")));
         let ctx = app.status_bar_context();
         assert!(ctx.loop_active);
         app.handle_slash_command("/loop");
         assert!(!app.loop_mode);
-        assert!(
-            app.messages
-                .iter()
-                .any(|m| m.text_content().contains("Loop mode disabled"))
-        );
+        assert!(app
+            .messages
+            .iter()
+            .any(|m| m.text_content().contains("Loop mode disabled")));
     }
-
 
     #[test]
     fn test_slash_model_show() {
@@ -3237,12 +3230,12 @@ mod tests {
     }
 
     mod snapshot_tests {
+        use super::super::super::app::PermissionDialog;
+        use super::super::super::types::DisplayMessage;
         use super::buffer_to_string;
         use super::default_command_item_lines;
         use super::test_app;
         use super::FuzzySearchState;
-        use super::super::super::app::PermissionDialog;
-        use super::super::super::types::DisplayMessage;
         use pawan::agent::Role;
         use ratatui::backend::TestBackend;
         use ratatui::Terminal;
@@ -3283,7 +3276,9 @@ mod tests {
         #[test]
         fn test_render_help_overlay_snapshot() {
             let app = test_app();
-            let output = render_snapshot(80, 24, |f| { app.render_help_overlay(f); });
+            let output = render_snapshot(80, 24, |f| {
+                app.render_help_overlay(f);
+            });
             insta::assert_snapshot!(output);
         }
 
@@ -3292,7 +3287,9 @@ mod tests {
             let mut app = test_app();
             app.load_available_models();
             app.model_picker.visible = true;
-            let output = render_snapshot(80, 24, |f| { app.render_model_selector(f); });
+            let output = render_snapshot(80, 24, |f| {
+                app.render_model_selector(f);
+            });
             insta::assert_snapshot!(output);
         }
 
@@ -3302,7 +3299,9 @@ mod tests {
             let mut fs = FuzzySearchState::new(default_command_item_lines());
             fs.filter("help");
             app.fuzzy_search = Some(fs);
-            let output = render_snapshot(80, 24, |f| { app.render_fuzzy_search(f); });
+            let output = render_snapshot(80, 24, |f| {
+                app.render_fuzzy_search(f);
+            });
             insta::assert_snapshot!(output);
         }
 
@@ -3315,7 +3314,9 @@ mod tests {
                 args_summary: "echo hello".to_string(),
                 respond: Some(tx),
             });
-            let output = render_snapshot(80, 24, |f| { app.render_permission_dialog(f); });
+            let output = render_snapshot(80, 24, |f| {
+                app.render_permission_dialog(f);
+            });
             insta::assert_snapshot!(output);
         }
 
@@ -3330,5 +3331,4 @@ mod tests {
             insta::assert_snapshot!(output);
         }
     }
-
 }

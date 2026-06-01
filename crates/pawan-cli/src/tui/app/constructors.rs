@@ -2,12 +2,12 @@
 
 use pawan::config::TuiConfig;
 use ratatui::style::Style;
-use std::time::Instant;
 use ratatui_textarea::TextArea;
+use std::time::Instant;
 use tokio::sync::mpsc;
 
 use super::fuzzy_search::{default_command_item_lines, FuzzySearchState};
-use super::state::{App, INPUT_PLACEHOLDER, SlashCommandRegistry};
+use super::state::{App, SlashCommandRegistry, INPUT_PLACEHOLDER};
 use super::types::*;
 
 impl<'a> App<'a> {
@@ -145,5 +145,4 @@ impl<'a> App<'a> {
             self.fuzzy_search = Some(FuzzySearchState::new(default_command_item_lines()));
         }
     }
-
 }

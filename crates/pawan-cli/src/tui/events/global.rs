@@ -29,11 +29,13 @@ pub(crate) fn handle_global_key(app: &mut App<'_>, key: &KeyEvent) -> bool {
             app.toggle_fuzzy_search();
             true
         }
-        (KeyModifiers::CONTROL, KeyCode::Char('f')) | (KeyModifiers::CONTROL, KeyCode::Char('F')) => {
+        (KeyModifiers::CONTROL, KeyCode::Char('f'))
+        | (KeyModifiers::CONTROL, KeyCode::Char('F')) => {
             app.toggle_fuzzy_search();
             true
         }
-        (KeyModifiers::CONTROL, KeyCode::Char('m')) | (KeyModifiers::CONTROL, KeyCode::Char('M')) => {
+        (KeyModifiers::CONTROL, KeyCode::Char('m'))
+        | (KeyModifiers::CONTROL, KeyCode::Char('M')) => {
             if app.model_picker.models.is_empty() {
                 app.load_available_models();
             }

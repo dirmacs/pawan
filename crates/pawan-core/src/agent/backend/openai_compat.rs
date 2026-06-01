@@ -243,10 +243,7 @@ impl OpenAiCompatBackend {
 
         if let Some(tc_array) = delta.get("tool_calls").and_then(|v| v.as_array()) {
             for tc in tc_array {
-                let index = tc
-                    .get("index")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0) as usize;
+                let index = tc.get("index").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
 
                 while state.tool_calls.len() <= index {
                     state.tool_calls.push(ToolCallRequest {
@@ -264,12 +261,8 @@ impl OpenAiCompatBackend {
                         state.tool_calls[index].name = name.to_string();
                     }
                     if let Some(args) = func.get("arguments").and_then(|v| v.as_str()) {
-                        let current = state.tool_calls[index]
-                            .arguments
-                            .as_str()
-                            .unwrap_or("");
-                        state.tool_calls[index].arguments =
-                            json!(format!("{}{}", current, args));
+                        let current = state.tool_calls[index].arguments.as_str().unwrap_or("");
+                        state.tool_calls[index].arguments = json!(format!("{}{}", current, args));
                     }
                 }
             }
@@ -313,7 +306,9 @@ impl OpenAiCompatBackend {
     ) {
         while let Some(rel_pos) = state.buffer[state.buf_start..].find('\n') {
             let newline_pos = state.buf_start + rel_pos;
-            let line = state.buffer[state.buf_start..newline_pos].trim().to_string();
+            let line = state.buffer[state.buf_start..newline_pos]
+                .trim()
+                .to_string();
             state.buf_start = newline_pos + 1; // advance past newline (zero-copy)
             if line.is_empty() || line == "data: [DONE]" {
                 continue;
@@ -885,8 +880,7 @@ impl LlmBackend for OpenAiCompatBackend {
                 self.apply_model_specific_request_fields(&mut request_body, model, &api_tools);
 
                 for attempt in 0..=max_retries {
-                    let request =
-                        self.build_authenticated_request(&url, api_key, &request_body);
+                    let request = self.build_authenticated_request(&url, api_key, &request_body);
 
                     let prompt_len: usize = messages.iter().map(|m| m.content.len()).sum();
                     let tools_count = tools.len();
