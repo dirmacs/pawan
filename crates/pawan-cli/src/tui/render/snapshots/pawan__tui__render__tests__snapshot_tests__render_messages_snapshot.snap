@@ -2,8 +2,8 @@
 source: crates/pawan-cli/src/tui/render/mod.rs
 expression: output
 ---
-You: (now)                                                                      
+ You   now                                                                      
   Hello pawan                                                                   
                                                                                 
-Pawan: (now)                                                                    
+ Pawan   now                                                                    
   Hi there!

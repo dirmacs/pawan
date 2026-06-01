@@ -255,27 +255,6 @@ pub fn summarize_args(args: &serde_json::Value) -> String {
     }
 }
 
-/// One-line preview of a tool result for collapsed view.
-pub fn one_line_preview(result: &serde_json::Value, max_len: usize) -> String {
-    let s = match result {
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Object(map) => {
-            if let Some(content) = map.get("content").and_then(|v| v.as_str()) {
-                content.to_string()
-            } else {
-                serde_json::to_string(result).unwrap_or_default()
-            }
-        }
-        v => v.to_string(),
-    };
-    let first_line = s.lines().next().unwrap_or("");
-    if first_line.len() > max_len {
-        format!("{}...", &first_line[..max_len.saturating_sub(3)])
-    } else {
-        first_line.to_string()
-    }
-}
-
 /// Format tool result for expanded display.
 pub fn format_tool_result(result: &serde_json::Value) -> String {
     match result {
