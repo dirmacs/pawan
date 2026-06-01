@@ -1,3 +1,29 @@
+## [0.5.9] - 2026-06-01
+
+### Features
+- **TUI redesign** — complete visual overhaul with six major improvements:
+  - Removed single-letter slash commands (`/c /m /t /s /h /q /e /d /? /ss`); long forms only
+  - Fixed token/ctx widget for providers that omit streamed usage (`stream_options.include_usage`)
+  - Fixed auto-scroll bug (use `usize::MAX` sentinel for "pin to bottom")
+  - Redesigned permission popup (rounded border, themed title, padded content, Y/N/A badges)
+  - Improved tool-call transparency (framed cards, 6-line collapsed / 40-line expanded, footer hints)
+  - Aesthetic redesign (rounded borders, branded `◆ pawan` title, badge-pill role headers, muted timestamps)
+- **`animate-core` value tweens** — rolling token counts (600ms cubic-out), eased ctx% bar (450ms cubic-out), accent-colour fade on `/theme` switches; replaces hand-rolled `ColorTransition`
+- **tachyonfx cell effects** — content reveal, popup sweep-in, status pulse (suppressed under `cfg!(test)`)
+- **`tui-scrollview` adoption** — automatic vertical scrollbar replaces manual `[%]` indicator
+- **`ratatui-cheese` spinner** — animated "Pawan is thinking..." replaces static label
+- **`Rect::centered()`** — all overlay modals use centered constraints
+
+### Refactoring
+- Removed `ColorTransition` struct + `ease_out_cubic`/`lerp_u8`/`extract_rgb` helpers from `theme.rs`
+- Removed dead `tui/scrollbar.rs` module
+- Removed unused `one_line_preview` + 7 tests
+- Extracted `tui/effects.rs` for unified motion + value animation
+
+### Dependencies
+- `animate-core = "0.4.1"` (gated behind `tui` feature) — skipped broken `animate` facade
+- `tachyonfx = "0.25"`, `tui-scrollview = "0.6.4"`, `ratatui-cheese = "0.6.0"` already in v0.5.8
+
 ## [0.5.8] - 2026-05-31
 
 ### Refactoring

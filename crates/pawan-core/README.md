@@ -1,6 +1,11 @@
-# pawan-core v0.5.8
+# pawan-core v0.5.9
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
+
+## What's New in v0.5.9
+
+- **`stream_options.include_usage`** — OpenAI-compatible streaming requests now request final-usage chunks, fixing the token/ctx widget for providers (vLLM, SGLang) that omit streamed usage by default
+- **Module changes** — `tui/render.rs` split into `render/{mod, messages, overlays}.rs`; new `tui/effects.rs` for motion + value animation
 
 ## What's New in v0.5.8
 
