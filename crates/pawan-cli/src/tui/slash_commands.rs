@@ -81,7 +81,7 @@ impl<'a> App<'a> {
             "/save" => self.slash_save(),
             "/share" => self.slash_share(),
             "/sessions" => self.slash_sessions(),
-            "/ss" | "/searchsessions" => self.slash_search_sessions(arg),
+            "/searchsessions" => self.slash_search_sessions(arg),
             "/prune" => self.slash_prune(arg),
             "/tag" => self.slash_tag(arg),
             "/load" => self.slash_load(arg),
@@ -95,8 +95,8 @@ impl<'a> App<'a> {
 
     fn slash_route_model(&mut self, command: &str, arg: &str) -> bool {
         match command {
-            "/model" | "/m" => self.slash_model(arg),
-            "/tools" | "/t" => self.slash_tools(),
+            "/model" => self.slash_model(arg),
+            "/tools" => self.slash_tools(),
             "/theme" => self.slash_theme(arg),
             "/compact" => self.slash_compact(arg),
             _ => return false,
@@ -106,8 +106,8 @@ impl<'a> App<'a> {
 
     fn slash_route_agent(&mut self, command: &str, arg: &str) -> bool {
         match command {
-            "/search" | "/s" => self.slash_search(arg),
-            "/heal" | "/h" => self.slash_heal(),
+            "/search" => self.slash_search(arg),
+            "/heal" => self.slash_heal(),
             "/retry" => self.slash_retry(),
             "/loop" => self.apply_loop_command(),
             "/goal" => self.apply_goal_command(arg),
@@ -120,12 +120,12 @@ impl<'a> App<'a> {
 
     fn slash_route_misc(&mut self, command: &str, arg: &str) -> bool {
         match command {
-            "/clear" | "/c" => self.slash_clear(),
-            "/quit" | "/q" | "/exit" => self.slash_quit(),
-            "/export" | "/e" => self.slash_export(arg),
-            "/diff" | "/d" => self.slash_diff(arg),
+            "/clear" => self.slash_clear(),
+            "/quit" | "/exit" => self.slash_quit(),
+            "/export" => self.slash_export(arg),
+            "/diff" => self.slash_diff(arg),
             "/import" => self.slash_import(arg),
-            "/help" | "/?" => self.slash_help(),
+            "/help" => self.slash_help(),
             _ => return false,
         }
         true

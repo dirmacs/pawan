@@ -71,8 +71,12 @@ pub(crate) struct App<'a> {
     pub(crate) model_fetch_rx: Option<tokio::sync::oneshot::Receiver<Vec<ModelInfo>>>,
     /// Centralized theme system (ArcSwap-backed, thread-safe)
     pub(crate) current_theme: String,
-    /// Accent color transition animation
-    pub(crate) accent_transition: super::theme::ColorTransition,
+    /// Accent-colour fade across `/theme` switches (animate crate).
+    pub(crate) accent_tween: super::effects::ValueTween<ratatui::style::Color>,
+    /// Rolls the displayed cumulative token total toward its new value.
+    pub(crate) token_tween: super::effects::ValueTween<f64>,
+    /// Eases the context-usage fraction (0.0..=1.0) toward its new value.
+    pub(crate) ctx_tween: super::effects::ValueTween<f32>,
     /// Sub-agent task queue display
     pub(crate) queue_panel: super::queue_panel::QueuePanel,
     /// Bottom status strip with flash-on-event support
@@ -113,6 +117,18 @@ pub(crate) struct App<'a> {
     pub(crate) irc_compose_input: String,
     /// Main orchestrator IRC endpoint (shared with agent task)
     pub(crate) irc_relay: std::sync::Arc<std::sync::Mutex<pawan::agent::IrcRelay>>,
+    /// Wall-clock timestamp of the previous rendered frame; drives effect timing.
+    pub(crate) last_frame: Instant,
+    /// Fade-in applied to the message area when a new assistant turn finalizes.
+    pub(crate) content_fx: Option<tachyonfx::Effect>,
+    /// Sweep-in applied when a modal overlay (dialog/picker) becomes active.
+    pub(crate) popup_fx: Option<tachyonfx::Effect>,
+    /// Accent pulse applied to the status strip on token/context updates.
+    pub(crate) status_fx: Option<tachyonfx::Effect>,
+    /// Tracks whether a modal overlay was active last frame (popup_fx trigger edge).
+    pub(crate) overlay_was_active: bool,
+    /// Animated "thinking" spinner shown while the agent is processing.
+    pub(crate) spinner: ratatui_cheese::spinner::SpinnerState,
 }
 
 /// Registered TUI `/command` (names are explicit, including short aliases)
@@ -188,31 +204,22 @@ impl SlashCommandRegistry {
 }
 const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/clear", "Clear chat history"),
-    ("/c", "Clear chat history (shorthand)"),
     ("/model", "Show or switch LLM model"),
-    ("/m", "Show or switch model (shorthand)"),
     ("/tools", "List available tools"),
-    ("/t", "List tools (shorthand)"),
     ("/search", "Web search via Daedra"),
-    ("/s", "Web search (shorthand)"),
     ("/handoff", "Hand off conversation to a new session"),
     ("/heal", "Auto-fix build errors"),
-    ("/h", "Heal (shorthand)"),
     ("/quit", "Exit pawan"),
-    ("/q", "Exit (shorthand)"),
     ("/exit", "Exit pawan (alias)"),
     ("/export", "Export conversation to a file"),
-    ("/e", "Export (shorthand)"),
     ("/diff", "Show git diff"),
-    ("/d", "Show git diff (shorthand)"),
     ("/import", "Import conversation from JSON"),
     ("/fork", "Clone current session to a new one"),
     ("/dump", "Copy conversation to clipboard"),
     ("/share", "Export session and print a shareable path"),
     ("/save", "Save current conversation as a session"),
     ("/sessions", "Browse and manage saved sessions"),
-    ("/ss", "Search saved sessions"),
-    ("/searchsessions", "Search saved sessions (alias)"),
+    ("/searchsessions", "Search saved sessions"),
     ("/prune", "Prune old saved sessions"),
     ("/tag", "Manage session tags (add/rm/list/clear)"),
     ("/load", "Load a saved session"),
@@ -224,7 +231,6 @@ const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/theme", "Switch color theme (e.g. /theme nord)"),
     ("/irc", "Send IRC message to a subagent"),
     ("/help", "Show this help list"),
-    ("/?", "Show help (shorthand)"),
     ("/goal", "Set a goal for the agent to work toward"),
     ("/orchestrate", "Orchestrate subagents for a task"),
     ("/loop", "Toggle auto-continue loop mode"),

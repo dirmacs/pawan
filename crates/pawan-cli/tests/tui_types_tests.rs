@@ -4,7 +4,7 @@
 //! from src/tui/types.rs that don’t require a terminal.
 
 use pawan_cli_lib::tui::types::{
-    format_tool_result, one_line_preview, strip_reasoning_tags, summarize_args,
+    format_tool_result, strip_reasoning_tags, summarize_args,
     ContentBlock, ExportFormat, KeybindContext, Panel, SessionSortMode, ToolBlockState,
 };
 
@@ -106,60 +106,6 @@ fn test_summarize_args_string_value() {
     let s = serde_json::Value::String("just a string".to_string());
     let result = summarize_args(&s);
     assert_eq!(result, "");
-}
-
-    // ============================================================================
-// one_line_preview Tests
-    // ============================================================================
-
-#[test]
-fn test_one_line_preview_string_short() {
-    let val = serde_json::Value::String("hello world".to_string());
-    let preview = one_line_preview(&val, 30);
-    assert_eq!(preview, "hello world");
-}
-
-#[test]
-fn test_one_line_preview_string_truncated() {
-    let val = serde_json::Value::String("x".repeat(50));
-    let preview = one_line_preview(&val, 20);
-    assert!(preview.len() <= 23);
-}
-
-#[test]
-fn test_one_line_preview_map_with_content() {
-    let val = serde_json::json!({"content": "important text"});
-    let preview = one_line_preview(&val, 50);
-    assert!(preview.contains("important text"));
-}
-
-#[test]
-fn test_one_line_preview_map_no_content() {
-    let val = serde_json::json!({"error": "something failed"});
-    let preview = one_line_preview(&val, 50);
-    assert!(!preview.is_empty());
-}
-
-#[test]
-fn test_one_line_preview_null() {
-    let val = serde_json::Value::Null;
-    let preview = one_line_preview(&val, 20);
-    assert_eq!(preview, "null");
-}
-
-#[test]
-fn test_one_line_preview_number() {
-    let val = serde_json::Value::Number(42.into());
-    let preview = one_line_preview(&val, 20);
-    assert!(preview.contains("42"));
-}
-
-#[test]
-fn test_one_line_preview_multiline_truncates_first_line() {
-    let val = serde_json::Value::String("first line\nsecond line\nthird line".to_string());
-    let preview = one_line_preview(&val, 50);
-    assert!(preview.contains("first line"));
-    assert!(!preview.contains("second line"));
 }
 
     // ============================================================================
