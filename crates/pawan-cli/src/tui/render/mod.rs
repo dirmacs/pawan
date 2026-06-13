@@ -351,7 +351,7 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
     use tokio::sync::mpsc;
 
-    use crossterm::event::{Event, KeyCode, KeyModifiers};
+    use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
     use pawan::agent::Role;
     use ratatui::style::Color;
     use ratatui::Terminal;
@@ -365,7 +365,12 @@ mod tests {
 
     /// Create a test App with dummy channels (for state/render tests, not event loops)
     fn test_app<'a>() -> App<'a> {
-        let (cmd_tx, _cmd_rx) = mpsc::unbounded_channel();
+        let (app, _cmd_rx) = test_app_with_commands();
+        app
+    }
+
+    fn test_app_with_commands<'a>() -> (App<'a>, mpsc::UnboundedReceiver<AgentCommand>) {
+        let (cmd_tx, cmd_rx) = mpsc::unbounded_channel();
         let (_event_tx, event_rx) = mpsc::unbounded_channel();
         let irc_hub = pawan::agent::IrcHub::new();
         let irc_relay = std::sync::Arc::new(std::sync::Mutex::new(irc_hub.join("main")));
@@ -378,7 +383,7 @@ mod tests {
         );
         // Disable welcome screen in tests so keypresses reach normal handlers
         app.show_welcome = false;
-        app
+        (app, cmd_rx)
     }
 
     fn theme_lock() -> &'static Mutex<()> {
@@ -1491,6 +1496,31 @@ mod tests {
     }
 
     #[test]
+    fn test_slash_model_enter_release_does_not_select_first_model() {
+        let mut app = test_app();
+        app.input.insert_str("/model");
+
+        app.handle_event(Event::Key(KeyEvent::new(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+        )));
+        assert!(app.model_picker.visible);
+        assert_eq!(app.model_name, "test-model");
+
+        app.handle_event(Event::Key(KeyEvent::new_with_kind(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+            KeyEventKind::Release,
+        )));
+
+        assert!(
+            app.model_picker.visible,
+            "key-release after opening /model must not confirm the first model"
+        );
+        assert_eq!(app.model_name, "test-model");
+    }
+
+    #[test]
     fn test_slash_model_switch() {
         let mut app = test_app();
         app.handle_slash_command("/model mistral-small-4");
@@ -1630,7 +1660,100 @@ mod tests {
         assert_eq!(app.messages.len(), 1);
         assert!(app.messages[0].text_content().contains("bash"));
         assert!(app.messages[0].text_content().contains("ast_grep"));
+        assert!(app.messages[0].text_content().contains("rmux"));
         assert!(app.messages[0].text_content().contains("mcp_daedra"));
+    }
+
+    #[test]
+    fn test_slash_rmux_without_task_shows_usage() {
+        let mut app = test_app();
+        app.handle_slash_command("/rmux");
+
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.messages[0].text_content().contains("Usage: /rmux"));
+        assert!(!app.processing);
+    }
+
+    #[test]
+    fn test_slash_rmux_dispatches_terminal_task_to_agent() {
+        let (mut app, mut cmd_rx) = test_app_with_commands();
+        app.handle_slash_command("/rmux ensure session dev and run cargo test");
+
+        assert!(app.processing);
+        assert!(app.status.contains("RMUX"));
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.messages[0]
+            .text_content()
+            .contains("/rmux ensure session"));
+
+        match cmd_rx.try_recv().expect("rmux Execute command") {
+            AgentCommand::Execute(prompt) => {
+                assert!(prompt.contains("Use the rmux tool"));
+                assert!(prompt.contains("wait_for_text"));
+                assert!(prompt.contains("ensure session dev"));
+            }
+            _ => panic!("/rmux should dispatch AgentCommand::Execute"),
+        }
+    }
+
+    #[test]
+    fn test_slash_rmux_session_builds_typed_ensure_plan() {
+        let (mut app, mut cmd_rx) = test_app_with_commands();
+        app.handle_slash_command("/rmux session dev --cwd /tmp --size 120x40 --cmd cargo test");
+
+        match cmd_rx.try_recv().expect("rmux Execute command") {
+            AgentCommand::Execute(prompt) => {
+                assert!(prompt.contains("action: ensure_session"));
+                assert!(prompt.contains("session: dev"));
+                assert!(prompt.contains("cwd: /tmp"));
+                assert!(prompt.contains("cols: 120"));
+                assert!(prompt.contains("rows: 40"));
+                assert!(prompt.contains("command: cargo test"));
+            }
+            _ => panic!("/rmux session should dispatch AgentCommand::Execute"),
+        }
+    }
+
+    #[test]
+    fn test_slash_rmux_send_builds_typed_send_plan() {
+        let (mut app, mut cmd_rx) = test_app_with_commands();
+        app.handle_slash_command("/rmux send dev cargo test --workspace");
+
+        match cmd_rx.try_recv().expect("rmux Execute command") {
+            AgentCommand::Execute(prompt) => {
+                assert!(prompt.contains("action: send_text"));
+                assert!(prompt.contains("session: dev"));
+                assert!(prompt.contains("text: cargo test --workspace"));
+                assert!(prompt.contains("send_key"));
+                assert!(prompt.contains("Enter"));
+            }
+            _ => panic!("/rmux send should dispatch AgentCommand::Execute"),
+        }
+    }
+
+    #[test]
+    fn test_slash_rmux_snapshot_builds_typed_snapshot_plan() {
+        let (mut app, mut cmd_rx) = test_app_with_commands();
+        app.handle_slash_command("/rmux snapshot dev");
+
+        match cmd_rx.try_recv().expect("rmux Execute command") {
+            AgentCommand::Execute(prompt) => {
+                assert!(prompt.contains("action: snapshot"));
+                assert!(prompt.contains("session: dev"));
+                assert!(prompt.contains("visible_text"));
+            }
+            _ => panic!("/rmux snapshot should dispatch AgentCommand::Execute"),
+        }
+    }
+
+    #[test]
+    fn test_slash_rmux_bad_typed_command_shows_usage() {
+        let mut app = test_app();
+        app.handle_slash_command("/rmux send");
+
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.messages[0].text_content().contains("Usage: /rmux send"));
+        assert!(!app.processing);
     }
 
     #[test]
@@ -2327,20 +2450,20 @@ mod tests {
     #[test]
     fn test_session_tags_persist_on_save() {
         let mut app = test_app();
+        app.messages
+            .push(DisplayMessage::new_text(Role::User, "persist me"));
         app.handle_slash_command("/tag add persistent_tag");
         app.handle_slash_command("/save");
-        let sessions_dir = pawan::agent::session::Session::sessions_dir().unwrap();
-        let mut found = false;
-        if let Ok(entries) = std::fs::read_dir(&sessions_dir) {
-            for entry in entries.flatten() {
-                let content = std::fs::read_to_string(entry.path()).unwrap_or_default();
-                if content.contains("persistent_tag") {
-                    found = true;
-                    break;
-                }
-            }
-        }
-        assert!(found, "Tag not persisted in saved session");
+
+        let session_id = app
+            .current_session_id
+            .as_deref()
+            .expect("/save should create a session id");
+        let session = pawan::agent::session::Session::load(session_id).unwrap();
+        assert!(
+            session.tags.iter().any(|tag| tag == "persistent_tag"),
+            "Tag not persisted in saved session"
+        );
     }
 
     #[test]
@@ -3256,14 +3379,32 @@ mod tests {
         }
 
         fn redact_cwd(output: &str) -> String {
-            std::env::current_dir()
-                .ok()
-                .map(|cwd| {
-                    let cwd_str = cwd.display().to_string();
-                    let pad = " ".repeat(cwd_str.len().saturating_sub("[CWD]".len()));
-                    output.replace(&cwd_str, &format!("[CWD]{pad}"))
+            output
+                .lines()
+                .map(|line| {
+                    let Some(path_start) = line.find("Path:  ").map(|idx| idx + "Path:  ".len())
+                    else {
+                        return line.to_string();
+                    };
+                    let Some(path_end) = line.rfind('│') else {
+                        return line.to_string();
+                    };
+                    if path_end <= path_start {
+                        return line.to_string();
+                    }
+
+                    let width = line[path_start..path_end].len();
+                    let replacement =
+                        format!("[CWD]{}", " ".repeat(width.saturating_sub("[CWD]".len())));
+                    format!(
+                        "{}{}{}",
+                        &line[..path_start],
+                        replacement,
+                        &line[path_end..]
+                    )
                 })
-                .unwrap_or_else(|| output.to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
         }
 
         #[test]

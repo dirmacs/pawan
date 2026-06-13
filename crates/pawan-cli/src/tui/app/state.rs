@@ -206,6 +206,7 @@ const BUILTIN_SLASH_COMMANDS: &[(&str, &str)] = &[
     ("/clear", "Clear chat history"),
     ("/model", "Show or switch LLM model"),
     ("/tools", "List available tools"),
+    ("/rmux", "Drive persistent RMUX terminal sessions"),
     ("/search", "Web search via Daedra"),
     ("/handoff", "Hand off conversation to a new session"),
     ("/heal", "Auto-fix build errors"),

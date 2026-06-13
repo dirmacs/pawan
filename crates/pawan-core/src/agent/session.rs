@@ -1,6 +1,6 @@
 //! Agent session and conversation history management.
 //!
-//! Re-exports persistence types from [`session_store`] so `crate::agent::session::*`
+//! Re-exports persistence types from [`super::session_store`] so `crate::agent::session::*`
 //! remains stable.
 
 pub use super::session_store::*;

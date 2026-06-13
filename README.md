@@ -103,7 +103,7 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 - `--output-format` with `text`, `json`, `stream-json`
 - `--continue` / `--session <id>` / `--list-sessions` session management
 - Fuzzy search modal (`Ctrl+P`), model picker modal (`Ctrl+M`), keybind contexts
-- Slash commands: `/model`, `/theme`, `/session`, `/clear`, `/retry`, `/compact`, `/help`
+- Slash commands: `/model`, `/theme`, `/session`, `/rmux`, `/clear`, `/retry`, `/compact`, `/help`
 
 ## Install
 
@@ -159,7 +159,7 @@ pawan tasks list --status ready   # show actionable unblocked beads
 pawan doctor           # diagnose setup issues
 ```
 
-## Tools (34)
+## Tools (37)
 
 | Category | Tools |
 |----------|-------|
@@ -167,6 +167,7 @@ pawan doctor           # diagnose setup issues
 | **Search** | glob, grep, ripgrep (native rg), fd (native) |
 | **Code Intelligence** | **ast_grep** — AST-level structural search and rewrite via tree-sitter |
 | **Shell** | bash, sd (find-replace), mise (runtime manager), zoxide |
+| **Terminal** | rmux (durable sessions, pane input, wait-for-text, snapshots) |
 | **Git** | status, diff, add, commit, log, blame, branch, checkout, stash |
 | **Agent** | spawn_agent, spawn_agents (parallel sub-agents) |
 | **MCP** | Dynamic tool discovery from any MCP server |
@@ -188,7 +189,7 @@ Matches by syntax tree structure, not text. `$VAR` for single-node wildcards, `$
 ```
 pawan/
   crates/
-    pawan-core/    # library — agent engine, 34 tools, config, healing
+    pawan-core/    # library — agent engine, 37 tools, config, healing
     pawan-cli/     # binary — CLI + ratatui TUI + AI workflows
     pawan-api/     # HTTP API — Axum SSE server (port 3300)
     pawan-mcp/     # MCP client (thulp-mcp, stdio transport)
@@ -213,7 +214,8 @@ pawan/
 - **Bottom status bar** — mode badge, thinking label, git branch, model name, token usage, context percentage/bar, iteration, and timestamp with visible separators
 - **Readable dark-mode palette** — timestamps, tool metadata, status details, and secondary labels use accessible theme tokens
 - **Inline input separator** — accent-colored separator with `Input` / `Input: processing`, dynamic resizing, and readable themed placeholder text
-- **Slash commands** — `/model`, `/theme`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`, `/sessions`, `/save`, `/load`, `/resume`, `/new`, `/fork`, `/dump`, `/share`, `/diff`, `/models`, `/tag`, `/compact`
+- **Slash commands** — `/model`, `/theme`, `/rmux`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`, `/sessions`, `/save`, `/load`, `/resume`, `/new`, `/fork`, `/dump`, `/share`, `/diff`, `/models`, `/tag`, `/compact`
+- **RMUX command grammar** — `/rmux session <name> [--cwd <path>] [--size <cols>x<rows>] [--cmd <command>]`, `/rmux send <session> <text>`, `/rmux key <session> <key>`, `/rmux wait <session> <text>`, `/rmux snapshot <session>`
 - **Session tags UI** — visual green tags in status bar, add/remove/clear via `/tag` command
 - **Fuzzy session search** — fuzzy matching indicator `[FUZZY]` when enabled in session browser
 - **NVIDIA NIM catalog** — `/models` command to browse available NIM models
@@ -240,7 +242,7 @@ pawan/
 
 **Token budget** — `reasoning_tokens` / `action_tokens` tracked per call. `thinking_budget` config caps thinking. TUI shows `think:N act:N` split.
 
-**Auto-install + tiered registry** — missing CLI tools auto-install via mise. 34 tools in 3 tiers (Core/Standard/Extended).
+**Auto-install + tiered registry** — missing CLI tools auto-install via mise. 37 tools in 3 tiers (Core/Standard/Extended), including RMUX-backed terminal sessions.
 
 ## Configuration
 
