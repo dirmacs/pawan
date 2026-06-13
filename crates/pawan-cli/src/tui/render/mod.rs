@@ -1747,6 +1747,21 @@ mod tests {
     }
 
     #[test]
+    fn test_slash_rmux_kill_builds_typed_kill_plan() {
+        let (mut app, mut cmd_rx) = test_app_with_commands();
+        app.handle_slash_command("/rmux kill dev");
+
+        match cmd_rx.try_recv().expect("rmux Execute command") {
+            AgentCommand::Execute(prompt) => {
+                assert!(prompt.contains("action: kill_session"));
+                assert!(prompt.contains("session: dev"));
+                assert!(prompt.contains("killed"));
+            }
+            _ => panic!("/rmux kill should dispatch AgentCommand::Execute"),
+        }
+    }
+
+    #[test]
     fn test_slash_rmux_bad_typed_command_shows_usage() {
         let mut app = test_app();
         app.handle_slash_command("/rmux send");
