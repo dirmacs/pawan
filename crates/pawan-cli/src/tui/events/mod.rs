@@ -9,7 +9,7 @@ mod mouse;
 mod permission;
 mod welcome;
 
-use crossterm::event::{Event, KeyEvent};
+use crossterm::event::{Event, KeyEvent, KeyEventKind};
 
 use super::app::App;
 use default::{handle_panel_key, handle_search_mode_key, handle_session_browser_key};
@@ -28,7 +28,8 @@ impl App<'_> {
         }
 
         match event {
-            Event::Key(key) => self.handle_key_event(key),
+            Event::Key(key) if key.kind != KeyEventKind::Release => self.handle_key_event(key),
+            Event::Key(_) => {}
             Event::Mouse(mouse) => {
                 let _ = handle_mouse_event(self, mouse);
             }

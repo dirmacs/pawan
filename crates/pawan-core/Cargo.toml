@@ -105,6 +105,9 @@ thulpoff-engine = { workspace = true }
 # can use `ares::llm::...` etc. without changes.
 ares-server = { workspace = true }
 
+# Terminal multiplexing / persistent pane automation
+rmux-sdk = "0.5"
+
 # Secure credential storage
 keyring = "3.6"
 
