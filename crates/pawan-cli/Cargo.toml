@@ -92,4 +92,6 @@ tempfile = { workspace = true }
 assert_cmd = "2.0"
 predicates = "3.1"
 insta = { version = "1.40", features = ["redactions"] }
+portable-pty = "0.9"
+vt100 = "0.16"
 wiremock = "0.6"

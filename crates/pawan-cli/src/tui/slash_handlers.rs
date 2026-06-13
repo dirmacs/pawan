@@ -33,6 +33,151 @@ use tokio::sync::mpsc;
 use super::app::{App, SlashCommand, SlashCommandRegistry};
 use super::types::*;
 
+const RMUX_USAGE: &str = "Usage: /rmux <terminal task> or /rmux session|send|key|wait|snapshot ...";
+const RMUX_SESSION_USAGE: &str =
+    "Usage: /rmux session <name> [--cwd <path>] [--size <cols>x<rows>] [--cmd <command>]";
+const RMUX_SEND_USAGE: &str = "Usage: /rmux send <session> <text to send and press Enter>";
+const RMUX_KEY_USAGE: &str = "Usage: /rmux key <session> <key>";
+const RMUX_WAIT_USAGE: &str = "Usage: /rmux wait <session> <text>";
+const RMUX_SNAPSHOT_USAGE: &str = "Usage: /rmux snapshot <session>";
+
+fn build_rmux_slash_prompt(request: &str) -> std::result::Result<String, &'static str> {
+    let request = request.trim();
+    if request.is_empty() {
+        return Err(RMUX_USAGE);
+    }
+
+    let parts: Vec<&str> = request.split_whitespace().collect();
+    match parts.first().copied() {
+        Some("session") => build_rmux_session_prompt(&parts[1..]),
+        Some("send") => build_rmux_send_prompt(&parts[1..]),
+        Some("key") => build_rmux_key_prompt(&parts[1..]),
+        Some("wait") => build_rmux_wait_prompt(&parts[1..]),
+        Some("snapshot") => build_rmux_snapshot_prompt(&parts[1..]),
+        Some(_) => Ok(format!(
+            "Use the rmux tool to complete this terminal-multiplexer task. Prefer durable named sessions, wait_for_text, and snapshot evidence before reporting results. Task: {request}"
+        )),
+        None => Err(RMUX_USAGE),
+    }
+}
+
+fn build_rmux_session_prompt(args: &[&str]) -> std::result::Result<String, &'static str> {
+    let Some(session) = args.first().copied() else {
+        return Err(RMUX_SESSION_USAGE);
+    };
+    let mut cwd: Option<&str> = None;
+    let mut cols: Option<&str> = None;
+    let mut rows: Option<&str> = None;
+    let mut command: Option<String> = None;
+
+    let mut i = 1;
+    while i < args.len() {
+        match args[i] {
+            "--cwd" => {
+                i += 1;
+                cwd = args.get(i).copied();
+                if cwd.is_none() {
+                    return Err(RMUX_SESSION_USAGE);
+                }
+            }
+            "--size" => {
+                i += 1;
+                let Some(size) = args.get(i).copied() else {
+                    return Err(RMUX_SESSION_USAGE);
+                };
+                let Some((c, r)) = size.split_once('x') else {
+                    return Err(RMUX_SESSION_USAGE);
+                };
+                if c.parse::<u16>().is_err() || r.parse::<u16>().is_err() {
+                    return Err(RMUX_SESSION_USAGE);
+                }
+                cols = Some(c);
+                rows = Some(r);
+            }
+            "--cmd" => {
+                let rest = args.get(i + 1..).unwrap_or_default();
+                if rest.is_empty() {
+                    return Err(RMUX_SESSION_USAGE);
+                }
+                command = Some(rest.join(" "));
+                break;
+            }
+            _ => return Err(RMUX_SESSION_USAGE),
+        }
+        i += 1;
+    }
+
+    let mut lines = vec![
+        "Use the rmux tool with these exact typed steps, then report the final pane snapshot."
+            .to_string(),
+        "1. Call rmux with action: ensure_session".to_string(),
+        format!("   session: {session}"),
+    ];
+    if let Some(cwd) = cwd {
+        lines.push(format!("   cwd: {cwd}"));
+    }
+    if let (Some(cols), Some(rows)) = (cols, rows) {
+        lines.push(format!("   cols: {cols}"));
+        lines.push(format!("   rows: {rows}"));
+    }
+    if let Some(command) = command {
+        lines.push(format!("   command: {command}"));
+    }
+    lines.push("2. Call rmux with action: snapshot".to_string());
+    lines.push(format!("   session: {session}"));
+    lines.push(
+        "3. Report the snapshot visible_text and whether the session was created or reused."
+            .to_string(),
+    );
+    Ok(lines.join("\n"))
+}
+
+fn build_rmux_send_prompt(args: &[&str]) -> std::result::Result<String, &'static str> {
+    let Some(session) = args.first().copied() else {
+        return Err(RMUX_SEND_USAGE);
+    };
+    let text_parts = args.get(1..).unwrap_or_default();
+    if text_parts.is_empty() {
+        return Err(RMUX_SEND_USAGE);
+    }
+    let text = text_parts.join(" ");
+    Ok(format!(
+        "Use the rmux tool with these exact typed steps, then report the resulting pane snapshot.\n1. Call rmux with action: send_text\n   session: {session}\n   text: {text}\n2. Call rmux with action: send_key\n   session: {session}\n   key: Enter\n3. Call rmux with action: snapshot\n   session: {session}\n4. Report the snapshot visible_text."
+    ))
+}
+
+fn build_rmux_key_prompt(args: &[&str]) -> std::result::Result<String, &'static str> {
+    let [session, key] = args else {
+        return Err(RMUX_KEY_USAGE);
+    };
+    Ok(format!(
+        "Use the rmux tool with these exact typed steps, then report the resulting pane snapshot.\n1. Call rmux with action: send_key\n   session: {session}\n   key: {key}\n2. Call rmux with action: snapshot\n   session: {session}\n3. Report the snapshot visible_text."
+    ))
+}
+
+fn build_rmux_wait_prompt(args: &[&str]) -> std::result::Result<String, &'static str> {
+    let Some(session) = args.first().copied() else {
+        return Err(RMUX_WAIT_USAGE);
+    };
+    let text_parts = args.get(1..).unwrap_or_default();
+    if text_parts.is_empty() {
+        return Err(RMUX_WAIT_USAGE);
+    }
+    let text = text_parts.join(" ");
+    Ok(format!(
+        "Use the rmux tool with these exact typed steps, then report the matching pane snapshot.\n1. Call rmux with action: wait_for_text\n   session: {session}\n   text: {text}\n2. Call rmux with action: snapshot\n   session: {session}\n3. Report the snapshot visible_text."
+    ))
+}
+
+fn build_rmux_snapshot_prompt(args: &[&str]) -> std::result::Result<String, &'static str> {
+    let [session] = args else {
+        return Err(RMUX_SNAPSHOT_USAGE);
+    };
+    Ok(format!(
+        "Use the rmux tool with action: snapshot\nsession: {session}\nReport cols, rows, revision, and visible_text."
+    ))
+}
+
 // ── shared mode helpers ────────────────────────────────────────────────
 
 impl<'a> App<'a> {
@@ -145,8 +290,31 @@ impl<'a> App<'a> {
         self.messages.push(DisplayMessage::new_text(Role::System,
             "Core: bash, read_file, write_file, edit_file, ast_grep, glob_search, grep_search\n\
              Standard: git (status/diff/add/commit/log/blame/branch/checkout/stash), agents, edit modes\n\
-             Extended: rg, fd, sd, tree, mise, zoxide, lsp\n\
+             Extended: rg, fd, sd, tree, mise, zoxide, lsp, rmux\n\
              MCP: mcp_daedra_web_search, mcp_daedra_visit_page"));
+    }
+
+    pub(crate) fn slash_rmux(&mut self, arg: &str) {
+        let request = arg.trim();
+        let prompt = match build_rmux_slash_prompt(request) {
+            Ok(prompt) => prompt,
+            Err(usage) => {
+                self.messages
+                    .push(DisplayMessage::new_text(Role::System, usage));
+                self.status_bar.flash(usage.to_string());
+                return;
+            }
+        };
+
+        self.messages.push(DisplayMessage::new_text(
+            Role::User,
+            format!("/rmux {request}"),
+        ));
+        self.processing = true;
+        self.status = format!("RMUX: {}", Self::truncate_status(request, 48));
+        self.status_bar
+            .flash(format!("RMUX: {}", Self::truncate_status(request, 48)));
+        let _ = self.cmd_tx.send(AgentCommand::Execute(prompt));
     }
 
     pub(crate) fn slash_search(&mut self, arg: &str) {

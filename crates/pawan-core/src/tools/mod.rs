@@ -21,6 +21,7 @@ pub mod lsp_tool;
 pub mod mise;
 pub mod native;
 pub mod native_search;
+pub mod rmux;
 pub mod search;
 pub mod task;
 
@@ -251,6 +252,9 @@ impl ToolRegistry {
             Arc::new(native::LspTool::new(workspace_root.clone())),
             Extended,
         );
+
+        // ── Terminal sessions: visible by default because /rmux depends on it ──
+        registry.register_with_tier(Arc::new(rmux::RmuxTool::new()), Standard);
 
         // ── Deagle code intelligence (Extended, feature-gated) ──
         #[cfg(feature = "deagle")]

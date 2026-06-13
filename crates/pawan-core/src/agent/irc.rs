@@ -127,7 +127,7 @@ impl IrcRelay {
         self.inbox_rx.try_recv().ok()
     }
 
-    /// Blocking receive stub — delegates to [`try_receive`] until integrated with async loops.
+    /// Blocking receive stub — delegates to [`Self::try_receive`] until integrated with async loops.
     pub async fn receive(&mut self) -> Option<IrcMessage> {
         self.try_receive()
     }

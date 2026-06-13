@@ -1,6 +1,6 @@
 # Pawan — Agent Context
 
-Pawan (पवन) is a self-healing CLI coding agent built in Rust. 2-crate workspace. Used as the primary dirmacs coding agent for autonomous task execution.
+Pawan (पवन) is a self-healing CLI coding agent built in Rust. 5-crate workspace. Used as the primary dirmacs coding agent for autonomous task execution.
 
 ## Architecture
 
@@ -8,11 +8,14 @@ Pawan (पवन) is a self-healing CLI coding agent built in Rust. 2-crate work
 pawan-core/    — Library (zero dirmacs deps). Lib name: pawan
   agent/       — PawanAgent, tool-calling loop, LlmBackend trait
     backend/   — openai_compat (NIM/OpenAI), ollama (local fallback)
-  tools/       — Tool trait + ToolRegistry (file ops, bash, git, search)
+  tools/       — Tool trait + ToolRegistry (file ops, bash, git, search, rmux)
   healing/     — Auto-repair: compile errors, test failures, warnings
   config/      — PawanConfig from pawan.toml (TOML + ${ENV_VAR} subs)
 
 pawan-cli/     — Binary with clap CLI + ratatui TUI
+pawan-api/     — HTTP API server (Axum + SSE)
+pawan-mcp/     — MCP client integration
+pawan-aegis/   — Aegis config resolver → pawan.toml
 ```
 
 ## Common Tasks
@@ -21,6 +24,7 @@ pawan-cli/     — Binary with clap CLI + ratatui TUI
 1. Implement `tools::Tool` trait in `pawan-core/src/tools/`
 2. Register in `ToolRegistry` in `tools/mod.rs`
 3. Add integration test in `tests/`
+4. If user-facing, add a TUI slash command and key-event/headless tests
 
 **Add a new LLM backend:**
 1. Implement `agent::backend::LlmBackend` trait
@@ -39,6 +43,7 @@ pawan-cli/     — Binary with clap CLI + ratatui TUI
 - **Ollama fallback** — for local/offline use, no NIM key required
 - **TOML over JSON** — `pawan.toml` config, not JSON like openclaw used to be
 - **ratatui TUI** — rich terminal UI in pawan-cli, not just plain stdout
+- **RMUX terminal substrate** — durable terminal sessions/panes are exposed through the Extended `rmux` tool and `/rmux` slash command
 
 ## NIM Model Compatibility
 
