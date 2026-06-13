@@ -57,6 +57,21 @@ The core claim:
 
 The short version: **pawan is the vibe-coding runtime for people whose production language already fights bad code for them.** If you're using Rust in anger, that's the feature you want.
 
+## What's New in v0.5.10
+
+### RMUX terminal workflows
+- Standard `rmux` tool backed by `rmux-sdk` for durable sessions, pane input, wait-for-text synchronization, and snapshots
+- `/rmux` slash command with typed `session`, `send`, `key`, `wait`, and `snapshot` forms
+- Free-form `/rmux <task>` still routes terminal-multiplexer work through the agent with snapshot evidence expected before reporting
+
+### TUI reliability
+- `/model` no longer auto-selects the first model when terminals emit Enter press + release events
+- Session-tag persistence tests load the exact saved session instead of scanning global session storage
+- Welcome snapshots redact the rendered path line directly, making nextest and CI current directories irrelevant
+
+### Testing
+- PTY-backed headless TUI QA now spawns the real binary, drives terminal input, parses the screen with `vt100`, and snapshots the rendered model picker
+
 ## What's New in v0.5.9
 
 ### TUI redesign
@@ -75,7 +90,6 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 - `Rect::centered()` — all overlay modals use centered constraints
 
 ## What's New in v0.5.8
-
 
 ### TUI reliability — /theme, input contrast, status polish
 - `/theme nord`, `/theme onedark`, `/theme gruvbox`, and other argument-bearing slash commands now submit correctly when pressing Enter
@@ -205,7 +219,7 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.5.9)
+## TUI (v0.5.10)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets

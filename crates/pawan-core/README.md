@@ -1,10 +1,13 @@
-# pawan-core v0.5.9
+# pawan-core v0.5.10
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
 
 ## Unreleased
 
+## What's New in v0.5.10
+
 - **RMUX tool** — Standard tool backed by `rmux-sdk` for durable terminal sessions, pane input, wait-for-text synchronization, and pane snapshots.
+- **Tool visibility** — `rmux` ships as a Standard tool so coordinator/default tool definitions expose terminal sessions without extra activation.
 
 ## What's New in v0.5.9
 
