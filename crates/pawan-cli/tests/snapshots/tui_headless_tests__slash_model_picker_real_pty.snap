@@ -1,0 +1,33 @@
+---
+source: crates/pawan-cli/tests/tui_headless_tests.rs
+expression: terminal_screenshot(&screen)
+---
+
+ ╭◆ pawan  test-model ────────────────────────────────────────────────────────────────────────────╮
+ │                                                                                                │
+ │                                                                                                │
+ │                                                                                                │
+ │                                                                                                │
+ │                       ┌ Model Picker (^M) ─────────────────────────────┐                       │
+ │                       │> ▌                                             │                       │
+ │                       │ Meta meta/llama-3.1-70b-instruct  q90          │                       │
+ │                       │ Meta meta/llama-3.3-70b-instruct  q93          │                       │
+ │                       │ Meta meta/llama-4-maverick-17b-128e-instruct  q│                       │
+ │                       │ Deepseek deepseek-ai/deepseek-v3.2  q95        │                       │
+ │                       │ Deepseek deepseek-ai/deepseek-v4-flash  q75    │                       │
+ │                       │ Google google/gemma-3-12b-it  q85              │                       │
+ │                       │ Mistral mistralai/mistral-large-3-675b-instruct│                       │
+ │                       │ Qwen qwen/qwen3.5-397b-a17b  q95               │                       │
+ │                       │ Nvidia nvidia/llama-3.1-nemotron-ultra-253b-v1 │                       │
+ │                       │ Stepfun stepfun-ai/step-3.7-flash  q88         │                       │
+ │                       │ Stepfun stepfun-ai/step-3.5-flash  q88         │                       │
+ │                       │ Z-Ai z-ai/glm-5.1  q90                         │                       │
+ │                       │ OpenAI openai/gpt-oss-120b  q75                │                       │
+ │                       │                                                │                       │
+ │                       └────────────────────────────────────────────────┘                       │
+ │                                                                                                │
+ │ Input ─────────────────────────────────────────────────────────────────────────────────────────│
+ │ Type your message... (Enter to send, ↑↓ for history, Ctrl+C to clear, Ctrl+Q to quit)          │
+ │                                                                                                │
+ │ MODEL                                     test-model  |  0 tok  |  ctx 0% ░░░░░░░░░░  |  HH:MM │
+ ╰────────────────────────────────────────────────── F1 help · e expand · Tab focus · Ctrl+Q quit ╯

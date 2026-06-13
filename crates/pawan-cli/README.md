@@ -1,6 +1,12 @@
 # pawan v0.5.9
 
-Pawan (पवन) — CLI coding agent with pluggable LLM backends, 34 tools, and cross-session memory.
+Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, and cross-session memory.
+
+## Unreleased
+
+- **`/rmux` slash command** — routes durable terminal-multiplexer tasks through the agent's RMUX tool, with typed `session`, `send`, `key`, `wait`, and `snapshot` forms plus snapshot evidence expected before reporting.
+- **Headless TUI QA** — PTY-backed integration test drives the real TUI and snapshots the rendered model picker with `vt100` + `insta`.
+- **Model picker Enter fix** — key-release events are ignored before modal routing so `/model` does not auto-select the first model.
 
 ## What's New in v0.5.9
 

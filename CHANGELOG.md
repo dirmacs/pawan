@@ -1,3 +1,16 @@
+## [Unreleased]
+
+### Features
+- **RMUX integration slice** — added a Standard `rmux` tool backed by `rmux-sdk` with `ensure_session`, `send_text`, `send_key`, `wait_for_text`, and `snapshot` actions.
+- **`/rmux` TUI command** — routes terminal-multiplexer tasks to the agent with explicit instructions to use durable sessions and snapshot evidence; typed forms include `session`, `send`, `key`, `wait`, and `snapshot`.
+
+### Fixes
+- Fixed `/model` Enter handling in terminals that emit both key-press and key-release events; key releases are now ignored before modal routing.
+
+### Tests
+- Added a regression test proving `/model` Enter release does not select the first model.
+- Added a PTY-backed headless TUI test using `portable-pty` + `vt100`, with an insta snapshot of the rendered model picker.
+
 ## [0.5.9] - 2026-06-01
 
 ### Features

@@ -97,6 +97,7 @@ impl<'a> App<'a> {
         match command {
             "/model" => self.slash_model(arg),
             "/tools" => self.slash_tools(),
+            "/rmux" => self.slash_rmux(arg),
             "/theme" => self.slash_theme(arg),
             "/compact" => self.slash_compact(arg),
             _ => return false,

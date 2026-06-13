@@ -2,6 +2,10 @@
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
 
+## Unreleased
+
+- **RMUX tool** — Standard tool backed by `rmux-sdk` for durable terminal sessions, pane input, wait-for-text synchronization, and pane snapshots.
+
 ## What's New in v0.5.9
 
 - **`stream_options.include_usage`** — OpenAI-compatible streaming requests now request final-usage chunks, fixing the token/ctx widget for providers (vLLM, SGLang) that omit streamed usage by default
@@ -29,7 +33,7 @@ Core library for the Pawan CLI coding agent. Contains the agent engine, tool sys
 ## Features
 
 - **Agent Engine** — Multi-turn conversation with LLM backends (NVIDIA NIM, Ollama, OpenAI, MLX)
-- **Tool System** — 34 tools in 3 tiers (Core/Standard/Extended) with tiered visibility
+- **Tool System** — 37 tools in 3 tiers (Core/Standard/Extended) with tiered visibility, including RMUX-backed terminal panes
 - **Configuration** — Pluggable config resolution via aegis or local files
 - **Healing** — Auto-recovery from tool failures, context overflow, model errors
 - **Thinking Budget** — Per-model thinking mode dispatch (Qwen, Gemma, Mistral, DeepSeek)
