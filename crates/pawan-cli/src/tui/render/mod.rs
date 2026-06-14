@@ -664,6 +664,38 @@ mod tests {
     }
 
     #[test]
+    fn test_format_rmux_list_panes_result_is_inventory_focused() {
+        let record = ToolCallRecord {
+            id: "rmux-panes".to_string(),
+            name: "rmux".to_string(),
+            arguments: serde_json::json!({"action": "list_panes", "session": "dev"}),
+            result: serde_json::json!({
+                "count": 1,
+                "panes": [{
+                    "session": "dev",
+                    "window_index": 0,
+                    "pane_index": 1,
+                    "pane_id": 9,
+                    "title": "cargo-watch",
+                    "command": ["cargo", "watch", "-x", "test"],
+                    "working_directory": "/opt/pawan",
+                    "process": {"state": "running", "pid": 1234}
+                }]
+            }),
+            success: true,
+            duration_ms: 8,
+        };
+
+        let formatted = format_tool_record_result(&record);
+
+        assert!(formatted.contains("RMUX panes (1)"));
+        assert!(formatted.contains("dev:0.1 %9 [running] cargo-watch"));
+        assert!(formatted.contains("cwd: /opt/pawan"));
+        assert!(formatted.contains("cmd: cargo watch -x test"));
+        assert!(!formatted.contains("\"panes\""));
+    }
+
+    #[test]
     fn test_render_rmux_snapshot_tool_card() {
         let mut app = test_app();
         app.messages.push(DisplayMessage {
@@ -704,6 +736,53 @@ mod tests {
             content.contains("pawan-rmux-live-ready"),
             "screen:\n{content}"
         );
+    }
+
+    #[test]
+    fn test_render_rmux_list_panes_tool_card() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage {
+            role: Role::Assistant,
+            blocks: vec![ContentBlock::ToolCall {
+                name: "rmux".to_string(),
+                args_summary: "action=\"list_panes\", session=\"dev\"".to_string(),
+                state: Box::new(ToolBlockState::Done {
+                    record: ToolCallRecord {
+                        id: "rmux-panes".to_string(),
+                        name: "rmux".to_string(),
+                        arguments: serde_json::json!({"action": "list_panes", "session": "dev"}),
+                        result: serde_json::json!({
+                            "count": 1,
+                            "panes": [{
+                                "session": "dev",
+                                "window_index": 0,
+                                "pane_index": 1,
+                                "pane_id": 9,
+                                "title": "cargo-watch",
+                                "command": ["cargo", "watch", "-x", "test"],
+                                "working_directory": "/opt/pawan",
+                                "process": {"state": "running", "pid": 1234}
+                            }]
+                        }),
+                        success: true,
+                        duration_ms: 8,
+                    },
+                    expanded: true,
+                }),
+            }],
+            timestamp: std::time::Instant::now(),
+            cached_block_lines: None,
+        });
+
+        let backend = TestBackend::new(110, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("RMUX panes"), "screen:\n{content}");
+        assert!(content.contains("dev:0.1"), "screen:\n{content}");
+        assert!(content.contains("cargo-watch"), "screen:\n{content}");
+        assert!(content.contains("/opt/pawan"), "screen:\n{content}");
     }
 
     #[test]

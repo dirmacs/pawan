@@ -260,7 +260,9 @@ pub fn summarize_args(args: &serde_json::Value) -> String {
 
 /// Format a completed tool result for expanded display.
 pub fn format_tool_record_result(record: &ToolCallRecord) -> String {
-    format_rmux_snapshot_result(record).unwrap_or_else(|| format_tool_result(&record.result))
+    format_rmux_snapshot_result(record)
+        .or_else(|| format_rmux_list_panes_result(record))
+        .unwrap_or_else(|| format_tool_result(&record.result))
 }
 
 /// Format tool result for expanded display.
@@ -271,11 +273,12 @@ pub fn format_tool_result(result: &serde_json::Value) -> String {
     }
 }
 
+fn is_rmux_action(record: &ToolCallRecord, action: &str) -> bool {
+    record.name == "rmux" && record.arguments.get("action").and_then(|v| v.as_str()) == Some(action)
+}
+
 fn format_rmux_snapshot_result(record: &ToolCallRecord) -> Option<String> {
-    if record.name != "rmux" {
-        return None;
-    }
-    if record.arguments.get("action").and_then(|v| v.as_str()) != Some("snapshot") {
+    if !is_rmux_action(record, "snapshot") {
         return None;
     }
 
@@ -324,6 +327,70 @@ fn format_rmux_snapshot_result(record: &ToolCallRecord) -> Option<String> {
     } else {
         out.push('\n');
         out.push_str(visible_text.trim_end());
+    }
+    Some(out)
+}
+
+fn format_rmux_list_panes_result(record: &ToolCallRecord) -> Option<String> {
+    if !is_rmux_action(record, "list_panes") {
+        return None;
+    }
+
+    let panes = record.result.get("panes")?.as_array()?;
+    let count = record
+        .result
+        .get("count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(panes.len() as u64);
+    let mut out = format!("RMUX panes ({count})");
+    if panes.is_empty() {
+        out.push_str("\n(no panes)");
+        return Some(out);
+    }
+
+    for pane in panes.iter().take(12) {
+        let session = pane
+            .get("session")
+            .and_then(|v| v.as_str())
+            .unwrap_or("<unknown>");
+        let window_index = pane
+            .get("window_index")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let pane_index = pane.get("pane_index").and_then(|v| v.as_u64()).unwrap_or(0);
+        let pane_id = pane.get("pane_id").and_then(|v| v.as_u64()).unwrap_or(0);
+        let state = pane
+            .get("process")
+            .and_then(|v| v.get("state"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let title = pane
+            .get("title")
+            .and_then(|v| v.as_str())
+            .unwrap_or("untitled");
+        let cwd = pane
+            .get("working_directory")
+            .and_then(|v| v.as_str())
+            .unwrap_or("-");
+        let command = pane
+            .get("command")
+            .and_then(|v| v.as_array())
+            .map(|parts| {
+                parts
+                    .iter()
+                    .filter_map(|part| part.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            })
+            .filter(|command| !command.is_empty())
+            .unwrap_or_else(|| "-".to_string());
+
+        out.push_str(&format!(
+            "\n- {session}:{window_index}.{pane_index} %{pane_id} [{state}] {title}\n  cwd: {cwd}\n  cmd: {command}"
+        ));
+    }
+    if panes.len() > 12 {
+        out.push_str(&format!("\n… {} more panes", panes.len() - 12));
     }
     Some(out)
 }
