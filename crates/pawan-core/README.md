@@ -1,8 +1,12 @@
-# pawan-core v0.5.20
+# pawan-core v0.5.21
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
 
 ## Unreleased
+
+## What's New in v0.5.21
+
+- **Version alignment** — published with the workspace release; periodic regression-smoke workflow lives in repo CI and `pawan` CLI tests.
 
 ## What's New in v0.5.20
 

@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.5.21] - 2026-06-14
+
 ### Tests
 - Added a scheduled regression-smoke workflow that re-runs model-picker, slash-command, and headless TUI guards for previously regressed behavior.
 - Added a release-regression checklist test to ensure critical historical TUI/model smoke tests remain wired into the repo.

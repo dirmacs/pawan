@@ -1,8 +1,10 @@
-# pawan v0.5.20
+# pawan v0.5.21
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, and cross-session memory.
 
 ## Unreleased
+
+## What's New in v0.5.21
 
 - **Periodic regression smoke** — scheduled CI and `regression_smoke` tests verify slash-command, model-picker, and headless TUI guards remain wired in.
 
