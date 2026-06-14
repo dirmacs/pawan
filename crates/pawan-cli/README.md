@@ -1,8 +1,10 @@
-# pawan v0.5.19
+# pawan v0.5.20
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, and cross-session memory.
 
 ## Unreleased
+
+## What's New in v0.5.20
 
 - **Model picker live catalog** — `/model` preserves fetched NVIDIA `/v1/models` catalogs instead of replacing them with the curated fallback list; ignored live TUI smoke coverage can verify live-only models.
 
