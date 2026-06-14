@@ -59,6 +59,9 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+### RMUX pane discovery
+- `/rmux panes [session]` routes active-pane discovery through the `rmux` tool's `list_panes` action, including process, title, command, and working-directory metadata.
+
 ## What's New in v0.5.13
 
 ### RMUX session discovery
@@ -254,7 +257,7 @@ pawan/
 - **Readable dark-mode palette** — timestamps, tool metadata, status details, and secondary labels use accessible theme tokens
 - **Inline input separator** — accent-colored separator with `Input` / `Input: processing`, dynamic resizing, and readable themed placeholder text
 - **Slash commands** — `/model`, `/theme`, `/rmux`, `/search`, `/heal`, `/export`, `/tools`, `/clear`, `/quit`, `/help`, `/sessions`, `/save`, `/load`, `/resume`, `/new`, `/fork`, `/dump`, `/share`, `/diff`, `/models`, `/tag`, `/compact`
-- **RMUX command grammar** — `/rmux list`, `/rmux session <name> [--cwd <path>] [--size <cols>x<rows>] [--cmd <command>]`, `/rmux send <session> <text>`, `/rmux key <session> <key>`, `/rmux wait <session> <text>`, `/rmux snapshot <session>`, `/rmux kill <session>`
+- **RMUX command grammar** — `/rmux list`, `/rmux panes [session]`, `/rmux session <name> [--cwd <path>] [--size <cols>x<rows>] [--cmd <command>]`, `/rmux send <session> <text>`, `/rmux key <session> <key>`, `/rmux wait <session> <text>`, `/rmux snapshot <session>`, `/rmux kill <session>`
 - **Session tags UI** — visual green tags in status bar, add/remove/clear via `/tag` command
 - **Fuzzy session search** — fuzzy matching indicator `[FUZZY]` when enabled in session browser
 - **NVIDIA NIM catalog** — `/models` command to browse available NIM models

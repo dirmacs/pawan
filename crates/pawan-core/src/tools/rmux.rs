@@ -7,7 +7,9 @@
 use std::time::Duration;
 
 use async_trait::async_trait;
-use rmux_sdk::{EnsureSession, EnsureSessionPolicy, Rmux, SessionName, TerminalSizeSpec};
+use rmux_sdk::{
+    EnsureSession, EnsureSessionPolicy, PaneProcessState, Rmux, SessionName, TerminalSizeSpec,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -32,6 +34,11 @@ struct RmuxArgs {
     command: Option<String>,
     detached: Option<bool>,
     timeout_secs: Option<u64>,
+    title: Option<String>,
+    title_prefix: Option<String>,
+    command_contains: Option<String>,
+    cwd_contains: Option<String>,
+    running: Option<bool>,
 }
 
 #[derive(Clone, Default)]
@@ -186,6 +193,60 @@ impl RmuxTool {
         Ok(json!({"sessions": sessions, "count": count}))
     }
 
+    async fn list_panes(args: RmuxArgs) -> Result<Value> {
+        let rmux = Self::client(&args).await?;
+        let mut finder = rmux.find_panes();
+        if let Some(session) = args.session.as_deref() {
+            finder = finder.session(session);
+        }
+        if let Some(title) = args.title.as_deref() {
+            finder = finder.title(title);
+        }
+        if let Some(title_prefix) = args.title_prefix.as_deref() {
+            finder = finder.title_prefix(title_prefix);
+        }
+        if let Some(command_contains) = args.command_contains.as_deref() {
+            finder = finder.command_contains(command_contains);
+        }
+        if let Some(cwd_contains) = args.cwd_contains.as_deref() {
+            finder = finder.cwd_contains(cwd_contains);
+        }
+        if let Some(window) = args.window {
+            finder = finder.window_index(window);
+        }
+        if let Some(running) = args.running {
+            finder = if running {
+                finder.running()
+            } else {
+                finder.exited()
+            };
+        }
+
+        let panes = finder
+            .all()
+            .await
+            .map_err(|e| PawanError::Tool(format!("rmux list_panes failed: {e}")))?
+            .into_iter()
+            .map(|pane| {
+                json!({
+                    "session": pane.session_name.as_str(),
+                    "session_id": pane.session_id.as_u32(),
+                    "window_id": pane.window_id.as_u32(),
+                    "window_index": pane.window_index,
+                    "pane_id": pane.pane_id.as_u32(),
+                    "pane_index": pane.pane_index,
+                    "title": pane.title,
+                    "command": pane.command,
+                    "working_directory": pane.working_directory,
+                    "tags": pane.tags,
+                    "process": pane_process_state(&pane.process),
+                })
+            })
+            .collect::<Vec<_>>();
+        let count = panes.len();
+        Ok(json!({"panes": panes, "count": count}))
+    }
+
     async fn kill_session(args: RmuxArgs) -> Result<Value> {
         let session_name = Self::session_name(&args)?;
         let rmux = Self::client(&args).await?;
@@ -203,6 +264,15 @@ impl RmuxTool {
     }
 }
 
+fn pane_process_state(process: &PaneProcessState) -> Value {
+    match process {
+        PaneProcessState::Unknown => json!({"state": "unknown"}),
+        PaneProcessState::Running { pid } => json!({"state": "running", "pid": pid}),
+        PaneProcessState::Exited => json!({"state": "exited"}),
+        _ => json!({"state": "unknown"}),
+    }
+}
+
 #[async_trait]
 impl Tool for RmuxTool {
     fn name(&self) -> &str {
@@ -210,7 +280,7 @@ impl Tool for RmuxTool {
     }
 
     fn description(&self) -> &str {
-        "Drive persistent RMUX terminal sessions/panes: list sessions, ensure sessions, send input, wait for text, capture snapshots, and clean up sessions."
+        "Drive persistent RMUX terminal sessions/panes: list sessions/panes, ensure sessions, send input, wait for text, capture snapshots, and clean up sessions."
     }
 
     fn mutating(&self) -> bool {
@@ -223,7 +293,7 @@ impl Tool for RmuxTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["list_sessions", "ensure_session", "send_text", "send_key", "wait_for_text", "snapshot", "kill_session"],
+                    "enum": ["list_sessions", "list_panes", "ensure_session", "send_text", "send_key", "wait_for_text", "snapshot", "kill_session"],
                     "description": "RMUX operation to perform"
                 },
                 "session": {"type": "string", "description": "RMUX session name"},
@@ -236,7 +306,12 @@ impl Tool for RmuxTool {
                 "cwd": {"type": "string", "description": "Initial working directory for a new session"},
                 "command": {"type": "string", "description": "Initial shell command for a new session"},
                 "detached": {"type": "boolean", "default": true},
-                "timeout_secs": {"type": "integer", "minimum": 1, "default": 10}
+                "timeout_secs": {"type": "integer", "minimum": 1, "default": 10},
+                "title": {"type": "string", "description": "Restrict list_panes to exact pane title"},
+                "title_prefix": {"type": "string", "description": "Restrict list_panes to pane titles starting with prefix"},
+                "command_contains": {"type": "string", "description": "Restrict list_panes to argv containing this text"},
+                "cwd_contains": {"type": "string", "description": "Restrict list_panes to working directories containing this text"},
+                "running": {"type": "boolean", "description": "Restrict list_panes to running panes when true, exited panes when false"}
             },
             "required": ["action"]
         })
@@ -247,6 +322,7 @@ impl Tool for RmuxTool {
             .map_err(|e| PawanError::Tool(format!("invalid rmux args: {e}")))?;
         match args.action.as_str() {
             "list_sessions" => Self::list_sessions(args).await,
+            "list_panes" => Self::list_panes(args).await,
             "ensure_session" => Self::ensure_session(args).await,
             "send_text" => Self::send_text(args).await,
             "send_key" => Self::send_key(args).await,
@@ -254,7 +330,7 @@ impl Tool for RmuxTool {
             "snapshot" => Self::snapshot(args).await,
             "kill_session" => Self::kill_session(args).await,
             other => Err(PawanError::Tool(format!(
-                "unknown rmux action: {other}. Use list_sessions, ensure_session, send_text, send_key, wait_for_text, snapshot, or kill_session"
+                "unknown rmux action: {other}. Use list_sessions, list_panes, ensure_session, send_text, send_key, wait_for_text, snapshot, or kill_session"
             ))),
         }
     }
@@ -271,6 +347,7 @@ mod tests {
             .as_array()
             .expect("action enum");
         assert!(actions.iter().any(|v| v == "list_sessions"));
+        assert!(actions.iter().any(|v| v == "list_panes"));
         assert!(actions.iter().any(|v| v == "ensure_session"));
         assert!(actions.iter().any(|v| v == "snapshot"));
         assert!(actions.iter().any(|v| v == "kill_session"));

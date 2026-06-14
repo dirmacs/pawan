@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Added
+- Added `rmux` `list_panes` support and `/rmux panes [session]` prompt routing for active-pane discovery with process/title/command/cwd metadata.
+
 ## [0.5.13] - 2026-06-14
 
 ### Added
