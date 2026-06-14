@@ -59,6 +59,8 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+## What's New in v0.5.18
+
 ### TUI slash-command reliability
 - Enter key repeat/release events are ignored for modal confirmation, preventing `/model` from auto-selecting the first model after opening.
 - Headless TUI smoke coverage now drives `/help` through the real PTY interface and verifies slash commands render.
@@ -268,7 +270,7 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.5.17)
+## TUI (v0.5.18)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets
