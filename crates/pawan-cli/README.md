@@ -1,8 +1,10 @@
-# pawan v0.5.16
+# pawan v0.5.17
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, and cross-session memory.
 
 ## Unreleased
+
+## What's New in v0.5.17
 
 - **RMUX status cards** — completed `rmux` send/key/wait/kill tool calls render action-focused status cards instead of raw JSON.
 
