@@ -664,6 +664,28 @@ mod tests {
     }
 
     #[test]
+    fn test_format_rmux_list_sessions_result_is_inventory_focused() {
+        let record = ToolCallRecord {
+            id: "rmux-sessions".to_string(),
+            name: "rmux".to_string(),
+            arguments: serde_json::json!({"action": "list_sessions"}),
+            result: serde_json::json!({
+                "count": 2,
+                "sessions": ["dev", "ci"]
+            }),
+            success: true,
+            duration_ms: 7,
+        };
+
+        let formatted = format_tool_record_result(&record);
+
+        assert!(formatted.contains("RMUX sessions (2)"));
+        assert!(formatted.contains("- dev"));
+        assert!(formatted.contains("- ci"));
+        assert!(!formatted.contains("\"sessions\""));
+    }
+
+    #[test]
     fn test_format_rmux_list_panes_result_is_inventory_focused() {
         let record = ToolCallRecord {
             id: "rmux-panes".to_string(),
@@ -736,6 +758,43 @@ mod tests {
             content.contains("pawan-rmux-live-ready"),
             "screen:\n{content}"
         );
+    }
+
+    #[test]
+    fn test_render_rmux_list_sessions_tool_card() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage {
+            role: Role::Assistant,
+            blocks: vec![ContentBlock::ToolCall {
+                name: "rmux".to_string(),
+                args_summary: "action=\"list_sessions\"".to_string(),
+                state: Box::new(ToolBlockState::Done {
+                    record: ToolCallRecord {
+                        id: "rmux-sessions".to_string(),
+                        name: "rmux".to_string(),
+                        arguments: serde_json::json!({"action": "list_sessions"}),
+                        result: serde_json::json!({
+                            "count": 2,
+                            "sessions": ["dev", "ci"]
+                        }),
+                        success: true,
+                        duration_ms: 7,
+                    },
+                    expanded: true,
+                }),
+            }],
+            timestamp: std::time::Instant::now(),
+            cached_block_lines: None,
+        });
+
+        let backend = TestBackend::new(90, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("RMUX sessions"), "screen:\n{content}");
+        assert!(content.contains("dev"), "screen:\n{content}");
+        assert!(content.contains("ci"), "screen:\n{content}");
     }
 
     #[test]
