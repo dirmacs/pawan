@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Added
+- Added RMUX session-list-aware TUI tool cards that render active session inventory instead of raw JSON.
+
 ## [0.5.15] - 2026-06-14
 
 ### Added
