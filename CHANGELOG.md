@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Added
+- Added RMUX snapshot-aware TUI tool cards that render pane metadata and visible terminal text instead of raw JSON.
+
+### Changed
+- Replaced fixed-initializer `OnceLock` usage in TUI rendering helpers with `LazyLock`.
+
 ## [0.5.11] - 2026-06-14
 
 ### Added

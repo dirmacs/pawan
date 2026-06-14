@@ -233,7 +233,7 @@ impl<'a> App<'a> {
                         // Body: result framed with a left accent bar. Collapsed
                         // still shows a useful window (6 lines); expanded shows up
                         // to 40 so users can actually read what executed.
-                        let result_str = format_tool_result(&record.result);
+                        let result_str = format_tool_record_result(record);
                         let total = result_str.lines().count();
                         let max_lines = if *expanded { 40 } else { 6 };
                         let mut shown = 0usize;
@@ -294,7 +294,7 @@ impl<'a> App<'a> {
                         // line), then for completed calls the framed body + footer.
                         line_offset += 2;
                         if let ToolBlockState::Done { expanded, record } = state.as_ref() {
-                            let total = format_tool_result(&record.result).lines().count();
+                            let total = format_tool_record_result(record).lines().count();
                             let max_lines = if *expanded { 40 } else { 6 };
                             let shown = total.min(max_lines);
                             line_offset += shown;
