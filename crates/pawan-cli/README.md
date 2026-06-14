@@ -5,6 +5,7 @@ Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, an
 ## Unreleased
 
 - **Model picker catalog source** — search UI labels whether results are fallback defaults or live NVIDIA catalog entries.
+- **macOS slash-command parity** — slash commands and modal confirms now accept Enter, LF/Ctrl-J, and CR/Ctrl-M; `/model` and Ctrl+P replace the risky Ctrl+M model-picker shortcut.
 
 ## What's New in v0.5.21
 
@@ -83,7 +84,7 @@ Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, an
 - **Bash permission tiers** — tree-sitter based, feature-gated
 - **Doom-loop detection** — configurable backoff; retry policy with exponential backoff + jitter
 - **CLI flags** — `--print` headless, `--output-format` (text/json/stream-json), `--continue`, `--session`, `--list-sessions`
-- **Keybind contexts + model picker modal** (`Ctrl+M`); fuzzy search modal (`Ctrl+P`)
+- **Keybind contexts + model picker modal** (`/model` or fuzzy command picker); fuzzy search modal (`Ctrl+P`)
 - **Full CLI/TUI test suite** passing before release
 
 ## Install

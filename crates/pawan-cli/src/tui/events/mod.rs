@@ -9,7 +9,7 @@ mod mouse;
 mod permission;
 mod welcome;
 
-use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind};
+use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
 use super::app::App;
 use default::{handle_panel_key, handle_search_mode_key, handle_session_browser_key};
@@ -66,7 +66,13 @@ impl App<'_> {
     }
 }
 
+pub(crate) fn is_submit_key(key: &KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Enter)
+        || matches!(key.code, KeyCode::Char('j' | 'J' | 'm' | 'M'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
 fn should_handle_key_event(key: &KeyEvent) -> bool {
     matches!(key.kind, KeyEventKind::Press)
-        || (matches!(key.kind, KeyEventKind::Repeat) && key.code != KeyCode::Enter)
+        || (matches!(key.kind, KeyEventKind::Repeat) && !is_submit_key(key))
 }

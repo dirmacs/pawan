@@ -62,6 +62,10 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 ### Model picker catalog source
 - Model picker search now labels whether visible results come from fallback defaults or the live NVIDIA catalog.
 
+### macOS slash-command parity
+- Slash commands and modal confirms now accept Enter, LF/Ctrl-J, and CR/Ctrl-M consistently across terminals.
+- `/model` and Ctrl+P command search replace the risky Ctrl+M model-picker shortcut because terminal `^M` is Return.
+
 ## What's New in v0.5.21
 
 ### Periodic regression smoke
@@ -187,7 +191,7 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 - `--print` headless mode: print final response, skip TUI
 - `--output-format` with `text`, `json`, `stream-json`
 - `--continue` / `--session <id>` / `--list-sessions` session management
-- Fuzzy search modal (`Ctrl+P`), model picker modal (`Ctrl+M`), keybind contexts
+- Fuzzy search modal (`Ctrl+P`), model picker modal (`/model` or fuzzy command picker), keybind contexts
 - Slash commands: `/model`, `/theme`, `/session`, `/rmux`, `/clear`, `/retry`, `/compact`, `/help`
 
 ## Install
