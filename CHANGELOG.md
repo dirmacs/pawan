@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.5.11] - 2026-06-14
+
 ### Added
 - Added an ignored, env-gated live RMUX roundtrip test (`PAWAN_RMUX_LIVE=1 cargo test -p pawan-core --test rmux_live -- --ignored`) covering session creation, wait-for-text, snapshot capture, and cleanup.
 - Added `/rmux kill <session>` prompt routing and `kill_session` support in the RMUX tool.
