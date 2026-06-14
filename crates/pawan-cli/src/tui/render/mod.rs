@@ -3226,6 +3226,17 @@ mod tests {
     }), "Should show usage message when no path provided");
     }
     #[test]
+    fn test_load_available_models_marks_fallback_source() {
+        let mut app = test_app();
+        assert_eq!(app.model_picker.source, ModelCatalogSource::Empty);
+
+        app.load_available_models();
+
+        assert_eq!(app.model_picker.source, ModelCatalogSource::Fallback);
+        assert!(!app.model_picker.models.is_empty());
+    }
+
+    #[test]
     fn test_load_available_models_populates_list() {
         let mut app = test_app();
         assert!(app.model_picker.models.is_empty());
@@ -3249,12 +3260,14 @@ mod tests {
                 quality_score: 98,
             },
         ];
+        app.model_picker.source = ModelCatalogSource::Live;
 
         app.load_available_models();
 
         assert_eq!(app.model_picker.models.len(), 2);
         assert_eq!(app.model_picker.models[0].id, "live/provider-a");
         assert_eq!(app.model_picker.models[1].id, "live/provider-b");
+        assert_eq!(app.model_picker.source, ModelCatalogSource::Live);
     }
 
     #[test]
@@ -3265,12 +3278,14 @@ mod tests {
             provider: "live".to_string(),
             quality_score: 100,
         }];
+        app.model_picker.source = ModelCatalogSource::Live;
 
         app.handle_slash_command("/model");
 
         assert!(app.model_picker.visible);
         assert_eq!(app.model_picker.models.len(), 1);
         assert_eq!(app.model_picker.models[0].id, "live/latest-nim");
+        assert_eq!(app.model_picker.source, ModelCatalogSource::Live);
     }
 
     #[test]

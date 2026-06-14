@@ -4,6 +4,8 @@ Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, an
 
 ## Unreleased
 
+- **Model picker catalog source** — search UI labels whether results are fallback defaults or live NVIDIA catalog entries.
+
 ## What's New in v0.5.21
 
 - **Periodic regression smoke** — scheduled CI and `regression_smoke` tests verify slash-command, model-picker, and headless TUI guards remain wired in.

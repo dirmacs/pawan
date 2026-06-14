@@ -58,6 +58,11 @@ impl<'a> App<'a> {
 
         let inner = block.inner(selector_area);
 
+        let catalog_label = format!(
+            "{} / {} shown",
+            self.model_picker.source.label(),
+            models.len()
+        );
         let search_line = Line::from(vec![
             Span::styled("> ", Style::default().fg(Color::Blue)),
             Span::styled(&self.model_picker.query, Style::default().fg(Color::White)),
@@ -67,6 +72,8 @@ impl<'a> App<'a> {
                     .fg(Color::Blue)
                     .add_modifier(Modifier::SLOW_BLINK),
             ),
+            Span::styled("  ", Style::default()),
+            Span::styled(catalog_label, Style::default().fg(theme_current().muted)),
         ]);
         f.render_widget(
             Paragraph::new(search_line),
