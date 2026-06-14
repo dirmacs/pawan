@@ -57,6 +57,11 @@ The core claim:
 
 The short version: **pawan is the vibe-coding runtime for people whose production language already fights bad code for them.** If you're using Rust in anger, that's the feature you want.
 
+## Unreleased
+
+### RMUX TUI evidence
+- Completed `rmux` snapshot tool calls render as terminal-focused cards with session, pane, size, revision, and visible text instead of raw JSON.
+
 ## What's New in v0.5.11
 
 ### RMUX hardening
