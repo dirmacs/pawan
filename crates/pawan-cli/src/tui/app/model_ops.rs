@@ -25,6 +25,7 @@ impl<'a> App<'a> {
     pub(crate) fn load_available_models(&mut self) {
         if self.model_picker.models.is_empty() {
             self.model_picker.models = super::model_catalog::default_models();
+            self.model_picker.source = ModelCatalogSource::Fallback;
         }
     }
 }
