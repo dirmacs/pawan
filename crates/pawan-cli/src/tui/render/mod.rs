@@ -3235,6 +3235,45 @@ mod tests {
     }
 
     #[test]
+    fn test_load_available_models_preserves_live_catalog() {
+        let mut app = test_app();
+        app.model_picker.models = vec![
+            ModelInfo {
+                id: "live/provider-a".to_string(),
+                provider: "live".to_string(),
+                quality_score: 99,
+            },
+            ModelInfo {
+                id: "live/provider-b".to_string(),
+                provider: "live".to_string(),
+                quality_score: 98,
+            },
+        ];
+
+        app.load_available_models();
+
+        assert_eq!(app.model_picker.models.len(), 2);
+        assert_eq!(app.model_picker.models[0].id, "live/provider-a");
+        assert_eq!(app.model_picker.models[1].id, "live/provider-b");
+    }
+
+    #[test]
+    fn test_slash_model_preserves_live_catalog() {
+        let mut app = test_app();
+        app.model_picker.models = vec![ModelInfo {
+            id: "live/latest-nim".to_string(),
+            provider: "live".to_string(),
+            quality_score: 100,
+        }];
+
+        app.handle_slash_command("/model");
+
+        assert!(app.model_picker.visible);
+        assert_eq!(app.model_picker.models.len(), 1);
+        assert_eq!(app.model_picker.models[0].id, "live/latest-nim");
+    }
+
+    #[test]
     fn test_filtered_models_empty_when_not_loaded() {
         let app = test_app();
         let filtered = app.filtered_models();

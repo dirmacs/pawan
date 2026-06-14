@@ -17,8 +17,14 @@ impl<'a> App<'a> {
         let _ = self.cmd_tx.send(AgentCommand::SwitchModel(model_id));
     }
 
-    /// Load available models — live fetch with fallback.
+    /// Ensure the model picker has a catalog.
+    ///
+    /// Live NVIDIA `/v1/models` results arrive asynchronously in `poll_model_fetch`.
+    /// Do not replace that live catalog when `/model` opens; only seed the curated
+    /// fallback while the live fetch has not produced anything yet.
     pub(crate) fn load_available_models(&mut self) {
-        self.model_picker.models = super::model_catalog::default_models();
+        if self.model_picker.models.is_empty() {
+            self.model_picker.models = super::model_catalog::default_models();
+        }
     }
 }

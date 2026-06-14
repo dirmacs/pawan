@@ -4,6 +4,8 @@ Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, an
 
 ## Unreleased
 
+- **Model picker live catalog** — `/model` preserves fetched NVIDIA `/v1/models` catalogs instead of replacing them with the curated fallback list; ignored live TUI smoke coverage can verify live-only models.
+
 ## What's New in v0.5.19
 
 - **Headless slash-command smoke** — PTY-backed smoke coverage now verifies `/tools` renders core and RMUX tools through the real TUI.
