@@ -34,7 +34,7 @@ use super::app::{App, SlashCommand, SlashCommandRegistry};
 use super::types::*;
 
 const RMUX_USAGE: &str =
-    "Usage: /rmux <terminal task> or /rmux list|session|send|key|wait|snapshot|kill ...";
+    "Usage: /rmux <terminal task> or /rmux list|panes|session|send|key|wait|snapshot|kill ...";
 const RMUX_SESSION_USAGE: &str =
     "Usage: /rmux session <name> [--cwd <path>] [--size <cols>x<rows>] [--cmd <command>]";
 const RMUX_SEND_USAGE: &str = "Usage: /rmux send <session> <text to send and press Enter>";
@@ -52,6 +52,7 @@ fn build_rmux_slash_prompt(request: &str) -> std::result::Result<String, &'stati
     let parts: Vec<&str> = request.split_whitespace().collect();
     match parts.first().copied() {
         Some("list") => build_rmux_list_prompt(&parts[1..]),
+        Some("panes") => build_rmux_panes_prompt(&parts[1..]),
         Some("session") => build_rmux_session_prompt(&parts[1..]),
         Some("send") => build_rmux_send_prompt(&parts[1..]),
         Some("key") => build_rmux_key_prompt(&parts[1..]),
@@ -73,6 +74,17 @@ fn build_rmux_list_prompt(args: &[&str]) -> std::result::Result<String, &'static
         "Use the rmux tool with action: list_sessions\nReport the session count and names."
             .to_string(),
     )
+}
+
+fn build_rmux_panes_prompt(args: &[&str]) -> std::result::Result<String, &'static str> {
+    let mut lines = vec!["Use the rmux tool with action: list_panes".to_string()];
+    match args {
+        [] => {}
+        [session] => lines.push(format!("session: {session}")),
+        _ => return Err("Usage: /rmux panes [session]"),
+    }
+    lines.push("Report the pane count, session/window/pane identifiers, process state, title, command, and working directory.".to_string());
+    Ok(lines.join("\n"))
 }
 
 fn build_rmux_session_prompt(args: &[&str]) -> std::result::Result<String, &'static str> {

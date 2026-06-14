@@ -1790,6 +1790,34 @@ mod tests {
     }
 
     #[test]
+    fn test_slash_rmux_panes_builds_typed_pane_list_plan() {
+        let (mut app, mut cmd_rx) = test_app_with_commands();
+        app.handle_slash_command("/rmux panes dev");
+
+        match cmd_rx.try_recv().expect("rmux Execute command") {
+            AgentCommand::Execute(prompt) => {
+                assert!(prompt.contains("action: list_panes"));
+                assert!(prompt.contains("session: dev"));
+                assert!(prompt.contains("pane count"));
+                assert!(prompt.contains("process state"));
+            }
+            _ => panic!("/rmux panes should dispatch AgentCommand::Execute"),
+        }
+    }
+
+    #[test]
+    fn test_slash_rmux_panes_rejects_extra_args() {
+        let mut app = test_app();
+        app.handle_slash_command("/rmux panes dev extra");
+
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.messages[0]
+            .text_content()
+            .contains("Usage: /rmux panes"));
+        assert!(!app.processing);
+    }
+
+    #[test]
     fn test_slash_rmux_session_builds_typed_ensure_plan() {
         let (mut app, mut cmd_rx) = test_app_with_commands();
         app.handle_slash_command("/rmux session dev --cwd /tmp --size 120x40 --cmd cargo test");
