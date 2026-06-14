@@ -59,6 +59,9 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+### RMUX pane-list cards
+- Completed `rmux` `list_panes` tool calls render as active-pane inventory cards instead of raw JSON.
+
 ## What's New in v0.5.14
 
 ### RMUX pane discovery
