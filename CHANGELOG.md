@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.5.18] - 2026-06-14
+
 ### Fixed
 - Fixed TUI key lifecycle handling so Enter repeat/release events cannot immediately confirm modal selections after opening `/model`.
 - Added slash-command smoke coverage for exact slash dispatch and headless `/help` command rendering.
