@@ -2,6 +2,11 @@
 
 ### Added
 - Added model-picker catalog source metadata so the UI shows whether results are fallback or live NVIDIA models.
+- Added macOS slash-command smoke coverage for LF/Ctrl-J Return handling.
+
+### Fixed
+- Normalized submit keys so slash commands and modals accept Enter, LF/Ctrl-J, and CR/Ctrl-M consistently across terminals.
+- Removed the Ctrl+M model-picker shortcut because terminal ^M is Return; use `/model` or Ctrl+P command search instead.
 
 ## [0.5.21] - 2026-06-14
 

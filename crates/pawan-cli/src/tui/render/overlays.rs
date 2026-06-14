@@ -51,7 +51,7 @@ impl<'a> App<'a> {
         let block = Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(Color::Blue))
-            .title(" Model Picker (^M) ")
+            .title(" Model Picker (/model) ")
             .title_style(Style::default().add_modifier(Modifier::BOLD));
         f.render_widget(ratatui::widgets::Clear, selector_area);
         f.render_widget(block.clone(), selector_area);

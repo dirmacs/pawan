@@ -1837,6 +1837,14 @@ mod tests {
         assert_eq!(app.model_name, "test-model");
     }
 
+    fn ctrl_key(c: char) -> Event {
+        Event::Key(KeyEvent::new_with_kind(
+            KeyCode::Char(c),
+            KeyModifiers::CONTROL,
+            KeyEventKind::Press,
+        ))
+    }
+
     #[test]
     fn test_exact_slash_commands_dispatch_from_input_smoke() {
         let mut app = test_app();
@@ -1858,6 +1866,50 @@ mod tests {
         )));
         assert!(app.messages.is_empty());
         assert_eq!(app.status, "Cleared");
+    }
+
+    #[test]
+    fn test_slash_commands_dispatch_on_lf_enter_alias() {
+        let mut app = test_app();
+        app.input.insert_str("/help");
+        app.handle_event(ctrl_key('j'));
+
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.messages[0].text_content().contains("/model"));
+        assert!(app.input.lines().iter().all(|line| line.is_empty()));
+    }
+
+    #[test]
+    fn test_slash_model_dispatches_on_cr_enter_alias() {
+        let mut app = test_app();
+        app.input.insert_str("/model");
+        app.handle_event(ctrl_key('m'));
+
+        assert!(app.model_picker.visible);
+        assert_eq!(app.model_name, "test-model");
+        assert!(app.input.lines().iter().all(|line| line.is_empty()));
+    }
+
+    #[test]
+    fn test_ctrl_m_does_not_toggle_model_picker_as_global_shortcut() {
+        let mut app = test_app();
+        app.handle_event(ctrl_key('m'));
+
+        assert!(!app.model_picker.visible);
+        assert_eq!(app.model_name, "test-model");
+    }
+
+    #[test]
+    fn test_control_character_does_not_mutate_slash_buffer() {
+        let mut app = test_app();
+        app.input.insert_str("/help");
+        app.handle_event(Event::Key(KeyEvent::new_with_kind(
+            KeyCode::Char('x'),
+            KeyModifiers::CONTROL,
+            KeyEventKind::Press,
+        )));
+
+        assert_eq!(app.input.lines().join("\n"), "/help");
     }
 
     #[test]

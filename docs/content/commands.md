@@ -12,32 +12,39 @@ Features: welcome screen, command palette (`Ctrl+P`), F1 help overlay, framed fu
 
 ### TUI Slash Commands
 
-| Command | Shorthand | Description |
-|---------|-----------|-------------|
-| `/model [name]` | `/m` | Show or switch LLM model |
-| `/models` | | Browse NVIDIA NIM model catalog |
-| `/theme [name]` | | List available themes or switch theme (e.g., `/theme nord`) |
-| `/search <query>` | `/s` | Web search via Daedra MCP |
-| `/ss <query>` | | Search saved sessions by content |
-| `/prune [args]` | | Prune old sessions (e.g., 30d, 100s) |
-| `/tag <cmd>` | | Manage session tags (add/rm/list/clear) |
-| `/tools` | `/t` | List available tools by tier |
-| `/heal` | `/h` | Auto-fix build errors |
-| `/fork` | | Clone current session to a new one |
-| `/dump` | | Copy conversation to clipboard |
-| `/share` | | Export session and print shareable path |
-| `/diff [--cached]` | `/d` | Show git diff of working directory (use `--cached` for staged changes) |
-| `/compact [strategy]` | | Compact session messages (strategies: default, aggressive, conservative) |
-| `/handoff` | | Generate focused context for new session |
-| `/export [path]` | `/e` | Export conversation to markdown |
-| `/import <path>` | | Import session from JSON file |
-| `/save` | | Save current session |
-| `/load` | | Load a saved session (opens browser if no arg) |
-| `/resume` | | Resume a saved session (opens browser if no arg) |
-| `/new` | | Start new session |
-| `/clear` | | Clear chat history |
-| `/quit` | `/q` | Exit pawan |
-| `/help` | `/?` | Show help |
+| Command | Description |
+|---------|-------------|
+| `/model [name]` | Open model picker or switch directly to a model |
+| `/tools` | List available tools by tier |
+| `/rmux <task>` | Drive persistent RMUX terminal sessions |
+| `/theme [name]` | List available themes or switch theme, e.g. `/theme nord` |
+| `/search <query>` | Web search via Daedra |
+| `/searchsessions <query>` | Search saved sessions by content |
+| `/prune [args]` | Prune old sessions, e.g. `30d`, `100s` |
+| `/tag <cmd>` | Manage session tags: `add`, `rm`, `list`, `clear` |
+| `/heal` | Auto-fix build errors |
+| `/retry` | Retry the last assistant response |
+| `/loop` | Toggle auto-continue loop mode |
+| `/goal [objective]` | Set or clear goal mode |
+| `/irc` | Send IRC message to a subagent |
+| `/orchestrate <task>` | Orchestrate subagents for a task |
+| `/fork` | Clone current session to a new one |
+| `/dump` | Copy conversation to clipboard |
+| `/share` | Export session and print shareable path |
+| `/diff [--cached]` | Show git diff of working directory; use `--cached` for staged changes |
+| `/compact [strategy]` | Compact session messages: `default`, `aggressive`, `conservative` |
+| `/handoff` | Generate focused context for new session |
+| `/export [path]` | Export conversation to markdown |
+| `/import <path>` | Import session from JSON file |
+| `/save` | Save current session |
+| `/sessions` | Browse saved sessions |
+| `/load [id]` | Load a saved session; opens browser if no id is provided |
+| `/resume [id]` | Resume a saved session; opens browser if no id is provided |
+| `/new` | Start new session |
+| `/session <id>` | Switch to a session by id |
+| `/clear` | Clear chat history |
+| `/quit` / `/exit` | Exit pawan |
+| `/help` | Show help |
 
 ### `/compact` - Session Compaction
 
@@ -88,7 +95,8 @@ Compacted: 150 → 45 messages (70% reduction, ~420 tokens saved)
 | `Ctrl+P` | Any | Toggle command palette |
 | `F1` | Any | Toggle keyboard shortcuts overlay |
 | `Ctrl+L` | Any | Clear messages |
-| `Ctrl+C` | Any | Quit |
+| `Ctrl+C` | Any | Clear current input |
+| `Ctrl+Q` | Any | Quit |
 | `Tab` | Any | Switch focus (Input/Messages) |
 | `j/k` | Messages | Scroll up/down |
 | `g/G` | Messages | Jump to top/bottom |
@@ -102,7 +110,7 @@ Compacted: 150 → 45 messages (70% reduction, ~420 tokens saved)
 | `Up/Down` | Popups | Navigate items |
 | `PageUp/PageDown` | Popups | Bulk scroll |
 | `g/G` | Popups | Jump to top/bottom |
-| `Enter` | Popups | Select item |
+| `Enter` / `Ctrl+J` / `Ctrl+M` | Popups | Select item |
 | `Esc` | Popups | Close popup |
 | `Mouse wheel` | Any | Scroll (respects active popup) |
 

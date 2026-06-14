@@ -1,8 +1,9 @@
 //! Model picker modal key handling.
 
-use crossterm::event::{KeyCode, KeyEvent};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::super::app::App;
+use super::is_submit_key;
 
 pub(crate) fn handle_model_picker_key(app: &mut App<'_>, key: &KeyEvent) -> bool {
     if !app.model_picker.visible {
@@ -19,7 +20,7 @@ pub(crate) fn handle_model_picker_key(app: &mut App<'_>, key: &KeyEvent) -> bool
             app.model_picker.query.pop();
             app.model_picker.selected = 0;
         }
-        KeyCode::Char(c) => {
+        KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
             app.model_picker.query.push(c);
             app.model_picker.selected = 0;
         }
@@ -56,7 +57,7 @@ pub(crate) fn handle_model_picker_key(app: &mut App<'_>, key: &KeyEvent) -> bool
                 app.model_picker.selected = filtered - 1;
             }
         }
-        KeyCode::Enter => {
+        _ if is_submit_key(key) => {
             let model_id = {
                 let models = app.filtered_models();
                 models.get(app.model_picker.selected).map(|m| m.id.clone())
@@ -141,6 +142,17 @@ mod tests {
     }
 
     #[test]
+    fn test_model_picker_ignores_non_submit_control_character_input() {
+        let mut app = visible_picker_app();
+
+        assert!(handle_model_picker_key(
+            &mut app,
+            &KeyEvent::new(KeyCode::Char('x'), KeyModifiers::CONTROL)
+        ));
+        assert!(app.model_picker.query.is_empty());
+    }
+
+    #[test]
     fn test_model_picker_backspace() {
         let mut app = visible_picker_app();
         app.model_picker.query = "ab".to_string();
@@ -190,6 +202,28 @@ mod tests {
 
         assert!(handle_model_picker_key(&mut app, &key(KeyCode::Home)));
         assert_eq!(app.model_picker.selected, 0);
+    }
+
+    #[test]
+    fn test_model_picker_lf_alias_closes() {
+        let mut app = visible_picker_app();
+
+        assert!(handle_model_picker_key(
+            &mut app,
+            &KeyEvent::new(KeyCode::Char('j'), KeyModifiers::CONTROL)
+        ));
+        assert!(!app.model_picker.visible);
+    }
+
+    #[test]
+    fn test_model_picker_cr_alias_closes() {
+        let mut app = visible_picker_app();
+
+        assert!(handle_model_picker_key(
+            &mut app,
+            &KeyEvent::new(KeyCode::Char('m'), KeyModifiers::CONTROL)
+        ));
+        assert!(!app.model_picker.visible);
     }
 
     #[test]
