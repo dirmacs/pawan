@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Tests
+- Expanded PTY-backed slash-command smoke coverage to verify `/tools` renders core and RMUX tools through the real TUI.
+
 ## [0.5.18] - 2026-06-14
 
 ### Fixed
