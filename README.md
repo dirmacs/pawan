@@ -59,6 +59,9 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+### RMUX session-list cards
+- Completed `rmux` `list_sessions` tool calls render as active-session inventory cards instead of raw JSON.
+
 ## What's New in v0.5.15
 
 ### RMUX pane-list cards
