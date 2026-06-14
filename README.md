@@ -59,6 +59,8 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+## What's New in v0.5.22
+
 ### Model picker catalog source
 - Model picker search now labels whether visible results come from fallback defaults or the live NVIDIA catalog.
 
@@ -294,7 +296,7 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.5.21)
+## TUI (v0.5.22)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets

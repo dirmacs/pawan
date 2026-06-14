@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.5.22] - 2026-06-14
+
 ### Added
 - Added model-picker catalog source metadata so the UI shows whether results are fallback or live NVIDIA models.
 - Added macOS slash-command smoke coverage for LF/Ctrl-J Return handling.
