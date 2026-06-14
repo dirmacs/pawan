@@ -1766,6 +1766,30 @@ mod tests {
     }
 
     #[test]
+    fn test_slash_rmux_list_builds_typed_list_plan() {
+        let (mut app, mut cmd_rx) = test_app_with_commands();
+        app.handle_slash_command("/rmux list");
+
+        match cmd_rx.try_recv().expect("rmux Execute command") {
+            AgentCommand::Execute(prompt) => {
+                assert!(prompt.contains("action: list_sessions"));
+                assert!(prompt.contains("session count"));
+            }
+            _ => panic!("/rmux list should dispatch AgentCommand::Execute"),
+        }
+    }
+
+    #[test]
+    fn test_slash_rmux_list_rejects_extra_args() {
+        let mut app = test_app();
+        app.handle_slash_command("/rmux list dev");
+
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.messages[0].text_content().contains("Usage: /rmux list"));
+        assert!(!app.processing);
+    }
+
+    #[test]
     fn test_slash_rmux_session_builds_typed_ensure_plan() {
         let (mut app, mut cmd_rx) = test_app_with_commands();
         app.handle_slash_command("/rmux session dev --cwd /tmp --size 120x40 --cmd cargo test");
