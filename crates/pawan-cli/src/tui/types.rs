@@ -261,6 +261,7 @@ pub fn summarize_args(args: &serde_json::Value) -> String {
 /// Format a completed tool result for expanded display.
 pub fn format_tool_record_result(record: &ToolCallRecord) -> String {
     format_rmux_snapshot_result(record)
+        .or_else(|| format_rmux_list_sessions_result(record))
         .or_else(|| format_rmux_list_panes_result(record))
         .unwrap_or_else(|| format_tool_result(&record.result))
 }
@@ -327,6 +328,32 @@ fn format_rmux_snapshot_result(record: &ToolCallRecord) -> Option<String> {
     } else {
         out.push('\n');
         out.push_str(visible_text.trim_end());
+    }
+    Some(out)
+}
+
+fn format_rmux_list_sessions_result(record: &ToolCallRecord) -> Option<String> {
+    if !is_rmux_action(record, "list_sessions") {
+        return None;
+    }
+
+    let sessions = record.result.get("sessions")?.as_array()?;
+    let count = record
+        .result
+        .get("count")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(sessions.len() as u64);
+    let mut out = format!("RMUX sessions ({count})");
+    if sessions.is_empty() {
+        out.push_str("\n(no sessions)");
+        return Some(out);
+    }
+
+    for session in sessions.iter().filter_map(|value| value.as_str()).take(20) {
+        out.push_str(&format!("\n- {session}"));
+    }
+    if sessions.len() > 20 {
+        out.push_str(&format!("\n… {} more sessions", sessions.len() - 20));
     }
     Some(out)
 }

@@ -4,6 +4,8 @@ Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, an
 
 ## Unreleased
 
+- **RMUX session-list cards** — completed `rmux list_sessions` tool calls render active-session inventory instead of raw JSON.
+
 ## What's New in v0.5.15
 
 - **RMUX pane-list cards** — completed `rmux list_panes` tool calls render active-pane inventory instead of raw JSON.
