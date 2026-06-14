@@ -4,6 +4,8 @@ Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, an
 
 ## Unreleased
 
+- **Periodic regression smoke** — scheduled CI and `regression_smoke` tests verify slash-command, model-picker, and headless TUI guards remain wired in.
+
 ## What's New in v0.5.20
 
 - **Model picker live catalog** — `/model` preserves fetched NVIDIA `/v1/models` catalogs instead of replacing them with the curated fallback list; ignored live TUI smoke coverage can verify live-only models.
