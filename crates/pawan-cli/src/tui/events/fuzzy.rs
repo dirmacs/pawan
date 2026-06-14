@@ -4,6 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use super::super::app::App;
 use super::super::fuzzy_search::command_prefix;
+use super::is_submit_key;
 
 pub(crate) fn handle_fuzzy_search_key(app: &mut App<'_>, key: &KeyEvent) -> bool {
     let Some(fs) = app.fuzzy_search.as_mut() else {
@@ -25,7 +26,10 @@ pub(crate) fn handle_fuzzy_search_key(app: &mut App<'_>, key: &KeyEvent) -> bool
         KeyCode::Char('G') | KeyCode::End => {
             fs.selected = fs.results.len().saturating_sub(1);
         }
-        KeyCode::Char(c) => {
+        KeyCode::Char(c)
+            if key.modifiers.is_empty()
+                || key.modifiers == crossterm::event::KeyModifiers::SHIFT =>
+        {
             fs.query.push(c);
             let q = fs.query.clone();
             fs.filter(&q);
@@ -46,7 +50,7 @@ pub(crate) fn handle_fuzzy_search_key(app: &mut App<'_>, key: &KeyEvent) -> bool
                 fs.next();
             }
         }
-        KeyCode::Enter => {
+        _ if is_submit_key(key) => {
             let cmd = fs
                 .results
                 .get(fs.selected)

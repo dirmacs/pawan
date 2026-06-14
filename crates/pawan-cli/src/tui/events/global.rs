@@ -34,18 +34,6 @@ pub(crate) fn handle_global_key(app: &mut App<'_>, key: &KeyEvent) -> bool {
             app.toggle_fuzzy_search();
             true
         }
-        (KeyModifiers::CONTROL, KeyCode::Char('m'))
-        | (KeyModifiers::CONTROL, KeyCode::Char('M')) => {
-            if app.model_picker.models.is_empty() {
-                app.load_available_models();
-            }
-            app.model_picker.visible = !app.model_picker.visible;
-            if !app.model_picker.visible {
-                app.model_picker.query.clear();
-                app.model_picker.selected = 0;
-            }
-            true
-        }
         (_, KeyCode::F(1)) => {
             app.help_overlay = !app.help_overlay;
             true

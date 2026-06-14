@@ -5,7 +5,7 @@ expression: output
                                                                                 
                                                                                 
                                                                                 
-                    ┌ Model Picker (^M) ───────────────────┐                    
+                    ┌ Model Picker (/model) ───────────────┐                    
                     │> ▌  fallback / 13 shown              │                    
                     │ Meta meta/llama-3.1-70b-instruct  q90│                    
                     │ Meta meta/llama-3.3-70b-instruct  q93│                    

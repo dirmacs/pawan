@@ -55,6 +55,23 @@ jobs:
           cargo nextest run --workspace --no-fail-fast
           cargo test --workspace --doc
 
+  macos-tui-smoke:
+    name: macOS TUI slash smoke
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install protoc
+        run: brew install protobuf
+      - uses: Swatinem/rust-cache@v2
+      - name: Slash command return-key parity
+        run: |
+          cargo test -p pawan --lib test_slash_commands_dispatch_on_lf_enter_alias
+          cargo test -p pawan --lib test_slash_model_dispatches_on_cr_enter_alias
+          cargo test -p pawan --lib test_ctrl_m_does_not_toggle_model_picker_as_global_shortcut
+          cargo test -p pawan --test tui_headless_tests slash_help_displays_registered_commands_with_lf_enter_in_real_pty -- --nocapture
+          cargo test -p pawan --test tui_headless_tests slash_model_lf_enter_opens_picker_in_real_pty -- --nocapture
+
   doc:
     name: Doc
     runs-on: ubuntu-latest

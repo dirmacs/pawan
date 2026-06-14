@@ -8,6 +8,7 @@ use ratatui_textarea::Input;
 use super::super::app::App;
 use super::super::fuzzy_search::{default_command_item_lines, FuzzySearchState};
 use super::super::types::{DisplayMessage, Panel};
+use super::is_submit_key;
 
 pub(crate) fn handle_search_mode_key(app: &mut App<'_>, key: &KeyEvent) -> bool {
     if !app.search_mode {
@@ -15,16 +16,16 @@ pub(crate) fn handle_search_mode_key(app: &mut App<'_>, key: &KeyEvent) -> bool 
     }
 
     match key.code {
-        KeyCode::Enter | KeyCode::Esc => {
+        code if is_submit_key(key) || code == KeyCode::Esc => {
             app.search_mode = false;
-            if key.code == KeyCode::Esc {
+            if code == KeyCode::Esc {
                 app.search_query.clear();
             }
         }
         KeyCode::Backspace => {
             app.search_query.pop();
         }
-        KeyCode::Char(c) => {
+        KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
             app.search_query.push(c);
         }
         _ => {}
@@ -47,7 +48,7 @@ pub(crate) fn handle_session_browser_key(app: &mut App<'_>, key: &KeyEvent) -> b
             app.session_browser_query.pop();
             app.session_browser_selected = 0;
         }
-        KeyCode::Char(c) => {
+        KeyCode::Char(c) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
             app.session_browser_query.push(c);
             app.session_browser_selected = 0;
         }
@@ -85,7 +86,7 @@ pub(crate) fn handle_session_browser_key(app: &mut App<'_>, key: &KeyEvent) -> b
                 app.session_browser_selected = sessions - 1;
             }
         }
-        KeyCode::Enter => {
+        _ if is_submit_key(key) => {
             let sessions: Vec<SessionSummary> = app.filtered_sessions();
             if let Some(session) = sessions.get(app.session_browser_selected) {
                 match Session::load(&session.id) {
@@ -171,7 +172,7 @@ fn handle_input_slash_popup_keys(app: &mut App<'_>, key: &KeyEvent) -> bool {
                 app.slash_popup_selected = (app.slash_popup_selected + 1) % items.len();
             }
         }
-        KeyCode::Enter => {
+        _ if is_submit_key(key) => {
             let items = app.slash_items();
             if let Some((cmd, _)) = items.get(app.slash_popup_selected) {
                 let cmd = cmd.to_string();
@@ -180,16 +181,17 @@ fn handle_input_slash_popup_keys(app: &mut App<'_>, key: &KeyEvent) -> bool {
                 app.handle_slash_command(&cmd);
             }
         }
-        _ => {
+        _ if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
             app.input.input(Input::from(*key));
             app.slash_popup_selected = 0;
         }
+        _ => {}
     }
     true
 }
 
 fn handle_input_submit_keys(app: &mut App<'_>, key: &KeyEvent) -> bool {
-    if key.code == KeyCode::Enter {
+    if is_submit_key(key) {
         app.submit_input();
         true
     } else {
@@ -249,7 +251,9 @@ fn handle_input_control_keys(app: &mut App<'_>, key: &KeyEvent) -> bool {
 }
 
 fn handle_input_editing_keys(app: &mut App<'_>, key: &KeyEvent) {
-    app.input.input(Input::from(*key));
+    if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT {
+        app.input.input(Input::from(*key));
+    }
 }
 
 fn handle_input_panel_key(app: &mut App<'_>, key: &KeyEvent) {

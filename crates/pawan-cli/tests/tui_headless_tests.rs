@@ -152,6 +152,29 @@ fn slash_help_displays_registered_commands_in_real_pty() {
 }
 
 #[test]
+fn slash_help_displays_registered_commands_with_lf_enter_in_real_pty() {
+    let mut tui = HeadlessTui::spawn(100, 30);
+
+    tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("Self-healing CLI coding agent")
+    });
+    tui.send(b"x");
+    tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("Type your message")
+    });
+
+    tui.send(b"/help");
+    tui.send(b"\n");
+    let screen = tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("/help") && screen.contains("/model") && screen.contains("/quit")
+    });
+
+    assert!(screen.contains("/help"), "screen:\n{screen}");
+    assert!(screen.contains("/model"), "screen:\n{screen}");
+    assert!(screen.contains("/quit"), "screen:\n{screen}");
+}
+
+#[test]
 fn slash_tools_displays_core_and_rmux_tools_in_real_pty() {
     let mut tui = HeadlessTui::spawn(100, 30);
 
@@ -209,6 +232,27 @@ fn slash_model_enter_opens_picker_in_real_pty() {
         "screen:\n{screen}"
     );
     insta::assert_snapshot!("slash_model_picker_real_pty", terminal_screenshot(&screen));
+}
+
+#[test]
+fn slash_model_lf_enter_opens_picker_in_real_pty() {
+    let mut tui = HeadlessTui::spawn(100, 30);
+
+    tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("Self-healing CLI coding agent")
+    });
+    tui.send(b"x");
+    tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("Type your message")
+    });
+
+    tui.send(b"/model");
+    tui.send(b"\n");
+    let screen = tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("Model Picker")
+    });
+
+    assert!(screen.contains("Model Picker"), "screen:\n{screen}");
 }
 
 #[test]
