@@ -4,6 +4,17 @@ Core library for the Pawan CLI coding agent. Contains the agent engine, tool sys
 
 ## Unreleased
 
+- **Live RMUX verification** — ignored integration test covers `ensure_session` → `wait_for_text` → `snapshot` → `kill_session` when `PAWAN_RMUX_LIVE=1` and the `rmux` binary are available.
+- **RMUX cleanup** — `kill_session` action and `/rmux kill <session>` prompt routing support explicit teardown.
+
+### Live RMUX test
+
+```bash
+PAWAN_RMUX_LIVE=1 cargo test -p pawan-core --test rmux_live -- --ignored
+```
+
+The test starts or connects to RMUX, creates a short-lived session, waits for a marker, snapshots visible pane text, then kills the session.
+
 ## What's New in v0.5.10
 
 - **RMUX tool** — Standard tool backed by `rmux-sdk` for durable terminal sessions, pane input, wait-for-text synchronization, and pane snapshots.

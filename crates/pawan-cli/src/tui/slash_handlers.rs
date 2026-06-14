@@ -33,13 +33,15 @@ use tokio::sync::mpsc;
 use super::app::{App, SlashCommand, SlashCommandRegistry};
 use super::types::*;
 
-const RMUX_USAGE: &str = "Usage: /rmux <terminal task> or /rmux session|send|key|wait|snapshot ...";
+const RMUX_USAGE: &str =
+    "Usage: /rmux <terminal task> or /rmux session|send|key|wait|snapshot|kill ...";
 const RMUX_SESSION_USAGE: &str =
     "Usage: /rmux session <name> [--cwd <path>] [--size <cols>x<rows>] [--cmd <command>]";
 const RMUX_SEND_USAGE: &str = "Usage: /rmux send <session> <text to send and press Enter>";
 const RMUX_KEY_USAGE: &str = "Usage: /rmux key <session> <key>";
 const RMUX_WAIT_USAGE: &str = "Usage: /rmux wait <session> <text>";
 const RMUX_SNAPSHOT_USAGE: &str = "Usage: /rmux snapshot <session>";
+const RMUX_KILL_USAGE: &str = "Usage: /rmux kill <session>";
 
 fn build_rmux_slash_prompt(request: &str) -> std::result::Result<String, &'static str> {
     let request = request.trim();
@@ -54,6 +56,7 @@ fn build_rmux_slash_prompt(request: &str) -> std::result::Result<String, &'stati
         Some("key") => build_rmux_key_prompt(&parts[1..]),
         Some("wait") => build_rmux_wait_prompt(&parts[1..]),
         Some("snapshot") => build_rmux_snapshot_prompt(&parts[1..]),
+        Some("kill") => build_rmux_kill_prompt(&parts[1..]),
         Some(_) => Ok(format!(
             "Use the rmux tool to complete this terminal-multiplexer task. Prefer durable named sessions, wait_for_text, and snapshot evidence before reporting results. Task: {request}"
         )),
@@ -175,6 +178,15 @@ fn build_rmux_snapshot_prompt(args: &[&str]) -> std::result::Result<String, &'st
     };
     Ok(format!(
         "Use the rmux tool with action: snapshot\nsession: {session}\nReport cols, rows, revision, and visible_text."
+    ))
+}
+
+fn build_rmux_kill_prompt(args: &[&str]) -> std::result::Result<String, &'static str> {
+    let [session] = args else {
+        return Err(RMUX_KILL_USAGE);
+    };
+    Ok(format!(
+        "Use the rmux tool with action: kill_session\nsession: {session}\nReport whether the session was killed."
     ))
 }
 
