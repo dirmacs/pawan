@@ -51,7 +51,11 @@ impl RmuxTool {
             .default_timeout(Self::timeout(args))
             .connect_or_start()
             .await
-            .map_err(|e| PawanError::Tool(format!("rmux connect_or_start failed: {e}")))
+            .map_err(|e| {
+                PawanError::Tool(format!(
+                    "rmux connect_or_start failed: {e}. Ensure the rmux binary is installed, on PATH, and able to start its daemon."
+                ))
+            })
     }
 
     fn session_name(args: &RmuxArgs) -> Result<SessionName> {
@@ -64,22 +68,30 @@ impl RmuxTool {
     }
 
     async fn pane(rmux: &Rmux, args: &RmuxArgs) -> Result<rmux_sdk::Pane> {
-        let session = rmux
-            .session(Self::session_name(args)?)
-            .await
-            .map_err(|e| PawanError::Tool(format!("rmux session lookup failed: {e}")))?;
-        Ok(session.pane(
-            args.window.unwrap_or(DEFAULT_WINDOW),
-            args.pane.unwrap_or(DEFAULT_PANE),
-        ))
+        let session_name = Self::session_name(args)?;
+        let window = args.window.unwrap_or(DEFAULT_WINDOW);
+        let pane = args.pane.unwrap_or(DEFAULT_PANE);
+        let session = rmux.session(session_name.clone()).await.map_err(|e| {
+            PawanError::Tool(format!(
+                "rmux session lookup failed for session '{}': {e}",
+                session_name.as_str()
+            ))
+        })?;
+        Ok(session.pane(window, pane))
     }
 
     async fn ensure_session(args: RmuxArgs) -> Result<Value> {
+        let session_name = Self::session_name(&args)?;
+        if matches!((args.cols, args.rows), (Some(_), None) | (None, Some(_))) {
+            return Err(PawanError::Tool(
+                "rmux cols and rows must be supplied together".into(),
+            ));
+        }
+
         let rmux = Self::client(&args).await?;
-        let mut ensure = EnsureSession::named(Self::session_name(&args)?)
+        let mut ensure = EnsureSession::named(session_name)
             .policy(EnsureSessionPolicy::CreateOrReuse)
             .detached(args.detached.unwrap_or(true));
-
         if let (Some(cols), Some(rows)) = (args.cols, args.rows) {
             ensure = ensure.size(TerminalSizeSpec::new(cols, rows));
         }
@@ -102,6 +114,7 @@ impl RmuxTool {
     }
 
     async fn send_text(args: RmuxArgs) -> Result<Value> {
+        let _session_name = Self::session_name(&args)?;
         let text = args
             .text
             .as_deref()
@@ -115,6 +128,7 @@ impl RmuxTool {
     }
 
     async fn send_key(args: RmuxArgs) -> Result<Value> {
+        let _session_name = Self::session_name(&args)?;
         let key = args
             .key
             .as_deref()
@@ -128,6 +142,7 @@ impl RmuxTool {
     }
 
     async fn wait_for_text(args: RmuxArgs) -> Result<Value> {
+        let _session_name = Self::session_name(&args)?;
         let text = args
             .text
             .as_deref()
@@ -141,6 +156,7 @@ impl RmuxTool {
     }
 
     async fn snapshot(args: RmuxArgs) -> Result<Value> {
+        let _session_name = Self::session_name(&args)?;
         let rmux = Self::client(&args).await?;
         let pane = Self::pane(&rmux, &args).await?;
         let snapshot = pane
@@ -155,6 +171,22 @@ impl RmuxTool {
             "text": visible_text,
             "visible_text": visible_text,
         }))
+    }
+
+    async fn kill_session(args: RmuxArgs) -> Result<Value> {
+        let session_name = Self::session_name(&args)?;
+        let rmux = Self::client(&args).await?;
+        let session = rmux.session(session_name.clone()).await.map_err(|e| {
+            PawanError::Tool(format!(
+                "rmux session lookup failed for session '{}': {e}",
+                session_name.as_str()
+            ))
+        })?;
+        let killed = session
+            .kill()
+            .await
+            .map_err(|e| PawanError::Tool(format!("rmux kill_session failed: {e}")))?;
+        Ok(json!({"killed": killed}))
     }
 }
 
@@ -178,7 +210,7 @@ impl Tool for RmuxTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["ensure_session", "send_text", "send_key", "wait_for_text", "snapshot"],
+                    "enum": ["ensure_session", "send_text", "send_key", "wait_for_text", "snapshot", "kill_session"],
                     "description": "RMUX operation to perform"
                 },
                 "session": {"type": "string", "description": "RMUX session name"},
@@ -206,8 +238,9 @@ impl Tool for RmuxTool {
             "send_key" => Self::send_key(args).await,
             "wait_for_text" => Self::wait_for_text(args).await,
             "snapshot" => Self::snapshot(args).await,
+            "kill_session" => Self::kill_session(args).await,
             other => Err(PawanError::Tool(format!(
-                "unknown rmux action: {other}. Use ensure_session, send_text, send_key, wait_for_text, or snapshot"
+                "unknown rmux action: {other}. Use ensure_session, send_text, send_key, wait_for_text, snapshot, or kill_session"
             ))),
         }
     }
@@ -225,6 +258,27 @@ mod tests {
             .expect("action enum");
         assert!(actions.iter().any(|v| v == "ensure_session"));
         assert!(actions.iter().any(|v| v == "snapshot"));
+        assert!(actions.iter().any(|v| v == "kill_session"));
+    }
+
+    #[tokio::test]
+    async fn rejects_missing_session_before_connecting() {
+        let err = RmuxTool::new()
+            .execute(json!({"action": "snapshot", "timeout_secs": 1}))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("rmux session is required"));
+    }
+
+    #[tokio::test]
+    async fn rejects_partial_terminal_size_before_connecting() {
+        let err = RmuxTool::new()
+            .execute(json!({"action": "ensure_session", "session": "dev", "cols": 120, "timeout_secs": 1}))
+            .await
+            .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("rmux cols and rows must be supplied together"));
     }
 
     #[tokio::test]
