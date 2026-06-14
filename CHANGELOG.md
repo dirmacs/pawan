@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Added
+- Added RMUX pane-list-aware TUI tool cards that render active pane inventory instead of raw JSON.
+
 ## [0.5.14] - 2026-06-14
 
 ### Added
