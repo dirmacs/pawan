@@ -263,6 +263,7 @@ pub fn format_tool_record_result(record: &ToolCallRecord) -> String {
     format_rmux_snapshot_result(record)
         .or_else(|| format_rmux_list_sessions_result(record))
         .or_else(|| format_rmux_list_panes_result(record))
+        .or_else(|| format_rmux_status_result(record))
         .unwrap_or_else(|| format_tool_result(&record.result))
 }
 
@@ -289,11 +290,7 @@ fn format_rmux_snapshot_result(record: &ToolCallRecord) -> Option<String> {
         .or_else(|| record.result.get("text"))
         .and_then(|v| v.as_str())?;
 
-    let session = record
-        .arguments
-        .get("session")
-        .and_then(|v| v.as_str())
-        .unwrap_or("<unknown>");
+    let session = rmux_session_argument(record);
     let window = record
         .arguments
         .get("window")
@@ -332,6 +329,14 @@ fn format_rmux_snapshot_result(record: &ToolCallRecord) -> Option<String> {
     Some(out)
 }
 
+fn rmux_session_argument(record: &ToolCallRecord) -> &str {
+    record
+        .arguments
+        .get("session")
+        .and_then(|v| v.as_str())
+        .unwrap_or("<unknown>")
+}
+
 fn format_rmux_list_sessions_result(record: &ToolCallRecord) -> Option<String> {
     if !is_rmux_action(record, "list_sessions") {
         return None;
@@ -356,6 +361,73 @@ fn format_rmux_list_sessions_result(record: &ToolCallRecord) -> Option<String> {
         out.push_str(&format!("\n… {} more sessions", sessions.len() - 20));
     }
     Some(out)
+}
+
+fn format_rmux_status_result(record: &ToolCallRecord) -> Option<String> {
+    let action = record.arguments.get("action")?.as_str()?;
+    let session = rmux_session_argument(record);
+    match action {
+        "send_text" => {
+            let ok = record
+                .result
+                .get("ok")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let text = record
+                .arguments
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            Some(format!(
+                "RMUX send text\nsession: {session}\nstatus: {}\ntext: {text}",
+                if ok { "ok" } else { "failed" }
+            ))
+        }
+        "send_key" => {
+            let ok = record
+                .result
+                .get("ok")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let key = record
+                .arguments
+                .get("key")
+                .and_then(|v| v.as_str())
+                .unwrap_or("<unknown>");
+            Some(format!(
+                "RMUX send key\nsession: {session}\nstatus: {}\nkey: {key}",
+                if ok { "ok" } else { "failed" }
+            ))
+        }
+        "wait_for_text" => {
+            let ok = record
+                .result
+                .get("ok")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let text = record
+                .arguments
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            Some(format!(
+                "RMUX wait for text\nsession: {session}\nstatus: {}\nmatched: {text}",
+                if ok { "matched" } else { "not matched" }
+            ))
+        }
+        "kill_session" => {
+            let killed = record
+                .result
+                .get("killed")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            Some(format!(
+                "RMUX kill session\nsession: {session}\nstatus: {}",
+                if killed { "killed" } else { "not found" }
+            ))
+        }
+        _ => None,
+    }
 }
 
 fn format_rmux_list_panes_result(record: &ToolCallRecord) -> Option<String> {
