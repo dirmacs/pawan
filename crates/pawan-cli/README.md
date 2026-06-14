@@ -1,8 +1,10 @@
-# pawan v0.5.21
+# pawan v0.5.22
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, and cross-session memory.
 
 ## Unreleased
+
+## What's New in v0.5.22
 
 - **Model picker catalog source** — search UI labels whether results are fallback defaults or live NVIDIA catalog entries.
 - **macOS slash-command parity** — slash commands and modal confirms now accept Enter, LF/Ctrl-J, and CR/Ctrl-M; `/model` and Ctrl+P replace the risky Ctrl+M model-picker shortcut.
