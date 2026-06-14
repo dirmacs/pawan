@@ -32,6 +32,15 @@ async fn live_rmux_session_roundtrip() {
     let marker = format!("pawan-rmux-live-ready-{session}");
     let command = format!("printf '{marker}\\n'; sleep 30");
 
+    let before = tool
+        .execute(json!({
+            "action": "list_sessions",
+            "timeout_secs": 10
+        }))
+        .await
+        .expect("list rmux sessions before roundtrip");
+    assert!(before["sessions"].is_array());
+
     let ensure = tool
         .execute(json!({
             "action": "ensure_session",
@@ -69,6 +78,22 @@ async fn live_rmux_session_roundtrip() {
             .expect("visible_text string")
             .contains(&marker),
         "snapshot should contain marker: {snapshot}"
+    );
+
+    let during = tool
+        .execute(json!({
+            "action": "list_sessions",
+            "timeout_secs": 10
+        }))
+        .await
+        .expect("list rmux sessions during roundtrip");
+    assert!(
+        during["sessions"]
+            .as_array()
+            .expect("sessions array")
+            .iter()
+            .any(|value| value.as_str() == Some(session.as_str())),
+        "list_sessions should include created session: {during}"
     );
 
     let killed = tool

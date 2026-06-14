@@ -173,6 +173,19 @@ impl RmuxTool {
         }))
     }
 
+    async fn list_sessions(args: RmuxArgs) -> Result<Value> {
+        let rmux = Self::client(&args).await?;
+        let sessions = rmux
+            .list_sessions()
+            .await
+            .map_err(|e| PawanError::Tool(format!("rmux list_sessions failed: {e}")))?
+            .into_iter()
+            .map(|session| session.as_str().to_string())
+            .collect::<Vec<_>>();
+        let count = sessions.len();
+        Ok(json!({"sessions": sessions, "count": count}))
+    }
+
     async fn kill_session(args: RmuxArgs) -> Result<Value> {
         let session_name = Self::session_name(&args)?;
         let rmux = Self::client(&args).await?;
@@ -197,7 +210,7 @@ impl Tool for RmuxTool {
     }
 
     fn description(&self) -> &str {
-        "Drive persistent RMUX terminal sessions/panes: ensure sessions, send input, wait for text, and capture snapshots."
+        "Drive persistent RMUX terminal sessions/panes: list sessions, ensure sessions, send input, wait for text, capture snapshots, and clean up sessions."
     }
 
     fn mutating(&self) -> bool {
@@ -210,7 +223,7 @@ impl Tool for RmuxTool {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["ensure_session", "send_text", "send_key", "wait_for_text", "snapshot", "kill_session"],
+                    "enum": ["list_sessions", "ensure_session", "send_text", "send_key", "wait_for_text", "snapshot", "kill_session"],
                     "description": "RMUX operation to perform"
                 },
                 "session": {"type": "string", "description": "RMUX session name"},
@@ -233,6 +246,7 @@ impl Tool for RmuxTool {
         let args: RmuxArgs = serde_json::from_value(args)
             .map_err(|e| PawanError::Tool(format!("invalid rmux args: {e}")))?;
         match args.action.as_str() {
+            "list_sessions" => Self::list_sessions(args).await,
             "ensure_session" => Self::ensure_session(args).await,
             "send_text" => Self::send_text(args).await,
             "send_key" => Self::send_key(args).await,
@@ -240,7 +254,7 @@ impl Tool for RmuxTool {
             "snapshot" => Self::snapshot(args).await,
             "kill_session" => Self::kill_session(args).await,
             other => Err(PawanError::Tool(format!(
-                "unknown rmux action: {other}. Use ensure_session, send_text, send_key, wait_for_text, snapshot, or kill_session"
+                "unknown rmux action: {other}. Use list_sessions, ensure_session, send_text, send_key, wait_for_text, snapshot, or kill_session"
             ))),
         }
     }
@@ -256,6 +270,7 @@ mod tests {
         let actions = schema["properties"]["action"]["enum"]
             .as_array()
             .expect("action enum");
+        assert!(actions.iter().any(|v| v == "list_sessions"));
         assert!(actions.iter().any(|v| v == "ensure_session"));
         assert!(actions.iter().any(|v| v == "snapshot"));
         assert!(actions.iter().any(|v| v == "kill_session"));

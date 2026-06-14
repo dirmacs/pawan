@@ -4,6 +4,8 @@ Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, an
 
 ## Unreleased
 
+- **`/rmux list`** — routes active RMUX session discovery through the agent's `list_sessions` tool action.
+
 ## What's New in v0.5.12
 
 - **RMUX snapshot cards** — completed `rmux` snapshot tool calls render pane metadata and visible terminal text instead of raw JSON.
