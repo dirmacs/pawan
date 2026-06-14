@@ -1,8 +1,10 @@
-# pawan v0.5.17
+# pawan v0.5.18
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, and cross-session memory.
 
 ## Unreleased
+
+## What's New in v0.5.18
 
 - **Slash-command reliability** — Enter repeat/release events no longer auto-confirm modal selections after opening `/model`; headless smoke tests now cover `/help` rendering through a real PTY.
 
