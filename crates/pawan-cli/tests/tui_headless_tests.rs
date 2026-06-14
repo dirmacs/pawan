@@ -39,7 +39,9 @@ impl HeadlessTui {
         cmd.arg("--model");
         cmd.arg("test-model");
         cmd.env("NO_COLOR", "1");
-        cmd.env("NVIDIA_API_KEY", "pawan-headless-test-key");
+        if std::env::var_os("NVIDIA_API_KEY").is_none() {
+            cmd.env("NVIDIA_API_KEY", "pawan-headless-test-key");
+        }
         cmd.env("PAWAN_HEADLESS_TUI_TEST", "1");
 
         let child = pair.slave.spawn_command(cmd).expect("spawn pawan tui");
@@ -176,6 +178,13 @@ fn slash_tools_displays_core_and_rmux_tools_in_real_pty() {
     assert!(screen.contains("rmux"), "screen:\n{screen}");
 }
 
+fn nvidia_live_tui_enabled() -> bool {
+    std::env::var("PAWAN_NVIDIA_LIVE_TUI")
+        .map(|value| matches!(value.as_str(), "1" | "true" | "TRUE" | "yes" | "YES"))
+        .unwrap_or(false)
+        && std::env::var_os("NVIDIA_API_KEY").is_some()
+}
+
 #[test]
 fn slash_model_enter_opens_picker_in_real_pty() {
     let mut tui = HeadlessTui::spawn(100, 30);
@@ -200,4 +209,31 @@ fn slash_model_enter_opens_picker_in_real_pty() {
         "screen:\n{screen}"
     );
     insta::assert_snapshot!("slash_model_picker_real_pty", terminal_screenshot(&screen));
+}
+
+#[test]
+#[ignore = "requires PAWAN_NVIDIA_LIVE_TUI=1 and a real NVIDIA_API_KEY"]
+fn slash_model_picker_can_filter_live_nvidia_catalog_in_real_pty() {
+    if !nvidia_live_tui_enabled() {
+        eprintln!("skipping live NVIDIA TUI model picker test: set PAWAN_NVIDIA_LIVE_TUI=1 with NVIDIA_API_KEY");
+        return;
+    }
+
+    let mut tui = HeadlessTui::spawn(120, 34);
+    tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("Self-healing CLI coding agent")
+    });
+    tui.send(b"x");
+    tui.send(b"/model");
+    tui.send(b"\r");
+    tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("Model Picker")
+    });
+    thread::sleep(Duration::from_secs(1));
+    tui.send(b"yi-large");
+    let screen = tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("01-ai/yi-large")
+    });
+
+    assert!(screen.contains("01-ai/yi-large"), "screen:\n{screen}");
 }

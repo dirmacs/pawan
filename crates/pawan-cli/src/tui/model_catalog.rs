@@ -266,10 +266,17 @@ mod tests {
         let models = rt.block_on(fetch_live_models());
         assert!(models.is_some(), "Live NVIDIA API should return models");
         let models = models.unwrap();
-        assert!(!models.is_empty());
+        assert!(
+            models.len() > default_models().len(),
+            "Live NVIDIA API should return the full catalog, not the curated fallback"
+        );
         assert!(
             models.len() > 50,
             "Should have at least 50 models from live API"
+        );
+        assert!(
+            models.iter().any(|model| model.id == "01-ai/yi-large"),
+            "Live NVIDIA catalog should include models outside the fallback list"
         );
         let ids: Vec<&str> = models.iter().map(|m| m.id.as_str()).collect();
         let has_deepseek = ids.iter().any(|id| id.contains("deepseek"));
