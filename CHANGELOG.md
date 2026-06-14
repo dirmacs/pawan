@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Fixed
+- Added a release preflight that fails tag builds immediately when the crates.io publish token is missing.
+
 ## [0.5.22] - 2026-06-14
 
 ### Added
