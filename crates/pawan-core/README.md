@@ -1,8 +1,12 @@
-# pawan-core v0.5.21
+# pawan-core v0.5.22
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
 
 ## Unreleased
+
+## What's New in v0.5.22
+
+- **Version alignment** — published with the workspace release; model-picker catalog source metadata and macOS slash-command parity live in the `pawan` CLI crate.
 
 ## What's New in v0.5.21
 

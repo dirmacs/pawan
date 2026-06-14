@@ -70,7 +70,7 @@ Response:
 ```json
 {
   "status": "ok",
-  "version": "0.5.21",
+  "version": "0.5.22",
   "uptime_secs": 1234,
   "agent_id": "pawan@hostname"
 }
