@@ -1,8 +1,10 @@
-# pawan v0.5.14
+# pawan v0.5.15
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, and cross-session memory.
 
 ## Unreleased
+
+## What's New in v0.5.15
 
 - **RMUX pane-list cards** — completed `rmux list_panes` tool calls render active-pane inventory instead of raw JSON.
 
