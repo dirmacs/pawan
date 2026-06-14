@@ -4,6 +4,8 @@ Core library for the Pawan CLI coding agent. Contains the agent engine, tool sys
 
 ## Unreleased
 
+- **RMUX pane discovery** — `rmux` tool now exposes `list_panes` with optional session/title/command/cwd/running filters for active-pane inventory.
+
 ## What's New in v0.5.13
 
 - **RMUX session discovery** — `rmux` tool now exposes `list_sessions` for active-session inventory before pane operations.
