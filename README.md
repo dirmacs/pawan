@@ -59,6 +59,11 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+## What's New in v0.5.23
+
+### Release hardening
+- Tag release workflows now fail immediately with a clear error when the crates.io publish token is missing.
+
 ## What's New in v0.5.22
 
 ### Model picker catalog source
@@ -296,7 +301,7 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.5.22)
+## TUI (v0.5.23)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets

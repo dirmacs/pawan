@@ -1,8 +1,12 @@
-# pawan v0.5.22
+# pawan v0.5.23
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, and cross-session memory.
 
 ## Unreleased
+
+## What's New in v0.5.23
+
+- **Release hardening** — tag release workflows now fail immediately with a clear error when the crates.io publish token is missing.
 
 ## What's New in v0.5.22
 
