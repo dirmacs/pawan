@@ -23,7 +23,7 @@ use ratatui::{
 use ratatui_textarea::{Input, TextArea};
 use regex::Regex;
 use std::io::{self, Stdout};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
@@ -258,6 +258,11 @@ pub fn summarize_args(args: &serde_json::Value) -> String {
     }
 }
 
+/// Format a completed tool result for expanded display.
+pub fn format_tool_record_result(record: &ToolCallRecord) -> String {
+    format_rmux_snapshot_result(record).unwrap_or_else(|| format_tool_result(&record.result))
+}
+
 /// Format tool result for expanded display.
 pub fn format_tool_result(result: &serde_json::Value) -> String {
     match result {
@@ -266,13 +271,69 @@ pub fn format_tool_result(result: &serde_json::Value) -> String {
     }
 }
 
-static REASONING_STRIP: OnceLock<Regex> = OnceLock::new();
+fn format_rmux_snapshot_result(record: &ToolCallRecord) -> Option<String> {
+    if record.name != "rmux" {
+        return None;
+    }
+    if record.arguments.get("action").and_then(|v| v.as_str()) != Some("snapshot") {
+        return None;
+    }
+
+    let visible_text = record
+        .result
+        .get("visible_text")
+        .or_else(|| record.result.get("text"))
+        .and_then(|v| v.as_str())?;
+
+    let session = record
+        .arguments
+        .get("session")
+        .and_then(|v| v.as_str())
+        .unwrap_or("<unknown>");
+    let window = record
+        .arguments
+        .get("window")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let pane = record
+        .arguments
+        .get("pane")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let cols = record
+        .result
+        .get("cols")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let rows = record
+        .result
+        .get("rows")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    let revision = record
+        .result
+        .get("revision")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    let mut out = format!(
+        "RMUX snapshot\nsession: {session}\npane: window {window} / pane {pane}\nsize: {cols}x{rows}\nrevision: {revision}\nvisible text:"
+    );
+    if visible_text.is_empty() {
+        out.push_str("\n(empty)");
+    } else {
+        out.push('\n');
+        out.push_str(visible_text.trim_end());
+    }
+    Some(out)
+}
+
+static REASONING_STRIP: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?s)<think>.*?</think>|\[/think\]").expect("static regex"));
 
 /// Strip model "thinking" / reasoning tag regions from assistant text before display.
 pub fn strip_reasoning_tags(s: &str) -> String {
-    let re = REASONING_STRIP
-        .get_or_init(|| Regex::new(r"(?s)<think>.*?</think>|\[/think\]").expect("static regex"));
-    re.replace_all(s, "").to_string()
+    REASONING_STRIP.replace_all(s, "").to_string()
 }
 
 /// Active keybinding context (drives the status bar hint and modal priority).
