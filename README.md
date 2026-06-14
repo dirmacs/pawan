@@ -59,6 +59,9 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+### Model picker catalog source
+- Model picker search now labels whether visible results come from fallback defaults or the live NVIDIA catalog.
+
 ## What's New in v0.5.21
 
 ### Periodic regression smoke

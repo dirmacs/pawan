@@ -1,5 +1,8 @@
 ## [Unreleased]
 
+### Added
+- Added model-picker catalog source metadata so the UI shows whether results are fallback or live NVIDIA models.
+
 ## [0.5.21] - 2026-06-14
 
 ### Tests

@@ -512,12 +512,30 @@ pub enum KeybindContext {
     ModelPicker,
 }
 
-/// Model picker: list, selection, filter query, and visibility.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelCatalogSource {
+    Empty,
+    Fallback,
+    Live,
+}
+
+impl ModelCatalogSource {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Empty => "empty",
+            Self::Fallback => "fallback",
+            Self::Live => "live NVIDIA",
+        }
+    }
+}
+
+/// Model picker: list, selection, filter query, visibility, and catalog source.
 pub struct ModelPickerState {
     pub models: Vec<ModelInfo>,
     pub selected: usize,
     pub visible: bool,
     pub query: String,
+    pub source: ModelCatalogSource,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
