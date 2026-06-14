@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.5.13] - 2026-06-14
+
 ### Added
 - Added `rmux` `list_sessions` support and `/rmux list` prompt routing for discovering active RMUX sessions before attaching, sending, or cleaning up.
 
