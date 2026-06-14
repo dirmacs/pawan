@@ -1,10 +1,13 @@
-# pawan v0.5.11
+# pawan v0.5.12
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, and cross-session memory.
 
 ## Unreleased
 
+## What's New in v0.5.12
+
 - **RMUX snapshot cards** — completed `rmux` snapshot tool calls render pane metadata and visible terminal text instead of raw JSON.
+- **Lazy TUI statics** — fixed-initializer TUI statics now use `std::sync::LazyLock`.
 
 ## What's New in v0.5.11
 

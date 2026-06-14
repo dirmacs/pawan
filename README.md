@@ -59,8 +59,11 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+## What's New in v0.5.12
+
 ### RMUX TUI evidence
 - Completed `rmux` snapshot tool calls render as terminal-focused cards with session, pane, size, revision, and visible text instead of raw JSON.
+- TUI fixed-initializer statics now use `std::sync::LazyLock`.
 
 ## What's New in v0.5.11
 
@@ -236,7 +239,7 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.5.11)
+## TUI (v0.5.12)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets
