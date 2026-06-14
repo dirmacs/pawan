@@ -4,6 +4,8 @@ Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, an
 
 ## Unreleased
 
+- **RMUX status cards** — completed `rmux` send/key/wait/kill tool calls render action-focused status cards instead of raw JSON.
+
 ## What's New in v0.5.16
 
 - **RMUX session-list cards** — completed `rmux list_sessions` tool calls render active-session inventory instead of raw JSON.

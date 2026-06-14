@@ -59,6 +59,9 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+### RMUX status cards
+- Completed `rmux` send/key/wait/kill tool calls render action-focused status cards instead of raw JSON.
+
 ## What's New in v0.5.16
 
 ### RMUX session-list cards
