@@ -718,6 +718,37 @@ mod tests {
     }
 
     #[test]
+    fn test_format_rmux_status_results_are_action_focused() {
+        let send_key = ToolCallRecord {
+            id: "rmux-key".to_string(),
+            name: "rmux".to_string(),
+            arguments: serde_json::json!({"action": "send_key", "session": "dev", "key": "Enter"}),
+            result: serde_json::json!({"ok": true}),
+            success: true,
+            duration_ms: 4,
+        };
+        let kill = ToolCallRecord {
+            id: "rmux-kill".to_string(),
+            name: "rmux".to_string(),
+            arguments: serde_json::json!({"action": "kill_session", "session": "dev"}),
+            result: serde_json::json!({"killed": true}),
+            success: true,
+            duration_ms: 5,
+        };
+
+        let send_formatted = format_tool_record_result(&send_key);
+        let kill_formatted = format_tool_record_result(&kill);
+
+        assert!(send_formatted.contains("RMUX send key"));
+        assert!(send_formatted.contains("session: dev"));
+        assert!(send_formatted.contains("key: Enter"));
+        assert!(!send_formatted.contains("\"ok\""));
+        assert!(kill_formatted.contains("RMUX kill session"));
+        assert!(kill_formatted.contains("status: killed"));
+        assert!(!kill_formatted.contains("\"killed\""));
+    }
+
+    #[test]
     fn test_render_rmux_snapshot_tool_card() {
         let mut app = test_app();
         app.messages.push(DisplayMessage {
@@ -842,6 +873,44 @@ mod tests {
         assert!(content.contains("dev:0.1"), "screen:\n{content}");
         assert!(content.contains("cargo-watch"), "screen:\n{content}");
         assert!(content.contains("/opt/pawan"), "screen:\n{content}");
+    }
+
+    #[test]
+    fn test_render_rmux_status_tool_card() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage {
+            role: Role::Assistant,
+            blocks: vec![ContentBlock::ToolCall {
+                name: "rmux".to_string(),
+                args_summary: "action=\"send_text\", session=\"dev\"".to_string(),
+                state: Box::new(ToolBlockState::Done {
+                    record: ToolCallRecord {
+                        id: "rmux-send".to_string(),
+                        name: "rmux".to_string(),
+                        arguments: serde_json::json!({
+                            "action": "send_text",
+                            "session": "dev",
+                            "text": "cargo test --workspace"
+                        }),
+                        result: serde_json::json!({"ok": true}),
+                        success: true,
+                        duration_ms: 6,
+                    },
+                    expanded: true,
+                }),
+            }],
+            timestamp: std::time::Instant::now(),
+            cached_block_lines: None,
+        });
+
+        let backend = TestBackend::new(110, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("RMUX send text"), "screen:\n{content}");
+        assert!(content.contains("session: dev"), "screen:\n{content}");
+        assert!(content.contains("cargo test"), "screen:\n{content}");
     }
 
     #[test]
