@@ -1,8 +1,10 @@
-# pawan-core v0.5.12
+# pawan-core v0.5.13
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
 
 ## Unreleased
+
+## What's New in v0.5.13
 
 - **RMUX session discovery** — `rmux` tool now exposes `list_sessions` for active-session inventory before pane operations.
 
