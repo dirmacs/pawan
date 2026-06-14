@@ -1,0 +1,60 @@
+name: Regression Smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly regression sweep for behavior that previously regressed without
+    # dependency changes or broad compile failures.
+    - cron: "30 6 * * 2"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  tui-and-model-smoke:
+    name: TUI + model regression smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Install CI deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler ripgrep fd-find
+          sudo ln -sf /usr/bin/fdfind /usr/local/bin/fd
+      - uses: Swatinem/rust-cache@v2
+      - name: Model catalog regression tests
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          cargo test -p pawan --lib live_catalog -- --nocapture
+          if [ -z "${NVIDIA_API_KEY:-}" ]; then
+            echo "NVIDIA_API_KEY secret not configured; skipping live model catalog smoke."
+            exit 0
+          fi
+          E2E=1 cargo test -p pawan --lib model_catalog::tests::test_fetch_live_models_live -- --nocapture
+      - name: Headless TUI slash smoke
+        run: |
+          cargo test -p pawan --test tui_headless_tests -- --nocapture
+      - name: Live NVIDIA TUI model picker smoke
+        env:
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+        run: |
+          if [ -z "${NVIDIA_API_KEY:-}" ]; then
+            echo "NVIDIA_API_KEY secret not configured; skipping live model-picker smoke."
+            exit 0
+          fi
+          PAWAN_NVIDIA_LIVE_TUI=1 cargo test -p pawan --test tui_headless_tests slash_model_picker_can_filter_live_nvidia_catalog_in_real_pty -- --ignored --nocapture
+      - name: Focused TUI lifecycle regressions
+        run: |
+          cargo test -p pawan --lib test_slash_model_enter_release_does_not_select_first_model
+          cargo test -p pawan --lib test_slash_model_enter_repeat_does_not_select_first_model
+          cargo test -p pawan --lib test_exact_slash_commands_dispatch_from_input_smoke
+      - name: Release-regression checklist
+        run: cargo test -p pawan --test regression_smoke
