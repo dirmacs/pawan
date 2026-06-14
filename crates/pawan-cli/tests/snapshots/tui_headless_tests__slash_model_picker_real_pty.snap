@@ -9,7 +9,7 @@ expression: terminal_screenshot(&screen)
  │                                                                                                │
  │                                                                                                │
  │                       ┌ Model Picker (^M) ─────────────────────────────┐                       │
- │                       │> ▌                                             │                       │
+ │                       │> ▌  fallback / 13 shown                        │                       │
  │                       │ Meta meta/llama-3.1-70b-instruct  q90          │                       │
  │                       │ Meta meta/llama-3.3-70b-instruct  q93          │                       │
  │                       │ Meta meta/llama-4-maverick-17b-128e-instruct  q│                       │

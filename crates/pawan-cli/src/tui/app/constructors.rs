@@ -95,6 +95,7 @@ impl<'a> App<'a> {
                 selected: 0,
                 visible: false,
                 query: String::new(),
+                source: ModelCatalogSource::Empty,
             },
             session_browser_open: false,
             session_browser_query: String::new(),

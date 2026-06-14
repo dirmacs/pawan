@@ -64,6 +64,7 @@ impl<'a> App<'a> {
             match rx.try_recv() {
                 Ok(models) => {
                     self.model_picker.models = models;
+                    self.model_picker.source = ModelCatalogSource::Live;
                     self.status = format!("Loaded {} live models", self.model_picker.models.len());
                 }
                 Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
