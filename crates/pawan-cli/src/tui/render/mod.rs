@@ -27,7 +27,7 @@ use ratatui::{
 use ratatui_textarea::{Input, TextArea};
 use regex::Regex;
 use std::io::{self, Stdout};
-use std::sync::OnceLock;
+use std::sync::LazyLock;
 use std::time::Instant;
 use tokio::sync::mpsc;
 
@@ -348,7 +348,7 @@ mod tests {
     use pawan::config::TuiConfig;
     use ratatui::backend::TestBackend;
     use ratatui::buffer::Buffer;
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::{LazyLock, Mutex};
     use tokio::sync::mpsc;
 
     use crossterm::event::{Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -387,8 +387,8 @@ mod tests {
     }
 
     fn theme_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+        static LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+        &LOCK
     }
 
     fn reset_theme_for_test() {
@@ -634,6 +634,75 @@ mod tests {
         assert!(
             content.contains("42ms") || content.contains("✓"),
             "Should show success indicator"
+        );
+    }
+
+    #[test]
+    fn test_format_rmux_snapshot_result_is_terminal_focused() {
+        let record = ToolCallRecord {
+            id: "rmux-1".to_string(),
+            name: "rmux".to_string(),
+            arguments: serde_json::json!({"action": "snapshot", "session": "dev"}),
+            result: serde_json::json!({
+                "cols": 80,
+                "rows": 24,
+                "revision": 7,
+                "visible_text": "ready\n$ cargo test"
+            }),
+            success: true,
+            duration_ms: 12,
+        };
+
+        let formatted = format_tool_record_result(&record);
+
+        assert!(formatted.contains("RMUX snapshot"));
+        assert!(formatted.contains("session: dev"));
+        assert!(formatted.contains("size: 80x24"));
+        assert!(formatted.contains("revision: 7"));
+        assert!(formatted.contains("ready"));
+        assert!(!formatted.contains("visible_text"));
+    }
+
+    #[test]
+    fn test_render_rmux_snapshot_tool_card() {
+        let mut app = test_app();
+        app.messages.push(DisplayMessage {
+            role: Role::Assistant,
+            blocks: vec![ContentBlock::ToolCall {
+                name: "rmux".to_string(),
+                args_summary: "action=\"snapshot\", session=\"dev\"".to_string(),
+                state: Box::new(ToolBlockState::Done {
+                    record: ToolCallRecord {
+                        id: "rmux-1".to_string(),
+                        name: "rmux".to_string(),
+                        arguments: serde_json::json!({"action": "snapshot", "session": "dev"}),
+                        result: serde_json::json!({
+                            "cols": 100,
+                            "rows": 30,
+                            "revision": 42,
+                            "visible_text": "pawan-rmux-live-ready\n$ cargo test"
+                        }),
+                        success: true,
+                        duration_ms: 9,
+                    },
+                    expanded: true,
+                }),
+            }],
+            timestamp: std::time::Instant::now(),
+            cached_block_lines: None,
+        });
+
+        let backend = TestBackend::new(100, 24);
+        let mut terminal = Terminal::new(backend).unwrap();
+        terminal.draw(|f| app.ui(f)).unwrap();
+
+        let content = buffer_to_string(terminal.backend().buffer());
+        assert!(content.contains("rmux"), "screen:\n{content}");
+        assert!(content.contains("RMUX snapshot"), "screen:\n{content}");
+        assert!(content.contains("session: dev"), "screen:\n{content}");
+        assert!(
+            content.contains("pawan-rmux-live-ready"),
+            "screen:\n{content}"
         );
     }
 
