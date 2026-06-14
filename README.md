@@ -59,6 +59,10 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+### Model picker live catalog
+- `/model` preserves fetched NVIDIA `/v1/models` catalogs instead of replacing them with the curated fallback list.
+- Regression coverage now compares live catalog behavior against fallback behavior and includes an ignored live NVIDIA TUI smoke test.
+
 ## What's New in v0.5.19
 
 ### Headless slash-command smoke

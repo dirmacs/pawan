@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+### Fixed
+- Preserved live NVIDIA model catalogs when opening `/model`; the picker no longer overwrites a fetched `/v1/models` catalog with the curated fallback list.
+
+### Tests
+- Added regression checks that live model catalogs are not replaced by fallback models, plus an ignored live NVIDIA TUI model-picker smoke test.
+
 ## [0.5.19] - 2026-06-14
 
 ### Tests
