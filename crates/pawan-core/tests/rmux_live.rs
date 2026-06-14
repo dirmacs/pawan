@@ -96,6 +96,24 @@ async fn live_rmux_session_roundtrip() {
         "list_sessions should include created session: {during}"
     );
 
+    let panes = tool
+        .execute(json!({
+            "action": "list_panes",
+            "session": session,
+            "running": true,
+            "timeout_secs": 10
+        }))
+        .await
+        .expect("list rmux panes during roundtrip");
+    assert!(
+        panes["panes"]
+            .as_array()
+            .expect("panes array")
+            .iter()
+            .any(|pane| pane["session"].as_str() == Some(session.as_str())),
+        "list_panes should include a pane for the created session: {panes}"
+    );
+
     let killed = tool
         .execute(json!({
             "action": "kill_session",
