@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.5.20] - 2026-06-14
+
 ### Fixed
 - Preserved live NVIDIA model catalogs when opening `/model`; the picker no longer overwrites a fetched `/v1/models` catalog with the curated fallback list.
 
