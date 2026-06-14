@@ -57,6 +57,18 @@ The core claim:
 
 The short version: **pawan is the vibe-coding runtime for people whose production language already fights bad code for them.** If you're using Rust in anger, that's the feature you want.
 
+## What's New in v0.5.11
+
+### RMUX hardening
+- `rmux` tool now supports `kill_session` for explicit session cleanup
+- `/rmux kill <session>` routes teardown through the agent with typed `kill_session` instructions
+- RMUX validates missing sessions and partial terminal sizes before daemon startup
+- RMUX connection failures now mention binary installation, `PATH`, and daemon startup checks
+
+### Live RMUX testing
+- Ignored live roundtrip covers `ensure_session` → `wait_for_text` → `snapshot` → `kill_session`
+- Run with `PAWAN_RMUX_LIVE=1 cargo test -p pawan-core --test rmux_live -- --ignored`
+
 ## What's New in v0.5.10
 
 ### RMUX terminal workflows
@@ -219,7 +231,7 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.5.10)
+## TUI (v0.5.11)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets

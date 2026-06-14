@@ -1,8 +1,10 @@
-# pawan v0.5.10
+# pawan v0.5.11
 
 Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, and cross-session memory.
 
 ## Unreleased
+
+## What's New in v0.5.11
 
 - **`/rmux kill <session>`** — routes explicit RMUX session teardown through the agent's `kill_session` tool action.
 
