@@ -59,6 +59,10 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+### TUI slash-command reliability
+- Enter key repeat/release events are ignored for modal confirmation, preventing `/model` from auto-selecting the first model after opening.
+- Headless TUI smoke coverage now drives `/help` through the real PTY interface and verifies slash commands render.
+
 ## What's New in v0.5.17
 
 ### RMUX status cards
