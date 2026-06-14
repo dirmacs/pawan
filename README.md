@@ -59,6 +59,10 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+### Periodic regression smoke
+- Weekly `Regression Smoke` CI re-runs the slash-command, model-picker, and headless TUI guards that cover previously regressed behavior.
+- `regression_smoke` checks that critical release-regression tests stay wired into the repository.
+
 ## What's New in v0.5.20
 
 ### Model picker live catalog
