@@ -59,6 +59,8 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+## What's New in v0.5.15
+
 ### RMUX pane-list cards
 - Completed `rmux` `list_panes` tool calls render as active-pane inventory cards instead of raw JSON.
 
@@ -252,7 +254,7 @@ pawan/
 - **Iteration budget awareness** — warns model when 3 tool iterations remain
 - **Think-token stripping** — strips `<think>...</think>` from content and tool arguments
 
-## TUI (v0.5.14)
+## TUI (v0.5.15)
 
 - **Welcome screen** — model, version, workspace on first launch. Press any key to dismiss.
 - **Command palette** (`Ctrl+P`) — fuzzy-searchable slash commands with model presets

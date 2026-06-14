@@ -1,8 +1,12 @@
-# pawan-core v0.5.14
+# pawan-core v0.5.15
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
 
 ## Unreleased
+
+## What's New in v0.5.15
+
+- **Version alignment** — published with the workspace release; RMUX pane-list card rendering lives in the `pawan` CLI crate.
 
 ## What's New in v0.5.14
 
