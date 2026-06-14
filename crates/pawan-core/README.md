@@ -1,11 +1,14 @@
-# pawan-core v0.5.10
+# pawan-core v0.5.11
 
 Core library for the Pawan CLI coding agent. Contains the agent engine, tool system, configuration, and healing/recovery logic.
 
 ## Unreleased
 
+## What's New in v0.5.11
+
 - **Live RMUX verification** — ignored integration test covers `ensure_session` → `wait_for_text` → `snapshot` → `kill_session` when `PAWAN_RMUX_LIVE=1` and the `rmux` binary are available.
 - **RMUX cleanup** — `kill_session` action and `/rmux kill <session>` prompt routing support explicit teardown.
+- **RMUX validation** — missing sessions and partial terminal sizes are rejected before daemon startup; connection errors mention installation/PATH/daemon checks.
 
 ### Live RMUX test
 
