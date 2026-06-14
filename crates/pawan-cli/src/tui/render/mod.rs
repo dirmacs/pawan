@@ -1797,6 +1797,70 @@ mod tests {
     }
 
     #[test]
+    fn test_non_enter_repeat_events_still_work_for_navigation() {
+        let mut app = test_app();
+        app.focus = Panel::Messages;
+        app.scroll = 15;
+
+        app.handle_event(Event::Key(KeyEvent::new_with_kind(
+            KeyCode::PageUp,
+            KeyModifiers::NONE,
+            KeyEventKind::Repeat,
+        )));
+
+        assert_eq!(app.scroll, 5, "non-Enter repeats should still navigate");
+    }
+
+    #[test]
+    fn test_slash_model_enter_repeat_does_not_select_first_model() {
+        let mut app = test_app();
+        app.input.insert_str("/model");
+
+        app.handle_event(Event::Key(KeyEvent::new_with_kind(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+            KeyEventKind::Press,
+        )));
+        assert!(app.model_picker.visible);
+        assert_eq!(app.model_name, "test-model");
+
+        app.handle_event(Event::Key(KeyEvent::new_with_kind(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+            KeyEventKind::Repeat,
+        )));
+
+        assert!(
+            app.model_picker.visible,
+            "key-repeat after opening /model must not confirm the first model"
+        );
+        assert_eq!(app.model_name, "test-model");
+    }
+
+    #[test]
+    fn test_exact_slash_commands_dispatch_from_input_smoke() {
+        let mut app = test_app();
+        app.input.insert_str("/help");
+        app.handle_event(Event::Key(KeyEvent::new_with_kind(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+            KeyEventKind::Press,
+        )));
+        assert_eq!(app.messages.len(), 1);
+        assert!(app.messages[0].text_content().contains("/model"));
+        assert!(app.input.lines().iter().all(|line| line.is_empty()));
+
+        app.input.insert_str("/clear");
+        app.handle_event(Event::Key(KeyEvent::new_with_kind(
+            KeyCode::Enter,
+            KeyModifiers::NONE,
+            KeyEventKind::Press,
+        )));
+        assert!(app.messages.is_empty());
+        assert_eq!(app.status, "Cleared");
+    }
+
+    #[test]
     fn test_slash_model_switch() {
         let mut app = test_app();
         app.handle_slash_command("/model mistral-small-4");

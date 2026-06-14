@@ -127,6 +127,29 @@ impl Drop for HeadlessTui {
 }
 
 #[test]
+fn slash_help_displays_registered_commands_in_real_pty() {
+    let mut tui = HeadlessTui::spawn(100, 30);
+
+    tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("Self-healing CLI coding agent")
+    });
+    tui.send(b"x");
+    tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("Type your message")
+    });
+
+    tui.send(b"/help");
+    tui.send(b"\r");
+    let screen = tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("/help") && screen.contains("/model") && screen.contains("/quit")
+    });
+
+    assert!(screen.contains("/help"), "screen:\n{screen}");
+    assert!(screen.contains("/model"), "screen:\n{screen}");
+    assert!(screen.contains("/quit"), "screen:\n{screen}");
+}
+
+#[test]
 fn slash_model_enter_opens_picker_in_real_pty() {
     let mut tui = HeadlessTui::spawn(100, 30);
 
@@ -138,7 +161,8 @@ fn slash_model_enter_opens_picker_in_real_pty() {
         screen.contains("Type your message")
     });
 
-    tui.send(b"/model\r");
+    tui.send(b"/model");
+    tui.send(b"\r");
     let screen = tui.wait_for_screen(Duration::from_secs(5), |screen| {
         screen.contains("Model Picker")
     });

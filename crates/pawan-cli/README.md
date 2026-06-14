@@ -4,6 +4,8 @@ Pawan (पवन) — CLI coding agent with pluggable LLM backends, 37 tools, an
 
 ## Unreleased
 
+- **Slash-command reliability** — Enter repeat/release events no longer auto-confirm modal selections after opening `/model`; headless smoke tests now cover `/help` rendering through a real PTY.
+
 ## What's New in v0.5.17
 
 - **RMUX status cards** — completed `rmux` send/key/wait/kill tool calls render action-focused status cards instead of raw JSON.
