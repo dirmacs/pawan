@@ -9,6 +9,7 @@
 ### Fixed
 - Normalized submit keys so slash commands and modals accept Enter, LF/Ctrl-J, and CR/Ctrl-M consistently across terminals.
 - Removed the Ctrl+M model-picker shortcut because terminal ^M is Return; use `/model` or Ctrl+P command search instead.
+- Fixed the Linux ARM64 release workflow apt sources so the v0.5.22 tag can build and publish all release artifacts.
 
 ## [0.5.21] - 2026-06-14
 
