@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.5.12] - 2026-06-14
+
 ### Added
 - Added RMUX snapshot-aware TUI tool cards that render pane metadata and visible terminal text instead of raw JSON.
 
