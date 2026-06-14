@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+## [0.5.17] - 2026-06-14
+
 ### Added
 - Added RMUX status-aware TUI tool cards for `send_text`, `send_key`, `wait_for_text`, and `kill_session` results.
 
