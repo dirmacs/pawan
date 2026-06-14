@@ -150,6 +150,33 @@ fn slash_help_displays_registered_commands_in_real_pty() {
 }
 
 #[test]
+fn slash_tools_displays_core_and_rmux_tools_in_real_pty() {
+    let mut tui = HeadlessTui::spawn(100, 30);
+
+    tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("Self-healing CLI coding agent")
+    });
+    tui.send(b"x");
+    tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("Type your message")
+    });
+
+    tui.send(b"/tools");
+    tui.send(b"\r");
+    let screen = tui.wait_for_screen(Duration::from_secs(5), |screen| {
+        screen.contains("Core:")
+            && screen.contains("Standard:")
+            && screen.contains("bash")
+            && screen.contains("rmux")
+    });
+
+    assert!(screen.contains("Core:"), "screen:\n{screen}");
+    assert!(screen.contains("Standard:"), "screen:\n{screen}");
+    assert!(screen.contains("bash"), "screen:\n{screen}");
+    assert!(screen.contains("rmux"), "screen:\n{screen}");
+}
+
+#[test]
 fn slash_model_enter_opens_picker_in_real_pty() {
     let mut tui = HeadlessTui::spawn(100, 30);
 

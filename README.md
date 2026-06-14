@@ -59,6 +59,9 @@ The short version: **pawan is the vibe-coding runtime for people whose productio
 
 ## Unreleased
 
+### Headless slash-command smoke
+- PTY-backed smoke coverage now verifies `/tools` renders core and RMUX tools through the real TUI.
+
 ## What's New in v0.5.18
 
 ### TUI slash-command reliability
