@@ -1,0 +1,65 @@
+name: Linux ARM64 zigbuild prototype
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-arm64-zigbuild-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  ZIG_VERSION: 0.14.1
+  CARGO_ZIGBUILD_VERSION: 0.22.3
+
+jobs:
+  linux-arm64-zigbuild:
+    name: Prototype Linux ARM64 via cargo-zigbuild
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.94
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - name: Install protoc + pkg-config
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler pkg-config
+
+      - name: Install Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Install cargo-zigbuild
+        run: cargo install cargo-zigbuild --version "${CARGO_ZIGBUILD_VERSION}" --locked
+
+      - name: Build Linux ARM64 prototype
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+        run: |
+          cargo zigbuild --release --target aarch64-unknown-linux-gnu -p pawan
+
+      - name: Validate artifact
+        run: |
+          test -s target/aarch64-unknown-linux-gnu/release/pawan
+          file target/aarch64-unknown-linux-gnu/release/pawan | tee /tmp/pawan-arm64-file.txt
+          grep -q "ARM aarch64" /tmp/pawan-arm64-file.txt
+
+      - name: Package artifact
+        run: |
+          mkdir -p dist
+          cp target/aarch64-unknown-linux-gnu/release/pawan dist/pawan-linux-arm64-zigbuild
+          chmod +x dist/pawan-linux-arm64-zigbuild
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pawan-linux-arm64-zigbuild
+          path: dist/pawan-linux-arm64-zigbuild
+          if-no-files-found: error
