@@ -262,6 +262,10 @@ mod tests {
         if std::env::var("E2E").unwrap_or_default() != "1" {
             return;
         }
+        if std::env::var("NVIDIA_API_KEY").is_err() {
+            eprintln!("skipping live NVIDIA catalog test: NVIDIA_API_KEY is not set");
+            return;
+        }
         let rt = tokio::runtime::Runtime::new().unwrap();
         let models = rt.block_on(fetch_live_models());
         assert!(models.is_some(), "Live NVIDIA API should return models");
