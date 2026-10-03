@@ -1,7 +1,7 @@
 //! Pawan MCP Server — exposes pawan's agent capabilities as MCP tools
 //!
 //! Start with: `pawan mcp serve`
-//! Connect from doltdot/OpenClaw: add to mcp.json as a stdio server
+//! Connect from any MCP client: add to mcp.json as a stdio server
 
 use async_trait::async_trait;
 use pawan::agent::PawanAgent;

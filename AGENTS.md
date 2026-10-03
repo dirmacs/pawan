@@ -41,7 +41,7 @@ pawan-aegis/   — Aegis config resolver → pawan.toml
 - **pawan-core has zero dirmacs deps** — keeps it publishable to crates.io independently
 - **NVIDIA NIM default** — `integrate.api.nvidia.com/v1`, OpenAI-compatible protocol
 - **Ollama fallback** — for local/offline use, no NIM key required
-- **TOML over JSON** — `pawan.toml` config, not JSON like openclaw used to be
+- **TOML over JSON** — `pawan.toml` config, not JSON
 - **ratatui TUI** — rich terminal UI in pawan-cli, not just plain stdout
 - **RMUX terminal substrate** — durable terminal sessions/panes are exposed through the Extended `rmux` tool and `/rmux` slash command
 
