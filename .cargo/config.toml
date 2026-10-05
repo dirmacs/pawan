@@ -11,9 +11,11 @@
 # Only enable mold rustflags when not overridden by CARGO_TARGET_*_LINKER or RUSTFLAGS.
 # Note: cargo applies config rustflags AFTER env RUSTFLAGS, so CI env vars take precedence.
 
-# Compile to a ramdisk or fast temp dir if available; otherwise
-# the default target/ is fine. Comment-in to override:
-# target-dir = "/tmp/pawan-target"
+# Build output belongs on /opt, not /tmp: /tmp is on /dev/root (85% used)
+# while /opt is a separate nvme volume with far more headroom. Set this per
+# invocation with CARGO_TARGET_DIR=/opt/.cargo-target-shared/pawan rather than
+# here — a target-dir in this file is global and breaks host `COPY target/…`
+# image builds. See decisions/2026-10-05-BUILD-OUTPUT-PLACEMENT.md (RULE 1/2).
 
 [profile.dev]
 # Optimise deps (external crates) at level 2 even in dev; pawan code
