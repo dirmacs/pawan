@@ -25,10 +25,50 @@ jobs:
             exit 1
           fi
 
+  verify-release-toolchain:
+    name: Verify release toolchain
+    runs-on: ubuntu-latest
+    steps:
+      # The shipped artifacts are compiled by 1.94, but CI validates the source
+      # at floating @stable. Without this job the release compiler is the one
+      # compiler nothing checks, so a release can ship code that never passed a
+      # gate. This mirrors ci.yml's check/test jobs under the release toolchain,
+      # so a 1.94 incompatibility fails the release here instead of shipping.
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.94
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Confirm the release toolchain is actually 1.94
+        run: |
+          rustc --version
+          if ! rustc --version | grep -q '^rustc 1\.94\.'; then
+            echo "::error::expected rustc 1.94 for the release toolchain, got: $(rustc --version)"
+            exit 1
+          fi
+
+      - name: Check
+        run: cargo check --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace -- -D warnings
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Test
+        run: cargo test --workspace
+
   build:
     name: Build (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
-    needs: preflight
+    needs: [preflight, verify-release-toolchain]
     strategy:
       fail-fast: false
       matrix:
