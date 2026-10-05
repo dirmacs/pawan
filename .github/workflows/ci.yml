@@ -87,3 +87,48 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # The shipped binaries are compiled by release.yml, which pins its own
+  # toolchain. Every other job here runs @stable, so without this gate a
+  # release compiler can break without any check noticing. #89.
+  #
+  # This job inherits the workflow's RUSTFLAGS: -D warnings, which the release
+  # build does not set, so it is strictly stricter than what ships.
+  release-toolchain:
+    name: Release toolchain build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Fail before installing anything if release.yml moves to another
+      # compiler: otherwise this gate would keep testing a version that no
+      # longer ships, and the gap would reopen silently.
+      - name: Assert this gate still matches release.yml
+        run: |
+          release_pin="$(grep -oE 'dtolnay/rust-toolchain@[0-9][0-9.]*' .github/workflows/release.yml | head -1 | cut -d@ -f2)"
+          gate_pin="1.94"
+          if [ -z "$release_pin" ]; then
+            echo "::error::could not read a pinned rust-toolchain out of release.yml"
+            exit 1
+          fi
+          if [ "$release_pin" != "$gate_pin" ]; then
+            echo "::error::release.yml builds with $release_pin but this gate tests $gate_pin"
+            echo "::error::update both together, or the release compiler is ungated again"
+            exit 1
+          fi
+          echo "gate matches release.yml: $gate_pin"
+
+      - uses: dtolnay/rust-toolchain@1.94
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-toolchain
+
+      - name: Build the shipped Linux binary on the release toolchain
+        run: cargo build --release --target x86_64-unknown-linux-gnu -p pawan
+
