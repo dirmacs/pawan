@@ -49,7 +49,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: ./.github/actions/setup-rust
         with:
           targets: ${{ matrix.target }}
 
@@ -142,7 +142,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.94
+      - uses: ./.github/actions/setup-rust
 
       - name: Install protoc + build tools
         run: |
