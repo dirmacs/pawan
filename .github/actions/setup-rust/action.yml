@@ -1,0 +1,57 @@
+name: Setup Rust
+description: >
+  Installs the project's pinned Rust toolchain. The version is written down in
+  exactly one file, `toolchain-version` beside this action. ci.yml and
+  release.yml both call this action, so the compiler that validates a commit
+  and the compiler that ships an artifact cannot drift apart.
+
+  Only the VERSION is centralised. Components and targets stay per-job, because
+  those genuinely differ per job -- and release.yml's `targets:` is what
+  produces the arm64 and macOS artifacts, so it has to keep working.
+
+inputs:
+  components:
+    description: Comma-separated rustup components to add (e.g. "clippy, rustfmt").
+    required: false
+    default: ""
+  targets:
+    description: Comma-separated rustup targets to add for cross-compilation.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # Read the version at run time rather than inlining it, so this action and
+    # the file beside it can never disagree.
+    - name: Read the pinned toolchain version
+      id: pinned
+      shell: bash
+      run: |
+        ver="$(tr -d '[:space:]' < "${{ github.action_path }}/toolchain-version")"
+        if [ -z "$ver" ]; then
+          echo "::error::toolchain-version is empty or unreadable"
+          exit 1
+        fi
+        echo "ver=$ver" >> "$GITHUB_OUTPUT"
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: ${{ steps.pinned.outputs.ver }}
+        components: ${{ inputs.components }}
+        targets: ${{ inputs.targets }}
+
+    # Fail loudly rather than silently building with whatever the action
+    # resolved. A drifted toolchain is invisible in the logs otherwise: a
+    # successful build looks identical either way.
+    - name: Confirm the pinned toolchain is what we asked for
+      shell: bash
+      run: |
+        expected="${{ steps.pinned.outputs.ver }}"
+        actual="$(rustc --version | awk '{print $2}')"
+        if [ "$(printf '%s' "$actual" | cut -d. -f1,2)" != "$(printf '%s' "$expected" | cut -d. -f1,2)" ]; then
+          echo "::error::expected rustc ${expected}, got ${actual}"
+          exit 1
+        fi
+        echo "pinned toolchain confirmed: ${actual}"
