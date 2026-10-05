@@ -99,27 +99,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Fail before installing anything if release.yml moves to another
-      # compiler: otherwise this gate would keep testing a version that no
-      # longer ships, and the gap would reopen silently.
-      - name: Assert this gate still matches release.yml
-        run: |
-          release_pin="$(grep -oE 'dtolnay/rust-toolchain@[0-9][0-9.]*' .github/workflows/release.yml | head -1 | cut -d@ -f2)"
-          gate_pin="1.94"
-          if [ -z "$release_pin" ]; then
-            echo "::error::could not read a pinned rust-toolchain out of release.yml"
-            exit 1
-          fi
-          if [ "$release_pin" != "$gate_pin" ]; then
-            echo "::error::release.yml builds with $release_pin but this gate tests $gate_pin"
-            echo "::error::update both together, or the release compiler is ungated again"
-            exit 1
-          fi
-          echo "gate matches release.yml: $gate_pin"
-
       - uses: dtolnay/rust-toolchain@1.94
         with:
           targets: x86_64-unknown-linux-gnu
+
+      # Compare the compiler that actually got installed against every pin in
+      # release.yml. This runs after the install on purpose: reading rustc's
+      # real version catches a drifted `uses:` ref, which comparing a second
+      # hardcoded pin string would not.
+      - name: Assert this gate is running the compiler release.yml ships
+        run: |
+          release_pins="$(grep -oE 'dtolnay/rust-toolchain@[0-9][0-9.]*' .github/workflows/release.yml | cut -d@ -f2 | sort -u)"
+          distinct="$(printf '%s\n' "$release_pins" | grep -c '[0-9]')"
+          if [ "$distinct" -eq 0 ]; then
+            echo "::error::no pinned rust-toolchain found in release.yml"
+            exit 1
+          fi
+          if [ "$distinct" -ne 1 ]; then
+            echo "::error::release.yml pins $distinct different toolchains: $release_pins"
+            echo "::error::build and publish must agree, or the gate cannot match one"
+            exit 1
+          fi
+          # Compare major.minor only: rustc reports 1.94.0 where release.yml
+          # pins 1.94, so a full triple comparison would never match.
+          actual="$(rustc --version | grep -oE '[0-9]+\.[0-9]+')"
+          if [ "$actual" != "$release_pins" ]; then
+            echo "::error::this gate is running rustc $actual but release.yml ships $release_pins"
+            echo "::error::update the gate and release.yml together, or the release compiler is ungated again"
+            exit 1
+          fi
+          echo "gate is running $actual, matching release.yml"
 
       - name: Install protoc
         run: |
