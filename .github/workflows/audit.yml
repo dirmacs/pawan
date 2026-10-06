@@ -21,7 +21,7 @@ on:
 jobs:
   audit:
     name: cargo audit
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, arm64, dirmacs-ci]
     permissions:
       contents: read
       issues: write
