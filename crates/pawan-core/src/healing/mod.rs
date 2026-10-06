@@ -426,11 +426,10 @@ impl AuditFixer {
                 // mistake an incomplete scan for a clean one.
                 return Ok(vec![Diagnostic {
                     kind: DiagnosticKind::Warning,
-                    message:
-                        "cargo audit timed out after 120 s. Security status is unknown — \
+                    message: "cargo audit timed out after 120 s. Security status is unknown — \
                          this is not a clean audit. Consider running `cargo audit` manually \
                          or increasing the network/cache warm-up time."
-                            .to_string(),
+                        .to_string(),
                     file: None,
                     line: None,
                     column: None,
@@ -1383,7 +1382,10 @@ mod tests {
         //
         // We replicate the match directly rather than spawning a real async
         // runtime, because the shape (not the runtime) is what we are testing.
-        let timeout_result: std::result::Result<std::result::Result<std::process::Output, std::io::Error>, ()> = Err(());
+        let timeout_result: std::result::Result<
+            std::result::Result<std::process::Output, std::io::Error>,
+            (),
+        > = Err(());
 
         let diags: Vec<Diagnostic> = match timeout_result {
             Ok(Ok(_)) => panic!("should not reach success arm"),
@@ -1415,7 +1417,11 @@ mod tests {
             }],
         };
 
-        assert_eq!(diags.len(), 1, "timeout arm must return exactly one diagnostic");
+        assert_eq!(
+            diags.len(),
+            1,
+            "timeout arm must return exactly one diagnostic"
+        );
         assert_eq!(
             diags[0].kind,
             DiagnosticKind::Warning,
@@ -1438,8 +1444,13 @@ mod tests {
         // Simulate what happens when wait_with_output() itself returns Err:
         // the match arm `Ok(Err(e))` must produce a non-empty diagnostic vec
         // with kind=Warning and code="audit-io-error".
-        let io_result: std::result::Result<std::result::Result<std::process::Output, std::io::Error>, ()> =
-            Ok(Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken pipe")));
+        let io_result: std::result::Result<
+            std::result::Result<std::process::Output, std::io::Error>,
+            (),
+        > = Ok(Err(std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "broken pipe",
+        )));
 
         let diags: Vec<Diagnostic> = match io_result {
             Ok(Ok(_)) => panic!("should not reach success arm"),
@@ -1459,7 +1470,11 @@ mod tests {
             Err(_elapsed) => panic!("should not reach timeout arm"),
         };
 
-        assert_eq!(diags.len(), 1, "IO-error arm must return exactly one diagnostic");
+        assert_eq!(
+            diags.len(),
+            1,
+            "IO-error arm must return exactly one diagnostic"
+        );
         assert_eq!(
             diags[0].kind,
             DiagnosticKind::Warning,
