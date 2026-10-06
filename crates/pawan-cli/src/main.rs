@@ -520,7 +520,7 @@ enum Commands {
 
     /// Run model latency benchmarks via nimakai
     Bench,
-    /// Send a notification via doltares relay (WhatsApp/Telegram)
+    /// Send a notification via the relay service (WhatsApp/Telegram)
     Notify {
         /// Message to send
         message: String,
@@ -575,7 +575,7 @@ enum Commands {
         #[arg(long)]
         commit: bool,
 
-        /// Send notification via doltares relay on build failure
+        /// Send notification via the relay service on build failure
         #[arg(long)]
         notify: bool,
     },
@@ -3855,18 +3855,18 @@ async fn run_bench() -> Result<()> {
     Ok(())
 }
 
-/// Send a notification via doltares relay
+/// Send a notification via the relay service
 async fn run_notify(message: &str, channel: &str) -> Result<()> {
-    let api_key = std::env::var("DOLTA_API_KEY").unwrap_or_default();
+    let api_key = std::env::var("PAWAN_RELAY_API_KEY").unwrap_or_default();
     if api_key.is_empty() {
         println!(
             "{}",
-            "DOLTA_API_KEY not set. Set it in .env or export it.".yellow()
+            "PAWAN_RELAY_API_KEY not set. Set it in .env or export it.".yellow()
         );
         return Ok(());
     }
 
-    let relay_url = std::env::var("DOLTARES_RELAY_URL")
+    let relay_url = std::env::var("PAWAN_RELAY_URL")
         .unwrap_or_else(|_| "http://localhost:3100/api/deliver".to_string());
 
     let body = serde_json::json!({
