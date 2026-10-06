@@ -1782,31 +1782,64 @@ async fn run_review(
         .current_dir(&workspace)
         .output()
         .map_err(PawanError::Io)?;
+    let _ = diff_output;
 
-    // `git diff HEAD` legitimately fails in a repository with no commits, so a failure
-    // here is not fatal on its own: fall through to the unstaged probe below, which is
-    // authoritative in that case. If *that* fails too, git is broken and the error is
-    // surfaced rather than reported as an empty diff.
-    let diff = checked_git_stdout(&diff_output, "git diff HEAD").unwrap_or_default();
-
-    if diff.trim().is_empty() {
-        // Try unstaged diff if HEAD diff is empty
-        let fallback = std::process::Command::new("git")
-            .args(["diff"])
-            .current_dir(&workspace)
-            .output()
-            .map_err(PawanError::Io)?;
-        let fallback_diff = checked_git_stdout(&fallback, "git diff")?;
-
-        if fallback_diff.trim().is_empty() {
+    match review_diff(&diff_args_ref, &workspace)? {
+        Some(diff) => run_review_with_diff(config, workspace, &diff).await,
+        None => {
             println!("{}", "No changes to review.".dimmed());
-            return Ok(());
+            Ok(())
         }
-        // Use unstaged diff
-        return run_review_with_diff(config, workspace, &fallback_diff).await;
+    }
+}
+
+/// Collect the diff to review, or `None` when there is genuinely nothing.
+///
+/// Three probes, in order, because each covers a case the others miss:
+///
+/// 1. `git diff HEAD` -- the ordinary case. It fails *legitimately* in a
+///    repository with no commits, so it is soft.
+/// 2. `git diff` -- worktree against index. Authoritative: if this one fails,
+///    git is broken and the error surfaces instead of reading as "no changes".
+/// 3. `git diff --cached` -- index against HEAD. Empty whenever the work has
+///    already been staged, which is exactly when probe 2 returns nothing. It
+///    exits 0 even with no commits, so unlike probe 1 it needs no soft
+///    handling. Without it, a fresh repository whose first commit is staged
+///    reported "no changes to review" while `pawan commit` listed the very
+///    same file as staged.
+fn review_diff(head_args: &[&str], workspace: &Path) -> Result<Option<String>> {
+    let head = std::process::Command::new("git")
+        .args(head_args)
+        .current_dir(workspace)
+        .output()
+        .map_err(PawanError::Io)?;
+    let head_desc = format!("git {}", head_args.join(" "));
+    let diff = checked_git_stdout(&head, &head_desc).unwrap_or_default();
+    if !diff.trim().is_empty() {
+        return Ok(Some(diff));
     }
 
-    run_review_with_diff(config, workspace, &diff).await
+    let unstaged = std::process::Command::new("git")
+        .args(["diff"])
+        .current_dir(workspace)
+        .output()
+        .map_err(PawanError::Io)?;
+    let fallback_diff = checked_git_stdout(&unstaged, "git diff")?;
+    if !fallback_diff.trim().is_empty() {
+        return Ok(Some(fallback_diff));
+    }
+
+    let staged = std::process::Command::new("git")
+        .args(["diff", "--cached"])
+        .current_dir(workspace)
+        .output()
+        .map_err(PawanError::Io)?;
+    let staged_diff = checked_git_stdout(&staged, "git diff --cached")?;
+    if !staged_diff.trim().is_empty() {
+        return Ok(Some(staged_diff));
+    }
+
+    Ok(None)
 }
 
 async fn run_review_with_diff(config: PawanConfig, workspace: PathBuf, diff: &str) -> Result<()> {
@@ -4365,6 +4398,133 @@ A  added.rs
         assert!(
             text.contains("tracked.txt"),
             "uncommitted work must be visible, got: {text:?}"
+        );
+    }
+
+    /// `review_diff` must see staged work even where the HEAD probe cannot run.
+    ///
+    /// Calls the production function rather than re-running the probe cascade
+    /// inline: an earlier version of this test reimplemented the three probes
+    /// itself, and consequently stayed green when the staged fallback was
+    /// disabled -- it proved git's behaviour, not that pawan used it.
+    #[test]
+    fn test_review_diff_reads_staged_work_when_head_probe_unavailable() {
+        let dir = tempfile::tempdir().unwrap();
+        init_repo(dir.path());
+        std::fs::write(dir.path().join("staged.txt"), "staged review work\n").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(dir.path())
+            .output()
+            .expect("spawn git add");
+
+        // Premise checks, so a pass cannot rest on a git that behaves otherwise.
+        let head = std::process::Command::new("git")
+            .args(["diff", "HEAD"])
+            .current_dir(dir.path())
+            .output()
+            .expect("spawn git diff HEAD");
+        assert!(
+            !head.status.success(),
+            "premise: no commits means `git diff HEAD` must fail"
+        );
+        let unstaged = std::process::Command::new("git")
+            .args(["diff"])
+            .current_dir(dir.path())
+            .output()
+            .expect("spawn git diff");
+        assert!(
+            unstaged.status.success() && unstaged.stdout.is_empty(),
+            "premise: staged work leaves the unstaged probe empty"
+        );
+
+        let diff = review_diff(&["diff", "HEAD"], dir.path())
+            .expect("no commits must not be an error")
+            .expect("staged work must be found even when the HEAD probe fails");
+        assert!(
+            diff.contains("staged review work"),
+            "the staged probe must carry the staged content, got: {diff:?}"
+        );
+    }
+
+    /// The control the fix must not break: a genuinely clean repository still
+    /// reports nothing to review.
+    #[test]
+    fn test_review_diff_none_on_clean_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        init_repo(dir.path());
+        std::fs::write(dir.path().join("f.txt"), "committed\n").unwrap();
+        let ok = std::process::Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(dir.path())
+            .output()
+            .expect("spawn git add");
+        assert!(ok.status.success(), "premise: git add must succeed");
+        let c = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-qm",
+                "init",
+            ])
+            .current_dir(dir.path())
+            .output()
+            .expect("spawn git commit");
+        assert!(
+            c.status.success(),
+            "premise: git commit must succeed: {}",
+            String::from_utf8_lossy(&c.stderr)
+        );
+
+        assert!(
+            review_diff(&["diff", "HEAD"], dir.path())
+                .expect("a clean repo must not error")
+                .is_none(),
+            "a clean repository has nothing to review"
+        );
+    }
+
+    /// Unstaged work must still be found -- the middle probe's own case.
+    #[test]
+    fn test_review_diff_reads_unstaged_work() {
+        let dir = tempfile::tempdir().unwrap();
+        init_repo(dir.path());
+        std::fs::write(dir.path().join("f.txt"), "committed\n").unwrap();
+        let ok = std::process::Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(dir.path())
+            .output()
+            .expect("spawn git add");
+        assert!(ok.status.success(), "premise: git add must succeed");
+        let c = std::process::Command::new("git")
+            .args([
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-qm",
+                "init",
+            ])
+            .current_dir(dir.path())
+            .output()
+            .expect("spawn git commit");
+        assert!(
+            c.status.success(),
+            "premise: git commit must succeed: {}",
+            String::from_utf8_lossy(&c.stderr)
+        );
+        std::fs::write(dir.path().join("f.txt"), "unstaged edit\n").unwrap();
+
+        let diff = review_diff(&["diff", "HEAD"], dir.path())
+            .expect("a real repo must not error")
+            .expect("unstaged work must be found");
+        assert!(
+            diff.contains("unstaged edit"),
+            "unstaged content must be carried, got: {diff:?}"
         );
     }
 
