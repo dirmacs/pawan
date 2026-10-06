@@ -289,21 +289,19 @@ mod print {
         }
 
         /// Build a throwaway git repo. `commit` controls whether HEAD exists.
-        fn scratch_repo(name: &str, commit: bool) -> PathBuf {
-            let dir = std::env::temp_dir().join(format!("pawan-review-diff-{name}"));
-            let _ = std::fs::remove_dir_all(&dir);
-            std::fs::create_dir_all(&dir).unwrap();
+        fn scratch_repo(commit: bool) -> tempfile::TempDir {
+            let dir = tempfile::tempdir().unwrap();
 
             let git = |args: &[&str]| {
                 std::process::Command::new("git")
                     .args(args)
-                    .current_dir(&dir)
+                    .current_dir(dir.path())
                     .output()
                     .unwrap()
             };
 
             git(&["init", "-q", "."]);
-            std::fs::write(dir.join("f.txt"), "IMPORTANT STAGED WORK\n").unwrap();
+            std::fs::write(dir.path().join("f.txt"), "IMPORTANT STAGED WORK\n").unwrap();
 
             if commit {
                 git(&["add", "-A"]);
@@ -326,14 +324,14 @@ mod print {
         /// `git diff` is empty because worktree == index.
         #[test]
         fn test_review_diff_finds_staged_work_in_a_repo_with_no_commits() {
-            let dir = scratch_repo("fresh-staged", false);
+            let dir = scratch_repo(false);
             std::process::Command::new("git")
                 .args(["add", "-A"])
-                .current_dir(&dir)
+                .current_dir(dir.path())
                 .output()
                 .unwrap();
 
-            let diff = review_diff(&dir, false, None)
+            let diff = review_diff(dir.path(), false, None)
                 .expect("staged work in a repo with no commits must be reviewable");
 
             assert!(
@@ -346,10 +344,10 @@ mod print {
         /// fix has traded one wrong answer for another.
         #[test]
         fn test_review_diff_reports_nothing_for_a_clean_repo() {
-            let dir = scratch_repo("clean", true);
+            let dir = scratch_repo(true);
 
             assert!(
-                review_diff(&dir, false, None).is_none(),
+                review_diff(dir.path(), false, None).is_none(),
                 "a clean repo must yield no diff"
             );
         }
@@ -357,10 +355,10 @@ mod print {
         /// Unstaged work must keep being found by the plain `git diff` fallback.
         #[test]
         fn test_review_diff_still_finds_unstaged_work() {
-            let dir = scratch_repo("unstaged", true);
-            std::fs::write(dir.join("f.txt"), "CHANGED BUT NOT STAGED\n").unwrap();
+            let dir = scratch_repo(true);
+            std::fs::write(dir.path().join("f.txt"), "CHANGED BUT NOT STAGED\n").unwrap();
 
-            let diff = review_diff(&dir, false, None).expect("unstaged work must be reviewable");
+            let diff = review_diff(dir.path(), false, None).expect("unstaged work must be reviewable");
 
             assert!(
                 diff.contains("CHANGED BUT NOT STAGED"),
