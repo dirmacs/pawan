@@ -441,6 +441,11 @@ pub struct ScheduledTaskResult {
 }
 
 /// Executes validated [`ScheduledTask`] items (used by tests and future batch dispatch).
+//
+// Same macro-generated double `#[must_use]` as `LlmBackend` and `PoolExecutor`:
+// `async_trait` marks the generated future, and `crate::Result<Value>` is already
+// `#[must_use]`. See #86.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait TaskRunner: Send + Sync {
     async fn run(&self, task: &ScheduledTask) -> crate::Result<Value>;

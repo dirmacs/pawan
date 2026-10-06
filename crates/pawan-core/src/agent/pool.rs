@@ -41,6 +41,10 @@ pub struct PoolResult {
     pub duration_ms: u64,
 }
 
+// Same macro-generated double `#[must_use]` as `LlmBackend`: `async_trait`
+// marks the generated future, and `PoolResult` is already `#[must_use]`.
+// See #86.
+#[allow(clippy::double_must_use)]
 #[async_trait::async_trait]
 pub trait PoolExecutor: Send + Sync + 'static {
     async fn execute_task(&self, task: PoolTask, cancel: CancellationToken) -> PoolResult;

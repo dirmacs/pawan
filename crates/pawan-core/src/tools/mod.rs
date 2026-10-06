@@ -39,6 +39,11 @@ use std::sync::Arc;
 pub use thulp_core::ToolDefinition;
 
 /// Trait for implementing tools
+//
+// Same macro-generated double `#[must_use]` as `LlmBackend`, `PoolExecutor` and
+// `TaskRunner`: `async_trait` marks the generated future, and the trait's return
+// types are already `#[must_use]`. See #86.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait Tool: Send + Sync {
     /// Returns the unique name of this tool

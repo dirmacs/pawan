@@ -15,6 +15,12 @@ use crate::Result;
 use async_trait::async_trait;
 
 /// Trait for LLM backends that can generate responses
+//
+// `async_trait` puts `#[must_use]` on the boxed future it generates, and the
+// `Result` return type is already `#[must_use]`. The duplication is generated
+// by the macro, so there is no source-level `#[must_use]` to remove or annotate.
+// Reported by clippy 1.99 as `double_must_use`; see #86.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait LlmBackend: Send + Sync {
     /// Generate a response given messages and available tools
