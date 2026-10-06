@@ -58,4 +58,14 @@ ignore = [
   # YAML parsing (if any) uses serde_yaml. The historical DoS (YAML_LOADED_AT)
   # is patched in 0.4.5.
   "RUSTSEC-2024-0320", # dirmacs/pawan#12
+  # h2 0.3.27 — externally blocked transitive via thulp-mcp → rs-utcp 0.3.2 →
+  # tonic 0.11 → hyper 0.14. rs-utcp 0.3.2 (latest) pins tonic 0.11, so no
+  # in-repo bump clears it. Revisit when rs-utcp moves to tonic 0.12.
+  "RUSTSEC-2026-0258", # dirmacs/pawan#129
+
+  # rustls 0.23.39 — externally blocked transitive via thulp-mcp → rs-utcp 0.3.2
+  # → dtls 0.13/webrtc, which pins rustls below the patched floor. Revisit when
+  # rs-utcp releases a compatible version.
+  "RUSTSEC-2026-0285", # dirmacs/pawan#130
+
 ]
