@@ -41,9 +41,17 @@ jobs:
       # NOT mirror ci.yml's macos-tui-smoke or its separate doc job, and it
       # runs only on ubuntu-latest -- this is not CI parity, it is a 1.94 gate.
       #
-      # nextest is pinned to the version measured against this toolchain; an
-      # unpinned `tool: nextest` installs whatever is latest at run time, so
-      # this job could gate on a runner version nobody has verified on 1.94.
+        # nextest is pinned to a fixed published release so this gate runs the
+        # same runner on every release rather than whatever is newest at run
+        # time. It is NOT pinned because 0.9.137 was verified against 1.94 --
+        # no such run has been made; it is pinned for determinism only.
+        #
+        # ci.yml:48 leaves nextest floating, so this gate's runner is not
+        # necessarily CI's runner. That difference is deliberate and bounded:
+        # it does not affect the compiler parity this job exists to check, and
+        # a test failing here on a runner-version difference is not evidence of
+        # a 1.94 incompatibility. Closing it properly means pinning ci.yml too,
+        # which is a separate change.
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.94
 
