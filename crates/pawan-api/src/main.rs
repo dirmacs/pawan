@@ -161,7 +161,7 @@ fn read_aegis_peers() -> Result<Vec<serde_json::Value>, PeerConfigError> {
 
     // Parse TOML
     let parsed: toml::Value = content
-        .parse()
+        .parse::<toml::Value>()
         .map_err(|e| PeerConfigError::Malformed(e.to_string()))?;
 
     // Get peers table
