@@ -1407,14 +1407,14 @@ fn fetch_staged_diff(workspace: &Path) -> Result<(String, String)> {
         .current_dir(workspace)
         .output()
         .map_err(PawanError::Io)?;
-    let diff_stat = String::from_utf8_lossy(&diff_output.stdout).into_owned();
+    let diff_stat = checked_git_stdout(&diff_output, "git diff --cached --stat")?;
 
     let diff_output = std::process::Command::new("git")
         .args(["diff", "--cached"])
         .current_dir(workspace)
         .output()
         .map_err(PawanError::Io)?;
-    let diff_full = String::from_utf8_lossy(&diff_output.stdout).into_owned();
+    let diff_full = checked_git_stdout(&diff_output, "git diff --cached")?;
 
     Ok((diff_stat, diff_full))
 }
@@ -4270,6 +4270,102 @@ A  added.rs
     #[test]
     fn test_ensure_staged_changes_empty_diff() {
         assert!(!ensure_staged_changes("", &[]));
+    }
+
+    // --- Regression tests: a git probe that RAN AND FAILED must not report an
+    // empty result (#98, #102). `Command::output()` is `Ok` as soon as the
+    // process spawns, and failing git writes to stderr while leaving stdout
+    // empty, so a broken probe and a clean tree were byte-identical.
+
+    /// Must-pass control: if `git init` does not succeed, every assertion below
+    /// that depends on a real repository would be measuring nothing.
+    fn init_repo(dir: &Path) {
+        let out = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir)
+            .output()
+            .expect("spawn git init");
+        assert!(
+            out.status.success(),
+            "control failed: git init must succeed for these tests to mean anything: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    /// `fetch_staged_diff` reads stdout of `git diff --cached` without checking
+    /// the exit status, on the same `run_commit` path as #98.
+    #[test]
+    fn test_fetch_staged_diff_reports_failure_rather_than_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            fetch_staged_diff(dir.path()).is_err(),
+            "a git diff --cached that failed must not be reported as no staged changes"
+        );
+    }
+
+    /// The staged probe must still succeed where the HEAD probe legitimately
+    /// cannot: a repository with no commits has no `HEAD` to diff against, but
+    /// `git diff --cached` still exits 0. This is why the review path treats
+    /// `diff HEAD` as soft and this one as authoritative.
+    #[test]
+    fn test_fetch_staged_diff_succeeds_in_repo_without_commits() {
+        let dir = tempfile::tempdir().unwrap();
+        init_repo(dir.path());
+        std::fs::write(dir.path().join("staged.txt"), "first commit\n").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(dir.path())
+            .output()
+            .expect("spawn git add");
+        let (stat, full) = fetch_staged_diff(dir.path())
+            .expect("a no-commit repo must not be treated as a failed probe");
+        assert!(
+            stat.contains("staged.txt"),
+            "staged stat should name the file, got: {stat:?}"
+        );
+        assert!(
+            full.contains("first commit"),
+            "staged diff should carry the content, got: {full:?}"
+        );
+    }
+
+    #[test]
+    fn test_fetch_staged_diff_ok_on_clean_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        init_repo(dir.path());
+        let (stat, full) = fetch_staged_diff(dir.path())
+            .expect("a clean repository must be Ok, however empty the diff");
+        assert!(
+            stat.trim().is_empty(),
+            "clean tree has no stat, got {stat:?}"
+        );
+        assert!(
+            full.trim().is_empty(),
+            "clean tree has no diff, got {full:?}"
+        );
+    }
+
+    #[test]
+    fn test_fetch_git_porcelain_status_reports_failure_rather_than_clean() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            fetch_git_porcelain_status(dir.path()).is_err(),
+            "a git status that failed must not be reported as a clean working tree"
+        );
+    }
+
+    #[test]
+    fn test_fetch_git_porcelain_status_ok_on_real_repo_with_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        init_repo(dir.path());
+        std::fs::write(dir.path().join("tracked.txt"), "uncommitted\n").unwrap();
+        let text = fetch_git_porcelain_status(dir.path())
+            .expect("a real repository must be Ok")
+            .expect("an uncommitted file must not read as a clean tree");
+        assert!(
+            text.contains("tracked.txt"),
+            "uncommitted work must be visible, got: {text:?}"
+        );
     }
 
     #[test]
