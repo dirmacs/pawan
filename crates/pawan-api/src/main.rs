@@ -156,8 +156,8 @@ fn read_aegis_peers() -> Result<Vec<serde_json::Value>, PeerConfigError> {
     }
 
     // Read file content
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| PeerConfigError::Unreadable(e.to_string()))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| PeerConfigError::Unreadable(e.to_string()))?;
 
     // Parse TOML
     let parsed: toml::Value = content
