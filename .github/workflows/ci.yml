@@ -87,3 +87,57 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # The shipped binaries are compiled by release.yml, which pins its own
+  # toolchain. Every other job here runs @stable, so without this gate a
+  # release compiler can break without any check noticing. #89.
+  #
+  # This job inherits the workflow's RUSTFLAGS: -D warnings, which the release
+  # build does not set, so it is strictly stricter than what ships.
+  release-toolchain:
+    name: Release toolchain build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.94
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      # Compare the compiler that actually got installed against every pin in
+      # release.yml. This runs after the install on purpose: reading rustc's
+      # real version catches a drifted `uses:` ref, which comparing a second
+      # hardcoded pin string would not.
+      - name: Assert this gate is running the compiler release.yml ships
+        run: |
+          release_pins="$(grep -oE 'dtolnay/rust-toolchain@[0-9][0-9.]*' .github/workflows/release.yml | cut -d@ -f2 | sort -u)"
+          distinct="$(printf '%s\n' "$release_pins" | grep -c '[0-9]')"
+          if [ "$distinct" -eq 0 ]; then
+            echo "::error::no pinned rust-toolchain found in release.yml"
+            exit 1
+          fi
+          if [ "$distinct" -ne 1 ]; then
+            echo "::error::release.yml pins $distinct different toolchains: $release_pins"
+            echo "::error::build and publish must agree, or the gate cannot match one"
+            exit 1
+          fi
+          # Compare major.minor only: rustc reports 1.94.0 where release.yml
+          # pins 1.94, so a full triple comparison would never match.
+          actual="$(rustc --version | grep -oE '[0-9]+\.[0-9]+')"
+          if [ "$actual" != "$release_pins" ]; then
+            echo "::error::this gate is running rustc $actual but release.yml ships $release_pins"
+            echo "::error::update the gate and release.yml together, or the release compiler is ungated again"
+            exit 1
+          fi
+          echo "gate is running $actual, matching release.yml"
+
+      - name: Install protoc
+        run: |
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-toolchain
+
+      - name: Build the shipped Linux binary on the release toolchain
+        run: cargo build --release --target x86_64-unknown-linux-gnu -p pawan
+
