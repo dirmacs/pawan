@@ -28,6 +28,8 @@ jobs:
       checks: write
     steps:
       - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2.0.0
+      # Pinned to an immutable SHA so the gate is reproducible (pawan#119).
+      # @v2.0.0 = 69366f33c96575abad1ee0dba8212993eecbe998
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
