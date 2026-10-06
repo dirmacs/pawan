@@ -5,11 +5,17 @@
 # needs (protobuf-compiler for prost, pkg-config, a C toolchain), then a slim
 # Debian runtime that carries only the linked binaries + TLS certs.
 #
-# Build:  DOCKER_BUILDKIT=1 docker build -t pawan .
+# Build (slim runtime, the deliverable):  DOCKER_BUILDKIT=1 docker build -t pawan .
 # Run:    docker run --rm pawan            # pawan-api (the service)
 #         docker run --rm --entrypoint pawan pawan --help   # the CLI
+#
+# Dev toolchain (shell-in work): the `dev` stage is the full Rust toolchain +
+# native build deps + the workspace source. Build a shellable dev image with
+#   docker build --target dev -t pawan-dev .
+# then `docker run --rm -it pawan-dev bash` to build/test inside the container.
 
-FROM rust:1.99-bookworm AS builder
+# --- dev (toolchain + deps + source; also the builder for the runtime stage) --
+FROM rust:1.99-bookworm AS dev
 
 # Native build deps. protobuf-compiler is required by the prost build in the
 # workspace; pkg-config + a C toolchain cover the openssl/native crates.
@@ -54,8 +60,8 @@ RUN apt-get update \
 RUN useradd --system --uid 10001 --create-home pawan
 USER pawan
 
-COPY --from=builder /usr/local/bin/pawan /usr/local/bin/pawan
-COPY --from=builder /usr/local/bin/pawan-api /usr/local/bin/pawan-api
+COPY --from=dev /usr/local/bin/pawan /usr/local/bin/pawan
+COPY --from=dev /usr/local/bin/pawan-api /usr/local/bin/pawan-api
 
 # pawan-api is configured by environment (no CLI flags):
 #   PAWAN_API_PORT  listen port (default 3300)
