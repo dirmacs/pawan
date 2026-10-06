@@ -1246,18 +1246,38 @@ async fn run_task(
     Ok(())
 }
 
+/// Run a git probe and return its stdout, treating a non-zero exit as a hard error.
+///
+/// `Command::output()` yields `Ok` whenever the process *spawns*, so a git that ran and
+/// failed (not a repository, dubious ownership, corrupt `.git`) produces empty stdout.
+/// Callers that treat empty stdout as "nothing to do" then report a clean tree or an
+/// empty diff for work that was never measured. Checking `status` and surfacing `stderr`
+/// turns that silent success into a reported failure.
+fn checked_git_stdout(output: &std::process::Output, description: &str) -> Result<String> {
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        return Err(PawanError::Git(if detail.is_empty() {
+            format!("{description} failed with status {}", output.status)
+        } else {
+            format!("{description} failed: {detail}")
+        }));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
 fn fetch_git_porcelain_status(workspace: &Path) -> Result<Option<String>> {
     let status_output = std::process::Command::new("git")
         .args(["status", "--porcelain"])
         .current_dir(workspace)
         .output()
         .map_err(PawanError::Io)?;
-    let status_text = String::from_utf8_lossy(&status_output.stdout);
+    let status_text = checked_git_stdout(&status_output, "git status --porcelain")?;
     if status_text.trim().is_empty() {
         println!("{}", "Nothing to commit — working tree clean.".dimmed());
         return Ok(None);
     }
-    Ok(Some(status_text.into_owned()))
+    Ok(Some(status_text))
 }
 
 fn parse_git_status_categories(status_text: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
@@ -1763,7 +1783,11 @@ async fn run_review(
         .output()
         .map_err(PawanError::Io)?;
 
-    let diff = String::from_utf8_lossy(&diff_output.stdout);
+    // `git diff HEAD` legitimately fails in a repository with no commits, so a failure
+    // here is not fatal on its own: fall through to the unstaged probe below, which is
+    // authoritative in that case. If *that* fails too, git is broken and the error is
+    // surfaced rather than reported as an empty diff.
+    let diff = checked_git_stdout(&diff_output, "git diff HEAD").unwrap_or_default();
 
     if diff.trim().is_empty() {
         // Try unstaged diff if HEAD diff is empty
@@ -1772,7 +1796,7 @@ async fn run_review(
             .current_dir(&workspace)
             .output()
             .map_err(PawanError::Io)?;
-        let fallback_diff = String::from_utf8_lossy(&fallback.stdout);
+        let fallback_diff = checked_git_stdout(&fallback, "git diff")?;
 
         if fallback_diff.trim().is_empty() {
             println!("{}", "No changes to review.".dimmed());
