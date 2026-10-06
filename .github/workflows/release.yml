@@ -32,16 +32,26 @@ jobs:
       # The shipped artifacts are compiled by 1.94, but CI validates the source
       # at floating @stable. Without this job the release compiler is the one
       # compiler nothing checks, so a release can ship code that never passed a
-      # gate. This mirrors ci.yml's check/test jobs under the release toolchain,
+      # gate. This runs ci.yml's check/test gates under the release toolchain,
       # so a 1.94 incompatibility fails the release here instead of shipping.
+      #
+      # Scope of the mirror, stated precisely: this job runs ci.yml's `check`
+      # gate commands (check/clippy/fmt) and ci.yml's `test` job's deps and
+      # runner (protoc + ripgrep + fd-find, nextest, plus doc-tests). It does
+      # NOT mirror ci.yml's macos-tui-smoke or its separate doc job, and it
+      # runs only on ubuntu-latest -- this is not CI parity, it is a 1.94 gate.
+      #
+      # nextest is pinned to the version measured against this toolchain; an
+      # unpinned `tool: nextest` installs whatever is latest at run time, so
+      # this job could gate on a runner version nobody has verified on 1.94.
       - uses: actions/checkout@v4
-
       - uses: dtolnay/rust-toolchain@1.94
 
-      - name: Install protoc
+      - name: Install CI deps (protoc + native CLI tools for tests)
         run: |
           sudo apt-get update
-          sudo apt-get install -y protobuf-compiler
+          sudo apt-get install -y protobuf-compiler ripgrep fd-find
+          sudo ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
       - uses: Swatinem/rust-cache@v2
 
@@ -62,8 +72,20 @@ jobs:
       - name: Format
         run: cargo fmt --all -- --check
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@v2
+        with:
+          tool: nextest@0.9.137
+
       - name: Test
-        run: cargo test --workspace
+        # Mirrors ci.yml's test job step for step, including the runner: nextest
+        # for the suite and `cargo test` for doc-tests, which nextest does not
+        # cover. The deps above match ci.yml's too -- tests shell out to rg and
+        # fd, and a runner without them fails for a reason that has nothing to
+        # do with the release toolchain, which is exactly what this job must not do.
+        run: |
+          cargo nextest run --workspace --no-fail-fast
+          cargo test --workspace --doc
 
   build:
     name: Build (${{ matrix.target }})
