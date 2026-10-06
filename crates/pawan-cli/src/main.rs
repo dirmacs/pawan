@@ -1763,6 +1763,18 @@ async fn run_review(
         .output()
         .map_err(PawanError::Io)?;
 
+    // Fail-closed: a non-zero git exit means the diff could not be produced (bad
+    // ref, not-a-repo, bad pathspec, …). Treating its empty stdout as "no changes"
+    // would report success on a failed read. Surface the real error instead.
+    if !diff_output.status.success() {
+        let stderr = String::from_utf8_lossy(&diff_output.stderr);
+        return Err(PawanError::Tool(format!(
+            "git diff failed (status {}): {}",
+            diff_output.status,
+            stderr.trim()
+        )));
+    }
+
     let diff = String::from_utf8_lossy(&diff_output.stdout);
 
     if diff.trim().is_empty() {
@@ -1772,6 +1784,18 @@ async fn run_review(
             .current_dir(&workspace)
             .output()
             .map_err(PawanError::Io)?;
+
+        // Same fail-closed check on the fallback: only "empty stdout AND success"
+        // means genuinely no changes.
+        if !fallback.status.success() {
+            let stderr = String::from_utf8_lossy(&fallback.stderr);
+            return Err(PawanError::Tool(format!(
+                "git diff failed (status {}): {}",
+                fallback.status,
+                stderr.trim()
+            )));
+        }
+
         let fallback_diff = String::from_utf8_lossy(&fallback.stdout);
 
         if fallback_diff.trim().is_empty() {
