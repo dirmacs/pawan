@@ -4450,7 +4450,6 @@ mod main_tests {
         }
     }
 
-
     #[test]
     fn test_parse_git_status_categories_mixed() {
         let status = "M  staged.rs
