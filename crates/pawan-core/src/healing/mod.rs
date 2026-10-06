@@ -1383,7 +1383,7 @@ mod tests {
         //
         // We replicate the match directly rather than spawning a real async
         // runtime, because the shape (not the runtime) is what we are testing.
-        let timeout_result: Result<Result<std::process::Output, std::io::Error>, ()> = Err(());
+        let timeout_result: std::result::Result<std::result::Result<std::process::Output, std::io::Error>, ()> = Err(());
 
         let diags: Vec<Diagnostic> = match timeout_result {
             Ok(Ok(_)) => panic!("should not reach success arm"),
@@ -1438,7 +1438,7 @@ mod tests {
         // Simulate what happens when wait_with_output() itself returns Err:
         // the match arm `Ok(Err(e))` must produce a non-empty diagnostic vec
         // with kind=Warning and code="audit-io-error".
-        let io_result: Result<Result<std::process::Output, std::io::Error>, ()> =
+        let io_result: std::result::Result<std::result::Result<std::process::Output, std::io::Error>, ()> =
             Ok(Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken pipe")));
 
         let diags: Vec<Diagnostic> = match io_result {
