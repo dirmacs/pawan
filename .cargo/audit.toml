@@ -58,4 +58,14 @@ ignore = [
   # YAML parsing (if any) uses serde_yaml. The historical DoS (YAML_LOADED_AT)
   # is patched in 0.4.5.
   "RUSTSEC-2024-0320", # dirmacs/pawan#12
+
+  # h2 0.3 unbounded empty DATA frames — the h2 0.4 line is patched (0.4.16);
+  # the remaining h2 0.3.27 is pinned by the legacy chain pawan-mcp ->
+  # thulp-mcp -> rs-utcp -> tonic 0.11 -> hyper 0.14. tonic 0.11 requires
+  # h2 ^0.3, so it is immovable without the deferred rs-utcp/thulp-mcp
+  # refactor onto tonic 0.12+ (the same legacy chain the rustls-pemfile and
+  # bincode entries above defer on). Exposure is the legacy MCP transport, not
+  # the primary pawan-api HTTP surface. Remove this entry when that refactor
+  # lands and h2 0.3.27 leaves the lockfile.
+  "RUSTSEC-2026-0258", # dirmacs/pawan#126
 ]
