@@ -355,9 +355,20 @@ impl ClippyFixer {
 /// dependency vulnerabilities, treating the toolchain as a unified code
 /// auditor rather than just a build pipeline.
 ///
-/// `cargo audit` is a separate binary and not always installed. If it's
-/// missing or fails to run, this fixer returns an empty Vec rather than
-/// erroring — security checks are advisory, not blocking.
+/// `cargo audit` is a separate binary and not always installed. There are
+/// three distinct outcomes:
+///
+/// - **Not installed / spawn fails**: returns an empty `Vec` — cargo audit
+///   has no state, so there is nothing to report.
+/// - **Timeout (> 120 s) or wait I/O error**: returns a single `Warning`
+///   diagnostic noting the audit did not complete. This is distinct from a
+///   clean audit and prevents a "✓ Project is healthy!" verdict from a scan
+///   that never finished.
+/// - **Ran to completion**: returns the parsed vulnerability and warning
+///   diagnostics (empty when the project is clean).
+///
+/// Security checks are advisory, not blocking — none of these paths returns
+/// `Err`.
 pub struct AuditFixer {
     workspace_root: PathBuf,
 }
@@ -379,6 +390,8 @@ impl AuditFixer {
             .spawn();
 
         // If cargo audit isn't installed, return empty rather than error.
+        // This is the only case where an empty result is correct: the binary
+        // was never there, so there is genuinely nothing to report.
         let child = match child {
             Ok(c) => c,
             Err(_) => return Ok(Vec::new()),
@@ -391,7 +404,41 @@ impl AuditFixer {
         .await
         {
             Ok(Ok(o)) => o,
-            _ => return Ok(Vec::new()),
+            Ok(Err(e)) => {
+                // wait_with_output() failed (e.g. child was killed mid-run).
+                return Ok(vec![Diagnostic {
+                    kind: DiagnosticKind::Warning,
+                    message: format!(
+                        "cargo audit did not complete: I/O error waiting for output ({e}). \
+                         Security status is unknown — this is not a clean audit."
+                    ),
+                    file: None,
+                    line: None,
+                    column: None,
+                    code: Some("audit-io-error".to_string()),
+                    suggestion: None,
+                    raw: String::new(),
+                }]);
+            }
+            Err(_elapsed) => {
+                // The 120 s budget was exceeded. This is ordinary on a cold
+                // advisory-DB cache. Return a warning so the caller cannot
+                // mistake an incomplete scan for a clean one.
+                return Ok(vec![Diagnostic {
+                    kind: DiagnosticKind::Warning,
+                    message:
+                        "cargo audit timed out after 120 s. Security status is unknown — \
+                         this is not a clean audit. Consider running `cargo audit` manually \
+                         or increasing the network/cache warm-up time."
+                            .to_string(),
+                    file: None,
+                    line: None,
+                    column: None,
+                    code: Some("audit-timeout".to_string()),
+                    suggestion: None,
+                    raw: String::new(),
+                }]);
+            }
         };
 
         // cargo audit prints JSON to stdout (vulns + warnings sections);
