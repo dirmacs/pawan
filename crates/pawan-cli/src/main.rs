@@ -1744,45 +1744,145 @@ async fn run_review(
     staged_only: bool,
     file: Option<PathBuf>,
 ) -> Result<()> {
-    // Get the diff
+    match review_diff(&workspace, staged_only, file.as_deref())? {
+        Some(diff) => run_review_with_diff(config, workspace, &diff).await,
+        None => {
+            println!("{}", "No changes to review.".dimmed());
+            Ok(())
+        }
+    }
+}
+
+/// The diff `review` should look at, or `None` when there is genuinely nothing.
+///
+/// Three emptiness causes were previously all read as "no changes":
+/// `git diff HEAD` fails legitimately in a repo with no commits, `git diff`
+/// is empty whenever the work is already staged, and a *failed* probe also
+/// yields empty stdout. `git diff --cached` covers the first two (it exits 0
+/// with no HEAD and sees staged work), and each probe's exit status is checked
+/// so a probe that ran and failed is never mistaken for the absence of work
+/// (#102): if every probe fails, the error is surfaced rather than reported
+/// as "No changes to review."
+fn review_diff(workspace: &Path, staged_only: bool, file: Option<&Path>) -> Result<Option<String>> {
     let mut diff_args: Vec<String> = if staged_only {
         vec!["diff".into(), "--cached".into()]
     } else {
         vec!["diff".into(), "HEAD".into()]
     };
 
-    if let Some(ref f) = file {
+    if let Some(f) = file {
         diff_args.push("--".into());
         diff_args.push(f.to_string_lossy().into_owned());
     }
 
-    let diff_args_ref: Vec<&str> = diff_args.iter().map(|s| s.as_str()).collect();
-    let diff_output = std::process::Command::new("git")
-        .args(&diff_args_ref)
-        .current_dir(&workspace)
-        .output()
-        .map_err(PawanError::Io)?;
+    // The first probe failing is not itself an error: `git diff HEAD` exits 128
+    // legitimately in a repository with no commits (the one failure mode that
+    // means "no baseline", not "git is broken"), and the staged probe below
+    // covers that case. Any *other* failure means the emptiness is suspect, and
+    // is surfaced once the remaining probes have run — never reported as
+    // "No changes to review" (#102).
+    let mut suspect_failure: Option<PawanError> = None;
 
-    let diff = String::from_utf8_lossy(&diff_output.stdout);
-
-    if diff.trim().is_empty() {
-        // Try unstaged diff if HEAD diff is empty
-        let fallback = std::process::Command::new("git")
-            .args(["diff"])
-            .current_dir(&workspace)
-            .output()
-            .map_err(PawanError::Io)?;
-        let fallback_diff = String::from_utf8_lossy(&fallback.stdout);
-
-        if fallback_diff.trim().is_empty() {
-            println!("{}", "No changes to review.".dimmed());
-            return Ok(());
-        }
-        // Use unstaged diff
-        return run_review_with_diff(config, workspace, &fallback_diff).await;
+    match git_diff_stdout(workspace, &diff_args) {
+        DiffProbe::Found(diff) => return Ok(Some(diff)),
+        DiffProbe::Empty | DiffProbe::NoHead => {}
+        DiffProbe::Failed(e) => suspect_failure = Some(e),
     }
 
-    run_review_with_diff(config, workspace, &diff).await
+    // The HEAD probe came back empty. In `--staged` mode that already WAS the
+    // cached probe, so only try the remaining ones.
+    if !staged_only {
+        let mut staged_args: Vec<String> = vec!["diff".into(), "--cached".into()];
+        if let Some(f) = file {
+            staged_args.push("--".into());
+            staged_args.push(f.to_string_lossy().into_owned());
+        }
+        match git_diff_stdout(workspace, &staged_args) {
+            DiffProbe::Found(diff) => return Ok(Some(diff)),
+            DiffProbe::Empty | DiffProbe::NoHead => {}
+            DiffProbe::Failed(e) => {
+                if suspect_failure.is_none() {
+                    suspect_failure = Some(e);
+                }
+            }
+        }
+    }
+
+    // Final probe: plain `git diff` (unstaged work). In `--staged` mode this
+    // still runs, preserving the pre-existing behaviour of `review --staged`
+    // reviewing unstaged work — a separate behavioural question from #102.
+    let plain_args: Vec<String> = vec!["diff".into()];
+    match git_diff_stdout(workspace, &plain_args) {
+        DiffProbe::Found(diff) => Ok(Some(diff)),
+        DiffProbe::Empty | DiffProbe::NoHead => match suspect_failure {
+            // Terminal probe clean but an earlier probe failed unexplained:
+            // surface the failure rather than "no changes".
+            Some(e) => Err(e),
+            None => Ok(None),
+        },
+        DiffProbe::Failed(e) => Err(e),
+    }
+}
+
+/// The outcome of a single git diff probe.
+#[derive(Debug)]
+enum DiffProbe {
+    /// The probe ran and produced a non-empty diff.
+    Found(String),
+    /// The probe ran cleanly (exit 0) but produced nothing — a genuine
+    /// "no changes here" for this probe only.
+    Empty,
+    /// The probe failed because HEAD does not exist (a repository with no
+    /// commits). This is the one legitimate failure mode — it means "no
+    /// baseline to diff against", not "git is broken" — and is treated as
+    /// Empty by callers, with the staged probe covering the staged work.
+    NoHead,
+    /// The probe ran and failed (non-zero exit for any other reason), or
+    /// failed to spawn. This is never evidence of an empty diff (#102).
+    Failed(PawanError),
+}
+
+/// Run a git diff probe and classify its outcome. A non-zero exit is a probe
+/// *failure*, not evidence of an empty diff (#102): `Command::output()` yields
+/// `Ok` whenever the process spawns, so a git that ran and failed (not a
+/// repository, dubious ownership, corrupt `.git`) produces empty stdout and
+/// must be distinguished from a clean empty result.
+fn git_diff_stdout(workspace: &Path, args: &[String]) -> DiffProbe {
+    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    let output = match std::process::Command::new("git")
+        .args(&args_ref)
+        .current_dir(workspace)
+        .output()
+    {
+        Ok(o) => o,
+        Err(e) => return DiffProbe::Failed(PawanError::Io(e)),
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        // `git diff HEAD` exits 128 with this message in a repository that has
+        // no commits. That is the one failure that means "no baseline", and
+        // the caller treats it as Empty rather than a probe failure.
+        if detail.contains("ambiguous argument 'HEAD'")
+            || detail.contains("unknown revision or path")
+        {
+            return DiffProbe::NoHead;
+        }
+        let description = format!("git {}", args.join(" "));
+        return DiffProbe::Failed(PawanError::Git(if detail.is_empty() {
+            format!("{description} failed with status {}", output.status)
+        } else {
+            format!("{description} failed: {detail}")
+        }));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if stdout.is_empty() {
+        DiffProbe::Empty
+    } else {
+        DiffProbe::Found(stdout)
+    }
 }
 
 async fn run_review_with_diff(config: PawanConfig, workspace: PathBuf, diff: &str) -> Result<()> {
@@ -4216,6 +4316,140 @@ commit your work with meaningful messages, and leave the project in a clean stat
 #[cfg(test)]
 mod main_tests {
     use super::*;
+
+    fn scratch_repo(commit: bool) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(dir.path())
+                .output()
+                .unwrap()
+        };
+
+        git(&["init", "-q", "."]);
+        std::fs::write(dir.path().join("f.txt"), "BASE\n").unwrap();
+
+        if commit {
+            git(&["add", "-A"]);
+            git(&[
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-qm",
+                "init",
+            ]);
+        }
+
+        dir
+    }
+
+    /// #108: a fresh repo whose first commit is staged has work to review, and
+    /// the HEAD probe cannot see it — `git diff HEAD` fails with no HEAD.
+    /// The staged probe must find it.
+    #[test]
+    fn test_review_diff_finds_staged_work_in_a_repo_with_no_commits() {
+        let dir = scratch_repo(false);
+        std::fs::write(dir.path().join("f.txt"), "IMPORTANT STAGED WORK\n").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+
+        let diff = review_diff(dir.path(), false, None)
+            .expect("no probe failure expected in a healthy repo")
+            .expect("staged work in a repo with no commits must be reviewable");
+
+        assert!(
+            diff.contains("IMPORTANT STAGED WORK"),
+            "expected the staged content, got: {diff}"
+        );
+    }
+
+    /// The control. A genuinely clean repo must still report nothing, or the
+    /// fix has traded one wrong answer for another.
+    #[test]
+    fn test_review_diff_reports_nothing_for_a_clean_repo() {
+        let dir = scratch_repo(true);
+
+        assert!(
+            review_diff(dir.path(), false, None)
+                .expect("no probe failure expected")
+                .is_none(),
+            "a clean repo must yield no diff"
+        );
+    }
+
+    /// A fresh repo with nothing at all must report nothing, not an error:
+    /// `git diff HEAD` failing (no HEAD) is the legitimate NoHead case.
+    #[test]
+    fn test_review_diff_reports_nothing_for_an_empty_fresh_repo() {
+        let dir = scratch_repo(false);
+
+        assert!(
+            review_diff(dir.path(), false, None)
+                .expect("NoHead must not surface as an error")
+                .is_none(),
+            "an empty fresh repo must yield no diff, not an error"
+        );
+    }
+
+    /// Unstaged work must keep being found by the plain `git diff` fallback.
+    #[test]
+    fn test_review_diff_still_finds_unstaged_work() {
+        let dir = scratch_repo(true);
+        std::fs::write(dir.path().join("f.txt"), "CHANGED BUT NOT STAGED\n").unwrap();
+
+        let diff = review_diff(dir.path(), false, None)
+            .expect("no probe failure expected")
+            .expect("unstaged work must be reviewable");
+
+        assert!(
+            diff.contains("CHANGED BUT NOT STAGED"),
+            "expected the unstaged content, got: {diff}"
+        );
+    }
+
+    /// #102: when every git probe fails, the emptiness is unexplained and must
+    /// surface as an error — never as "No changes to review."
+    #[test]
+    fn test_review_diff_surfaces_failure_when_git_is_broken() {
+        let dir = scratch_repo(true);
+        std::fs::write(dir.path().join("f.txt"), "UNREVIEWED WORK\n").unwrap();
+        std::process::Command::new("git")
+            .args(["add", "-A"])
+            .current_dir(dir.path())
+            .output()
+            .unwrap();
+        // Break the repo: remove .git so every diff probe fails with
+        // "not a git repository" rather than reporting empty.
+        std::fs::remove_dir_all(dir.path().join(".git")).unwrap();
+
+        let result = review_diff(dir.path(), false, None);
+
+        assert!(
+            result.is_err(),
+            "a broken git must surface as an error, not 'no changes'"
+        );
+    }
+
+    /// #102 control for the broken-git case: the pre-fix behaviour is what this
+    /// guards against. A probe failure classified as NoHead must NOT count as
+    /// a hard failure — it is the fresh-repo path, exercised separately above.
+    #[test]
+    fn test_git_diff_stdout_classifies_no_head() {
+        let dir = scratch_repo(false);
+
+        match git_diff_stdout(dir.path(), &["diff".to_string(), "HEAD".to_string()]) {
+            DiffProbe::NoHead => {}
+            other => panic!("expected NoHead in a fresh repo, got {other:?}"),
+        }
+    }
+
 
     #[test]
     fn test_parse_git_status_categories_mixed() {
