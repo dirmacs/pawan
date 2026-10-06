@@ -22,6 +22,23 @@ use tower_http::trace::TraceLayer;
 use pawan::agent::{PawanAgent, TokenCallback, ToolCallRecord, ToolCallback, ToolStartCallback};
 use pawan::config::PawanConfig;
 
+// ---------------------------------------------------------------------------
+// Peer Configuration Error
+// ---------------------------------------------------------------------------
+
+/// Error types for reading aegis-net peer configuration.
+#[derive(Debug, Serialize)]
+pub enum PeerConfigError {
+    /// Configuration file does not exist.
+    Missing,
+    /// Configuration file exists but could not be read.
+    Unreadable(String),
+    /// Configuration file could not be parsed as TOML.
+    Malformed(String),
+    /// Configuration exists but has no [peers] table.
+    NoPeersTable,
+}
+
 mod sessions;
 
 // ---------------------------------------------------------------------------
@@ -108,37 +125,52 @@ async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
 }
 
 /// List known agents from aegis-net peer config
+///
+/// An empty `peers` array is a healthy answer ONLY when it comes from a
+/// successfully parsed config with no peers. When the config is unreadable,
+/// malformed, or lacks a `[peers]` table, `peers_error` carries the reason
+/// so an empty mesh is not mistaken for a partitioned one (pawan#99).
 async fn agents_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
     // Read aegis-net peers if available
-    let peers = read_aegis_peers();
+    let (peers, peers_error) = match read_aegis_peers() {
+        Ok(peers) => (peers, None),
+        Err(e) => (vec![], Some(format!("{e:?}"))),
+    };
     Json(serde_json::json!({
         "self": state.agent_id,
         "peers": peers,
+        "peers_error": peers_error,
     }))
 }
 
-fn read_aegis_peers() -> Vec<serde_json::Value> {
+fn read_aegis_peers() -> Result<Vec<serde_json::Value>, PeerConfigError> {
     let path = dirs::config_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("/etc"))
         .join("aegis")
         .join("aegis-net.toml");
     let path = path.as_path();
+
+    // Check if config file exists
     if !path.exists() {
-        return vec![];
+        return Err(PeerConfigError::Missing);
     }
-    let content = match std::fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(_) => return vec![],
-    };
-    let parsed: toml::Value = match content.parse() {
-        Ok(v) => v,
-        Err(_) => return vec![],
-    };
-    let peers = match parsed.get("peers").and_then(|p| p.as_table()) {
-        Some(t) => t,
-        None => return vec![],
-    };
-    peers
+
+    // Read file content
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| PeerConfigError::Unreadable(e.to_string()))?;
+
+    // Parse TOML
+    let parsed: toml::Value = content
+        .parse::<toml::Value>()
+        .map_err(|e| PeerConfigError::Malformed(e.to_string()))?;
+
+    // Get peers table
+    let peers = parsed
+        .get("peers")
+        .and_then(|p| p.as_table())
+        .ok_or(PeerConfigError::NoPeersTable)?;
+
+    Ok(peers
         .iter()
         .map(|(name, config)| {
             serde_json::json!({
@@ -148,7 +180,7 @@ fn read_aegis_peers() -> Vec<serde_json::Value> {
                 "groups": config.get("groups").and_then(|v| v.as_array()),
             })
         })
-        .collect()
+        .collect())
 }
 
 async fn models_handler(State(state): State<AppState>) -> Json<ModelsResponse> {
@@ -482,9 +514,10 @@ mod tests {
 
     #[test]
     fn test_read_aegis_peers_no_config_file() {
-        // When config file doesn't exist, should return empty vec
-        let peers = read_aegis_peers();
-        assert!(peers.is_empty());
+        // When config file doesn't exist, should return Missing error
+        let result = read_aegis_peers();
+        assert!(result.is_err());
+        assert!(matches!(result, Err(PeerConfigError::Missing)));
     }
 
     #[test]
@@ -749,6 +782,39 @@ mod tests {
         let peers = json["peers"].as_array().unwrap();
         // Should be empty when no config file exists
         assert!(peers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_agents_surfaces_config_error_not_silent_empty() {
+        // Regression for pawan#99: when the peer config cannot be read, the
+        // handler must NOT report a bare empty mesh. It must surface WHY via
+        // the peers_error field, so an empty mesh is not mistaken for a
+        // partitioned one.
+        //
+        // In the test environment the config file is absent, so the handler
+        // takes the Missing branch. The fix must populate peers_error with a
+        // non-null reason while peers stays empty.
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(Request::get("/api/agents").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::OK);
+        let json = body_json(resp).await;
+        let peers = json["peers"].as_array().unwrap();
+        assert!(peers.is_empty());
+        // The fix's whole point: the reason for the empty mesh is surfaced.
+        assert!(
+            json["peers_error"].is_string(),
+            "peers_error must surface the reason (expected Missing), got: {}",
+            json["peers_error"]
+        );
+        assert!(
+            json["peers_error"].as_str().unwrap().contains("Missing"),
+            "peers_error must name the Missing cause, got: {}",
+            json["peers_error"]
+        );
     }
 
     #[tokio::test]
