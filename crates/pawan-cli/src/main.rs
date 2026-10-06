@@ -1246,18 +1246,53 @@ async fn run_task(
     Ok(())
 }
 
-fn fetch_git_porcelain_status(workspace: &Path) -> Result<Option<String>> {
-    let status_output = std::process::Command::new("git")
-        .args(["status", "--porcelain"])
+/// Run a git command in `workspace` and return its stdout.
+///
+/// `.output()` yields `Ok` whenever the process *spawned*, and git writes its
+/// diagnostics to stderr while leaving stdout empty when it fails. A caller that
+/// reads only stdout therefore cannot distinguish "ran and found nothing" from
+/// "ran and failed" — a corrupt `.git`, dubious ownership, or a non-repo
+/// workspace all look like an empty result. That made a broken probe report
+/// itself as a clean bill of health (`#98`, `#102`).
+///
+/// So: a non-zero exit becomes `PawanError::Git` carrying git's own stderr,
+/// which is the idiom `confirm_and_execute_git_commit` already used. An empty
+/// stdout from a *successful* run is still returned as an empty string — the
+/// caller decides what that means, having been told the command really ran.
+fn git_stdout(args: &[&str], workspace: &Path) -> Result<String> {
+    let output = std::process::Command::new("git")
+        .args(args)
         .current_dir(workspace)
         .output()
         .map_err(PawanError::Io)?;
-    let status_text = String::from_utf8_lossy(&status_output.stdout);
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        return Err(PawanError::Git(if detail.is_empty() {
+            let code = output
+                .status
+                .code()
+                .map_or_else(|| "unknown".to_string(), |c| c.to_string());
+            format!(
+                "git {} failed (exit {}) with no stderr",
+                args.join(" "),
+                code
+            )
+        } else {
+            format!("git {} failed: {}", args.join(" "), detail)
+        }));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+fn fetch_git_porcelain_status(workspace: &Path) -> Result<Option<String>> {
+    let status_text = git_stdout(&["status", "--porcelain"], workspace)?;
     if status_text.trim().is_empty() {
         println!("{}", "Nothing to commit — working tree clean.".dimmed());
         return Ok(None);
     }
-    Ok(Some(status_text.into_owned()))
+    Ok(Some(status_text))
 }
 
 fn parse_git_status_categories(status_text: &str) -> (Vec<String>, Vec<String>, Vec<String>) {
@@ -1382,19 +1417,8 @@ fn stage_commit_changes(
 }
 
 fn fetch_staged_diff(workspace: &Path) -> Result<(String, String)> {
-    let diff_output = std::process::Command::new("git")
-        .args(["diff", "--cached", "--stat"])
-        .current_dir(workspace)
-        .output()
-        .map_err(PawanError::Io)?;
-    let diff_stat = String::from_utf8_lossy(&diff_output.stdout).into_owned();
-
-    let diff_output = std::process::Command::new("git")
-        .args(["diff", "--cached"])
-        .current_dir(workspace)
-        .output()
-        .map_err(PawanError::Io)?;
-    let diff_full = String::from_utf8_lossy(&diff_output.stdout).into_owned();
+    let diff_stat = git_stdout(&["diff", "--cached", "--stat"], workspace)?;
+    let diff_full = git_stdout(&["diff", "--cached"], workspace)?;
 
     Ok((diff_stat, diff_full))
 }
@@ -1757,22 +1781,11 @@ async fn run_review(
     }
 
     let diff_args_ref: Vec<&str> = diff_args.iter().map(|s| s.as_str()).collect();
-    let diff_output = std::process::Command::new("git")
-        .args(&diff_args_ref)
-        .current_dir(&workspace)
-        .output()
-        .map_err(PawanError::Io)?;
-
-    let diff = String::from_utf8_lossy(&diff_output.stdout);
+    let diff = git_stdout(&diff_args_ref, &workspace)?;
 
     if diff.trim().is_empty() {
         // Try unstaged diff if HEAD diff is empty
-        let fallback = std::process::Command::new("git")
-            .args(["diff"])
-            .current_dir(&workspace)
-            .output()
-            .map_err(PawanError::Io)?;
-        let fallback_diff = String::from_utf8_lossy(&fallback.stdout);
+        let fallback_diff = git_stdout(&["diff"], &workspace)?;
 
         if fallback_diff.trim().is_empty() {
             println!("{}", "No changes to review.".dimmed());
@@ -4238,6 +4251,88 @@ A  added.rs
         assert!(untracked.is_empty());
     }
 
+    // --- Regression tests for #98 / #102 -------------------------------
+    //
+    // A git probe that RAN AND FAILED must not be reported as an empty result.
+    // `.output()` is `Ok` whenever the process spawned, and failing git writes
+    // to stderr while leaving stdout empty, so the old call sites turned a
+    // corrupt `.git`, dubious ownership, or a non-repo workspace into
+    // "Nothing to commit -- working tree clean." / "No changes to review.".
+
+    /// Must-pass control: if `git init` does not succeed, the rest of this
+    /// file's success-path assertions would be measuring nothing.
+    fn init_repo(dir: &Path) {
+        let out = std::process::Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(dir)
+            .output()
+            .expect("spawn git init");
+        assert!(
+            out.status.success(),
+            "control failed: git init must succeed for these tests to mean anything: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    #[test]
+    fn test_git_stdout_surfaces_stderr_on_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = git_stdout(&["status", "--porcelain"], dir.path())
+            .expect_err("a failing git must be an error, not an empty result");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("not a git repository"),
+            "the error must carry git's own stderr so the cause is readable, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_git_stdout_returns_empty_ok_on_real_clean_repo() {
+        let dir = tempfile::tempdir().unwrap();
+        init_repo(dir.path());
+        let out = git_stdout(&["status", "--porcelain"], dir.path())
+            .expect("a succeeding git must stay Ok, however empty its stdout");
+        assert!(
+            out.trim().is_empty(),
+            "clean repo has empty porcelain output, got: {out:?}"
+        );
+    }
+
+    #[test]
+    fn test_git_stdout_returns_stdout_on_real_repo_with_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        init_repo(dir.path());
+        std::fs::write(dir.path().join("tracked.txt"), "WORK NOT YET COMMITTED\n").unwrap();
+        let out = git_stdout(&["status", "--porcelain"], dir.path()).expect("real repo must be Ok");
+        assert!(
+            out.contains("tracked.txt"),
+            "a real uncommitted file must be visible to the probe, got: {out:?}"
+        );
+    }
+
+    /// #98 proper: the filed symptom was "Nothing to commit -- working tree
+    /// clean." printed for a workspace whose git probe had failed.
+    #[test]
+    fn test_fetch_git_porcelain_status_reports_failure_rather_than_clean() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            fetch_git_porcelain_status(dir.path()).is_err(),
+            "a git status that failed must not be reported as a clean working tree"
+        );
+    }
+
+    /// The third site, which neither #98 nor #102 named: `fetch_staged_diff`
+    /// had the same defect and feeds the same `run_commit` path, so fixing only
+    /// the two filed sites would have left a broken probe reporting an empty
+    /// staged diff.
+    #[test]
+    fn test_fetch_staged_diff_reports_failure_rather_than_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            fetch_staged_diff(dir.path()).is_err(),
+            "a git diff --cached that failed must not be reported as no staged changes"
+        );
+    }
     #[test]
     fn test_ensure_staged_changes_nonempty() {
         assert!(ensure_staged_changes("diff content", &[]));
