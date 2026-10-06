@@ -1872,12 +1872,27 @@ fn review_diff(workspace: &Path, staged_only: bool, file: Option<&Path>) -> Opti
         }
     }
 
+    // Pre-existing and deliberately unchanged: in `--staged` mode this last
+    // probe still runs, so `review --staged` with only unstaged work reviews
+    // the unstaged diff. That contradicts the flag, but it is a separate
+    // behavioural decision from #108 — the same reasoning that kept
+    // `git diff --cached` out of #105 — and it is reported on the PR rather
+    // than folded in here.
     git_diff_stdout(workspace, &["diff".to_string()])
 }
 
-/// `None` for both "no changes" and "the command failed" — a probe that cannot
-/// complete must not be answered with the value it would have had on success.
-/// Every emptiness cause is covered by trying each probe in turn.
+/// The probe's stdout, or `None` when it is empty **or the command failed**.
+///
+/// Those two are deliberately not distinguished here. Failing loudly on a
+/// non-zero probe exit is a separate question (#98/#102) and a blanket
+/// "non-zero is an error" is wrong for this path: `git diff HEAD` exits 128
+/// legitimately in a repository with no commits, so treating that as an error
+/// would refuse to review real work.
+///
+/// What this helper does guarantee is narrower, and it is the thing #108 needs:
+/// every *emptiness* cause is covered by trying each probe in turn, so a probe
+/// that comes back empty for one reason is never mistaken for the absence of
+/// work.
 fn git_diff_stdout(workspace: &Path, args: &[String]) -> Option<String> {
     let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     let output = std::process::Command::new("git")
