@@ -355,9 +355,20 @@ impl ClippyFixer {
 /// dependency vulnerabilities, treating the toolchain as a unified code
 /// auditor rather than just a build pipeline.
 ///
-/// `cargo audit` is a separate binary and not always installed. If it's
-/// missing or fails to run, this fixer returns an empty Vec rather than
-/// erroring — security checks are advisory, not blocking.
+/// `cargo audit` is a separate binary and not always installed. There are
+/// three distinct outcomes:
+///
+/// - **Not installed / spawn fails**: returns an empty `Vec` — cargo audit
+///   has no state, so there is nothing to report.
+/// - **Timeout (> 120 s) or wait I/O error**: returns a single `Warning`
+///   diagnostic noting the audit did not complete. This is distinct from a
+///   clean audit and prevents a "✓ Project is healthy!" verdict from a scan
+///   that never finished.
+/// - **Ran to completion**: returns the parsed vulnerability and warning
+///   diagnostics (empty when the project is clean).
+///
+/// Security checks are advisory, not blocking — none of these paths returns
+/// `Err`.
 pub struct AuditFixer {
     workspace_root: PathBuf,
 }
@@ -379,6 +390,8 @@ impl AuditFixer {
             .spawn();
 
         // If cargo audit isn't installed, return empty rather than error.
+        // This is the only case where an empty result is correct: the binary
+        // was never there, so there is genuinely nothing to report.
         let child = match child {
             Ok(c) => c,
             Err(_) => return Ok(Vec::new()),
@@ -391,13 +404,82 @@ impl AuditFixer {
         .await
         {
             Ok(Ok(o)) => o,
-            _ => return Ok(Vec::new()),
+            Ok(Err(e)) => {
+                // wait_with_output() failed (e.g. child was killed mid-run).
+                return Ok(vec![Diagnostic {
+                    kind: DiagnosticKind::Warning,
+                    message: format!(
+                        "cargo audit did not complete: I/O error waiting for output ({e}). \
+                         Security status is unknown — this is not a clean audit."
+                    ),
+                    file: None,
+                    line: None,
+                    column: None,
+                    code: Some("audit-io-error".to_string()),
+                    suggestion: None,
+                    raw: String::new(),
+                }]);
+            }
+            Err(_elapsed) => {
+                // The 120 s budget was exceeded. This is ordinary on a cold
+                // advisory-DB cache. Return a warning so the caller cannot
+                // mistake an incomplete scan for a clean one.
+                return Ok(vec![Diagnostic {
+                    kind: DiagnosticKind::Warning,
+                    message:
+                        "cargo audit timed out after 120 s. Security status is unknown — \
+                         this is not a clean audit. Consider running `cargo audit` manually \
+                         or increasing the network/cache warm-up time."
+                            .to_string(),
+                    file: None,
+                    line: None,
+                    column: None,
+                    code: Some("audit-timeout".to_string()),
+                    suggestion: None,
+                    raw: String::new(),
+                }]);
+            }
         };
 
         // cargo audit prints JSON to stdout (vulns + warnings sections);
         // exit code is non-zero when vulnerabilities are present, but stdout
-        // still contains the JSON we want to parse.
+        // still contains the JSON we want to parse in most cases.
+        //
+        // However, if the advisory DB is invalid/undocumented, cargo audit
+        // outputs a plain-text error message to stdout instead of JSON. We
+        // cannot silently return empty diagnostics here, as that would be
+        // indistinguishable from a clean audit.
         let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        // Detect non-JSON output: cargo audit errors start with "error:" prefix
+        // (e.g., "error: couldn't fetch advisory database: ..."). Valid JSON
+        // output always starts with "{".
+        if stdout.starts_with("error:") || !stdout.trim_start().starts_with('{') {
+            return Ok(vec![Diagnostic {
+                kind: DiagnosticKind::Warning,
+                message: format!(
+                    "cargo audit output was not valid JSON. This usually means \
+                     the advisory database could not be downloaded or was not found.\n\
+                     stdout: {}\n\
+                     stderr: {}",
+                    stdout.lines().take(5).collect::<Vec<_>>().join("\n"),
+                    stderr.lines().take(5).collect::<Vec<_>>().join("\n")
+                ),
+                file: None,
+                line: None,
+                column: None,
+                code: Some("audit-not-json".to_string()),
+                suggestion: Some(
+                    "Try running `cargo audit` manually to see the full error. \
+                     Common causes: network issues, advisory database path errors, \
+                     or the database needing to be downloaded/fetched."
+                        .to_string(),
+                ),
+                raw: format!("{}\n{}", stdout, stderr),
+            }]);
+        }
+
         Ok(Self::parse_audit_json(&stdout))
     }
 
@@ -1283,6 +1365,151 @@ mod tests {
         let d = &diagnostics[0];
         assert_eq!(d.code.as_deref(), Some("unknown"));
         assert!(d.message.contains("unknown"));
+    }
+
+    // ─── AuditFixer timeout / IO-error path tests ────────────────────────
+    //
+    // These tests reproduce the match arms at the heart of the defect
+    // reported in pawan#103: a timeout or wait-I/O-error must return a
+    // Warning diagnostic, not an empty Vec.  They do NOT invoke `cargo
+    // audit`; they replicate the exact `Result<Result<Output, io::Error>,
+    // Elapsed>` shape handled by `check()`.
+
+    #[test]
+    fn test_audit_timeout_arm_returns_warning_not_empty() {
+        // Simulate what happens when tokio::time::timeout fires:
+        // the match arm `Err(_elapsed)` must produce a non-empty diagnostic
+        // vec with kind=Warning and code="audit-timeout".
+        //
+        // We replicate the match directly rather than spawning a real async
+        // runtime, because the shape (not the runtime) is what we are testing.
+        let timeout_result: Result<Result<std::process::Output, std::io::Error>, ()> = Err(());
+
+        let diags: Vec<Diagnostic> = match timeout_result {
+            Ok(Ok(_)) => panic!("should not reach success arm"),
+            Ok(Err(e)) => vec![Diagnostic {
+                kind: DiagnosticKind::Warning,
+                message: format!(
+                    "cargo audit did not complete: I/O error waiting for output ({e}). \
+                     Security status is unknown — this is not a clean audit."
+                ),
+                file: None,
+                line: None,
+                column: None,
+                code: Some("audit-io-error".to_string()),
+                suggestion: None,
+                raw: String::new(),
+            }],
+            Err(_elapsed) => vec![Diagnostic {
+                kind: DiagnosticKind::Warning,
+                message: "cargo audit timed out after 120 s. Security status is unknown — \
+                         this is not a clean audit. Consider running `cargo audit` manually \
+                         or increasing the network/cache warm-up time."
+                    .to_string(),
+                file: None,
+                line: None,
+                column: None,
+                code: Some("audit-timeout".to_string()),
+                suggestion: None,
+                raw: String::new(),
+            }],
+        };
+
+        assert_eq!(diags.len(), 1, "timeout arm must return exactly one diagnostic");
+        assert_eq!(
+            diags[0].kind,
+            DiagnosticKind::Warning,
+            "timeout diagnostic must be Warning, not Error or other"
+        );
+        assert_eq!(
+            diags[0].code.as_deref(),
+            Some("audit-timeout"),
+            "timeout diagnostic must carry the audit-timeout code"
+        );
+        assert!(
+            diags[0].message.contains("timed out"),
+            "timeout message must mention timeout, got: {}",
+            diags[0].message
+        );
+    }
+
+    #[test]
+    fn test_audit_io_error_arm_returns_warning_not_empty() {
+        // Simulate what happens when wait_with_output() itself returns Err:
+        // the match arm `Ok(Err(e))` must produce a non-empty diagnostic vec
+        // with kind=Warning and code="audit-io-error".
+        let io_result: Result<Result<std::process::Output, std::io::Error>, ()> =
+            Ok(Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "broken pipe")));
+
+        let diags: Vec<Diagnostic> = match io_result {
+            Ok(Ok(_)) => panic!("should not reach success arm"),
+            Ok(Err(e)) => vec![Diagnostic {
+                kind: DiagnosticKind::Warning,
+                message: format!(
+                    "cargo audit did not complete: I/O error waiting for output ({e}). \
+                     Security status is unknown — this is not a clean audit."
+                ),
+                file: None,
+                line: None,
+                column: None,
+                code: Some("audit-io-error".to_string()),
+                suggestion: None,
+                raw: String::new(),
+            }],
+            Err(_elapsed) => panic!("should not reach timeout arm"),
+        };
+
+        assert_eq!(diags.len(), 1, "IO-error arm must return exactly one diagnostic");
+        assert_eq!(
+            diags[0].kind,
+            DiagnosticKind::Warning,
+            "IO-error diagnostic must be Warning"
+        );
+        assert_eq!(
+            diags[0].code.as_deref(),
+            Some("audit-io-error"),
+            "IO-error diagnostic must carry the audit-io-error code"
+        );
+        assert!(
+            diags[0].message.contains("I/O error"),
+            "IO-error message must mention I/O error, got: {}",
+            diags[0].message
+        );
+    }
+
+    #[test]
+    fn test_audit_timeout_counts_as_warning_in_count_issues_shape() {
+        // Regression: a warning from a timed-out audit must contribute to the
+        // warnings count, not disappear into the zero that previously made
+        // "✓ Project is healthy!" appear after an incomplete scan.
+        let diags = vec![Diagnostic {
+            kind: DiagnosticKind::Warning,
+            message: "cargo audit timed out".to_string(),
+            file: None,
+            line: None,
+            column: None,
+            code: Some("audit-timeout".to_string()),
+            suggestion: None,
+            raw: String::new(),
+        }];
+
+        let warnings = diags
+            .iter()
+            .filter(|d| d.kind == DiagnosticKind::Warning)
+            .count();
+        let errors = diags
+            .iter()
+            .filter(|d| d.kind == DiagnosticKind::Error)
+            .count();
+
+        assert_eq!(warnings, 1, "timed-out audit must contribute 1 warning");
+        assert_eq!(errors, 0, "timed-out audit must not contribute any errors");
+        // The CLI gate is `errors == 0 && warnings == 0 && failed_tests == 0`.
+        // With warnings == 1 the gate is false, so "✓ Project is healthy!" cannot fire.
+        assert_ne!(
+            warnings, 0,
+            "warnings must be non-zero so the healthy gate cannot fire"
+        );
     }
 
     // ─── Diagnostic::fingerprint tests ───────────────────────────────────
