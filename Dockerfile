@@ -9,7 +9,7 @@
 # Run:    docker run --rm pawan            # pawan-api (the service)
 #         docker run --rm --entrypoint pawan pawan --help   # the CLI
 
-FROM rust:1.95-bookworm AS builder
+FROM rust:1.99-bookworm AS builder
 
 # Native build deps. protobuf-compiler is required by the prost build in the
 # workspace; pkg-config + a C toolchain cover the openssl/native crates.
