@@ -1,0 +1,14 @@
+# Build output — the single biggest context item; never send to the daemon.
+target/
+
+# VCS + local state that must not enter the image.
+.git/
+.omp/
+
+# Editor / OS noise.
+*.swp
+.DS_Store
+
+# Local env / secrets (defense-in-depth; none should be tracked).
+.env
+.env.*
