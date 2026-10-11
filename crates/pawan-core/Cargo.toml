@@ -84,8 +84,8 @@ rusqlite = { optional = true, version = "0.40", features = ["bundled"] }
 # `pattern` feature enables ast-grep structural search; `text-search`
 # enables FTS5 keyword indexing via the grep-* crates.
 # 0.1.5 adds tree-sitter-ruby for Ruby/Rake/gemspec files.
-deagle-core = { version = "0.1.5", optional = true }
-deagle-parse = { optional = true, version = "0.1.5", features = ["pattern", "text-search"] }
+deagle-core = { version = "0.3.1", optional = true }
+deagle-parse = { optional = true, version = "0.3.0", features = ["pattern", "text-search"] }
 
 # Parallel walking for the embedded deagle_map implementation
 rayon = { version = "1.10", optional = true }

@@ -1,0 +1,4 @@
+# The allow path: a plain read with an empty delta is admitted. This is the
+# control that proves the policy is not a hard block of everything.
+host/pawan/read_status {}
+expect allow

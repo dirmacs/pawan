@@ -738,7 +738,10 @@ impl PawanAgent {
             // in front of every permission layer: a call it denies never
             // reaches the tool's execute path. A guard that failed to open
             // denies every call (fail closed).
-            if let Some(reason) = self.appa_precall_denial(&tool_call).await {
+            if let Some(reason) = self
+                .appa_precall_denial(&tool_call, self.workspace_root.to_str())
+                .await
+            {
                 let record = synthetic_denial(&tool_call, reason.clone());
                 if let Some(callback) = &on_tool {
                     callback(&record);
@@ -849,7 +852,17 @@ impl PawanAgent {
 
             let tool = self.tools.get(&tool_call.name);
             let is_mutating = tool.map(|t| t.mutating()).unwrap_or(false);
-            if is_mutating {
+            // The read-only exemption the Prompt path applies to bash also
+            // applies here: a read-only command mutates nothing, so the
+            // mutating gate must not demand an approval channel for it.
+            let bash_read_only = tool_call.name == "bash"
+                && tool_call
+                    .arguments
+                    .get("command")
+                    .and_then(|v| v.as_str())
+                    .map(crate::tools::bash::is_read_only)
+                    .unwrap_or(false);
+            if is_mutating && !bash_read_only {
                 if let Some(ref callback) = on_permission {
                     let args_summary = summarize_args(&tool_call.arguments);
                     let request = PermissionRequest {
@@ -951,7 +964,11 @@ impl PawanAgent {
     /// the call is denied and the model reads `reason` as the tool's result.
     /// The engine's own words cross to the model unchanged — pawan adds
     /// nothing to a decision it did not make.
-    async fn appa_precall_denial(&self, tool_call: &ToolCallRequest) -> Option<String> {
+    async fn appa_precall_denial(
+        &self,
+        tool_call: &ToolCallRequest,
+        cwd: Option<&str>,
+    ) -> Option<String> {
         match &self.appa {
             crate::agent::appa::GuardState::Disabled => None,
             crate::agent::appa::GuardState::Failed { reason } => Some(format!(
@@ -960,7 +977,7 @@ impl PawanAgent {
             crate::agent::appa::GuardState::Active(guard) => {
                 guard.ensure_started().await;
                 match guard
-                    .check_call(&tool_call.name, &tool_call.arguments, &tool_call.id)
+                    .check_call(&tool_call.name, &tool_call.arguments, &tool_call.id, cwd)
                     .await
                 {
                     crate::agent::appa::CallDecision::Allow => None,
@@ -988,30 +1005,36 @@ impl PawanAgent {
                 match serde_json::from_value::<appa_runtime::api::ExecuteRemedyPlanArgs>(
                     tool_call.arguments.clone(),
                 ) {
-                    Ok(args) => {
-                        let outcome = guard.execute_remedy(args).await;
-                        match outcome {
-                            appa_runtime::api::RemedyOutcome::Authorized { .. } => (
+                    Ok(_args) => {
+                        // The runtime vouches the quoted offer (PassControl)
+                        // before the plan executes; an unvouched or
+                        // out-of-mandate plan is refused and changes nothing.
+                        match guard.take_remedy(&tool_call.arguments, &tool_call.id).await {
+                            Ok(appa_runtime::api::RemedyOutcome::Authorized { .. }) => (
                                 json!({
                                     "status": "remedy accepted",
                                     "hint": "Re-propose the same tool call; the policy now permits it."
                                 }),
                                 true,
                             ),
-                            appa_runtime::api::RemedyOutcome::Declined { .. } => (
+                            Ok(appa_runtime::api::RemedyOutcome::Declined { .. }) => (
                                 json!({"status": "remedy declined", "error": "the authority declined this plan"}),
                                 false,
                             ),
-                            appa_runtime::api::RemedyOutcome::NoAnswer { feedback } => (
+                            Ok(appa_runtime::api::RemedyOutcome::NoAnswer { feedback }) => (
                                 json!({"status": "remedy unanswered", "error": feedback}),
                                 false,
                             ),
-                            appa_runtime::api::RemedyOutcome::Refused { reason } => (
+                            Ok(appa_runtime::api::RemedyOutcome::Refused { reason }) => (
                                 json!({"status": "remedy refused", "error": format!("{reason:?}")}),
                                 false,
                             ),
-                            other => (
+                            Ok(other) => (
                                 json!({"status": "remedy not executed", "detail": format!("{other:?}")}),
+                                false,
+                            ),
+                            Err(reason) => (
+                                json!({"status": "remedy not vouched", "error": reason}),
                                 false,
                             ),
                         }

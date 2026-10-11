@@ -254,7 +254,7 @@ impl PawanAgent {
             Err(e) => (None, Some(e.to_string())),
         };
         let session_id = uuid::Uuid::new_v4().to_string();
-        let appa = crate::agent::appa::open_guard(&config, &session_id);
+        let appa = crate::agent::appa::open_guard(&config.appa, &session_id);
 
         Self {
             config,

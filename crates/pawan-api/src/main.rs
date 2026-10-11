@@ -135,7 +135,10 @@ async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
 /// successfully parsed config with no peers. When the config is unreadable,
 /// malformed, or lacks a `[peers]` table, `peers_error` carries the reason
 /// so an empty mesh is not mistaken for a partitioned one (pawan#99).
-async fn agents_handler(State(state): State<AppState>, _identity: identity::IdentityOf) -> Json<serde_json::Value> {
+async fn agents_handler(
+    State(state): State<AppState>,
+    _identity: identity::IdentityOf,
+) -> Json<serde_json::Value> {
     // Read aegis-net peers if available
     let (peers, peers_error) = match read_aegis_peers() {
         Ok(peers) => (peers, None),
@@ -188,7 +191,10 @@ fn read_aegis_peers() -> Result<Vec<serde_json::Value>, PeerConfigError> {
         .collect())
 }
 
-async fn models_handler(State(state): State<AppState>, _identity: identity::IdentityOf) -> Json<ModelsResponse> {
+async fn models_handler(
+    State(state): State<AppState>,
+    _identity: identity::IdentityOf,
+) -> Json<ModelsResponse> {
     let mut models = vec![ModelInfo {
         name: state.config.model.clone(),
         provider: format!("{:?}", state.config.provider),
@@ -365,14 +371,14 @@ fn app(state: AppState) -> Router {
     let cors = std::env::var("PAWAN_API_CORS_ORIGIN")
         .ok()
         .filter(|o| !o.is_empty())
-        .and_then(|o| o.parse().ok())
+        .and_then(|o| o.parse::<axum::http::HeaderValue>().ok())
         .map(|origin| {
             CorsLayer::new()
                 .allow_origin(origin)
                 .allow_methods(Any)
                 .allow_headers(Any)
         })
-        .unwrap_or_else(CorsLayer::new);
+        .unwrap_or_default();
 
     Router::new()
         .route("/api/health", get(health_handler))
@@ -452,7 +458,9 @@ async fn main() {
 
     tracing::info!("pawan-api listening on {}:{}", bind, port);
 
-    axum::serve(listener, app(state)).await.expect("server error");
+    axum::serve(listener, app(state))
+        .await
+        .expect("server error");
 }
 
 // ---------------------------------------------------------------------------
@@ -677,7 +685,7 @@ mod tests {
 
         let resp = app
             .oneshot(
-                Request::get("/api/sessions/nonexistent-id")
+                authed(Request::get("/api/sessions/nonexistent-id"), "test-token")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -696,9 +704,12 @@ mod tests {
 
         let resp = app
             .oneshot(
-                Request::delete("/api/sessions/nonexistent-id")
-                    .body(Body::empty())
-                    .unwrap(),
+                authed(
+                    Request::delete("/api/sessions/nonexistent-id"),
+                    "test-token",
+                )
+                .body(Body::empty())
+                .unwrap(),
             )
             .await
             .unwrap();
@@ -746,7 +757,7 @@ mod tests {
 
         let resp = app
             .oneshot(
-                Request::post("/api/chat")
+                authed(Request::post("/api/chat"), "test-token")
                     .header("content-type", "application/json")
                     .body(Body::from("{invalid json}"))
                     .unwrap(),
@@ -765,7 +776,7 @@ mod tests {
 
         let resp = app
             .oneshot(
-                Request::post("/api/chat")
+                authed(Request::post("/api/chat"), "test-token")
                     .body(Body::from(r#"{"message": "test"}"#))
                     .unwrap(),
             )
@@ -794,6 +805,7 @@ mod tests {
             workspace: std::path::PathBuf::from("/tmp"),
             agent_id: "test".to_string(),
             start_time: std::time::Instant::now(),
+            identity: IdentityConfig::with_static_token("test-token"),
         };
 
         let app = Router::new()
@@ -801,7 +813,11 @@ mod tests {
             .with_state(state);
 
         let resp = app
-            .oneshot(Request::get("/api/models").body(Body::empty()).unwrap())
+            .oneshot(
+                authed(Request::get("/api/models"), "test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 

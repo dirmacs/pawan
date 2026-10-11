@@ -72,6 +72,28 @@ jobs:
           cargo test -p pawan --test tui_headless_tests slash_help_displays_registered_commands_with_lf_enter_in_real_pty -- --nocapture
           cargo test -p pawan --test tui_headless_tests slash_model_lf_enter_opens_picker_in_real_pty -- --nocapture
 
+  appa-gate:
+    name: OpenAPPA policy gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # The appa CLI is built FROM THE PINNED SOURCE — the auditable path.
+      # Never the upstream install.sh.
+      - name: Check out OpenAPPA at the pinned rev
+        run: |
+          git clone https://github.com/archestra-ai/OpenAPPA /opt/appa-src
+          git -C /opt/appa-src checkout 1c52575176330bc88a3c346abe678af5d42083b3
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build the appa CLI from source
+        run: cargo build --release --bin appa
+        working-directory: /opt/appa-src
+      - name: Run the policy gate
+        env:
+          APPA_BIN: /opt/appa-src/target/release/appa
+        run: scripts/appa-gate.sh
+      # The embedded-guard funnel tests live in the workspace suite above;
+      # this job is the policy-document gate (describe --check + replay).
+
   doc:
     name: Doc
     runs-on: ubuntu-latest

@@ -29,9 +29,9 @@ impl ToolPermission {
         }
         // Default: mutating tools prompt, others allow
         match name {
-            "bash" | "write_file" | "edit_file" | "edit_file_lines" | "insert_after" | "append_file"
-            | "git_add" | "git_commit" | "git_checkout" | "git_stash" | "git_branch" | "ast_grep"
-            | "sd" | "deagle_map" | "mise" => ToolPermission::Prompt,
+            "bash" | "write_file" | "edit_file" | "edit_file_lines" | "insert_after"
+            | "append_file" | "git_add" | "git_commit" | "git_checkout" | "git_stash"
+            | "git_branch" | "ast_grep" | "sd" | "deagle_map" | "mise" => ToolPermission::Prompt,
             _ => ToolPermission::Allow,
         }
     }

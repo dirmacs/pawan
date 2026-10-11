@@ -1457,10 +1457,16 @@ mod permission_tests {
     fn test_resolve_default_allow() {
         use std::collections::HashMap;
         let perms = HashMap::new();
-        // All tools default to Allow when not configured
+        // State-mutating tools default to Prompt (measured defect fix: the
+        // old default was Allow, which auto-approved every write path on
+        // the no-callback surfaces). Read-only tools stay Allow.
         assert_eq!(
             ToolPermission::resolve("bash", &perms),
-            ToolPermission::Allow
+            ToolPermission::Prompt
+        );
+        assert_eq!(
+            ToolPermission::resolve("write_file", &perms),
+            ToolPermission::Prompt
         );
         assert_eq!(
             ToolPermission::resolve("read_file", &perms),

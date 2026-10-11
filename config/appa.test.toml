@@ -1,0 +1,69 @@
+# OpenAPPA test policy for pawan — the flat, self-contained document
+# `appa describe --check` and `appa replay` load (canonical tool ids; the
+# replay runtime opens without an adapter).
+#
+# The externals deliberately point at a closed port: this checked-in
+# document is the OUTAGE posture. The healthy arms are proven in the Rust
+# tests (crates/pawan-core/src/agent/appa_tests.rs), which template these
+# same contracts with a live stub URL. Neither `describe --check` nor the
+# replay traces below consult an external (static decisions only), so the
+# dead URLs cost nothing here and document the default posture honestly.
+
+[policy]
+version = 2
+trust_chain = ["suspicious", "trusted"]
+
+# A plain read: the allow path that proves the policy is not a hard block.
+[[policy.tool]]
+name = "host/pawan/read_status"
+delta = {}
+
+# The deterministic hard deny: `blocked` is the reserved attention mark no
+# authority can permit, so this contract has no remedy — measured
+# DenyCall(offers=0).
+[[policy.tool]]
+name = "host/pawan/canary_write"
+delta = {}
+requires = { attention = ["blocked"] }
+
+# The classifier battery: an annotator served at the configured URL. An
+# unanswered annotator is an operational refuse, never an allow.
+[[policy.annotator]]
+name = "classify"
+ranks = ["suspicious", "trusted"]
+audiences = ["internal"]
+marks = []
+effects = []
+
+[[policy.tool]]
+name = "host/pawan/classified_read"
+annotator = "classify"
+
+# A confined result: the delta restricts readers, so the raw body can never
+# be delivered as produced — the sanitizer's derivation crosses, or the
+# runtime's withholding words do.
+[[policy.tool]]
+name = "host/pawan/leaky_read"
+delta = { audience = ["insider"] }
+
+[[policy.sanitizer]]
+name = "scrub"
+on = ["tool_output"]
+[policy.sanitizer.permits]
+audience = { from = ["insider"], to = ["public"] }
+
+# Deployment-level limits. The plain-file loader (`appa describe` /
+# `appa replay`) requires them; hosted composition applies the same values
+# from the host (AppaConfig::timeout_ms / max_body_bytes).
+[externals]
+timeout_ms = 3000
+max_body_bytes = 65536
+
+[externals.annotators.classify]
+url = "http://127.0.0.1:1/"
+
+[externals.sanitizers.scrub]
+url = "http://127.0.0.1:1/"
+
+[policy.deployment]
+confined_results = ["host/pawan/leaky_read"]

@@ -64,11 +64,15 @@ impl IdentityConfig {
             .unwrap_or_else(|_| reqwest::Client::new());
         Self {
             inner: Arc::new(IdentityInner {
-                static_token: std::env::var("PAWAN_API_TOKEN").ok().filter(|t| !t.is_empty()),
+                static_token: std::env::var("PAWAN_API_TOKEN")
+                    .ok()
+                    .filter(|t| !t.is_empty()),
                 dims_base_url: std::env::var("PAWAN_DIMS_AUTH_URL")
                     .ok()
                     .filter(|u| !u.is_empty()),
-                service_key: std::env::var("PAWAN_SERVICE_KEY").ok().filter(|k| !k.is_empty()),
+                service_key: std::env::var("PAWAN_SERVICE_KEY")
+                    .ok()
+                    .filter(|k| !k.is_empty()),
                 required_role: std::env::var("PAWAN_DIMS_AUTH_REQUIRED_ROLE")
                     .ok()
                     .filter(|r| !r.is_empty()),
@@ -177,10 +181,11 @@ impl IdentityConfig {
         };
         match response.status().as_u16() {
             200..=299 => {
-                let validated: ValidateResponse = response.json().await.unwrap_or(ValidateResponse {
-                    user_id: None,
-                    email: None,
-                });
+                let validated: ValidateResponse =
+                    response.json().await.unwrap_or(ValidateResponse {
+                        user_id: None,
+                        email: None,
+                    });
                 Ok(validated
                     .principal()
                     .unwrap_or_else(|| "dims-auth-validated".to_string()))

@@ -53,3 +53,25 @@ scroll_speed = 3
 # [mcp.daedra]
 # command = "daedra"
 # args = ["serve", "--transport", "stdio", "--quiet"]
+
+# OpenAPPA guardrail — the embedded information-flow engine wired at the
+# tool-execution seam. OFF by default: with this section absent (or
+# `enabled = false`) pawan runs its permission gates alone. When enabled,
+# every tool call crosses a pre-call check and every result a post-call
+# check; a call the policy denies never reaches the tool's execute path,
+# and a withheld result never reaches the model. A policy that cannot be
+# read or composed fails CLOSED — every tool call stops.
+#
+# The policy documents are TOML in the OpenAPPA vocabulary; the test
+# document (config/appa.test.toml) and the CI gate (scripts/appa-gate.sh)
+# show the shape. Batteries are hosted annotator/sanitizer/directory
+# services: an unanswered battery is an operational refuse, never an allow.
+# [appa]
+# enabled = true
+# policy_path = "config/appa.test.toml"
+# timeout_ms = 3000
+# max_body_bytes = 65536
+# [[appa.batteries]]
+# name = "pawan"
+# policy_path = "config/appa.battery.toml"
+# token_env = ["APPA_BATTERY_TOKEN"]

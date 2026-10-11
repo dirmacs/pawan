@@ -19,6 +19,8 @@ mod preflight;
 pub mod session_store;
 
 pub mod appa;
+#[cfg(test)]
+mod appa_tests;
 mod construction;
 mod execute;
 pub mod irc;

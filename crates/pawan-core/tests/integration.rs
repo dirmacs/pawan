@@ -1002,11 +1002,12 @@ fn test_permission_resolve_integration() {
     use pawan::config::ToolPermission;
     use std::collections::HashMap;
 
-    // Empty config: everything defaults to Allow
+    // Empty config: mutating tools default to Prompt, read-only to Allow
+    // (the measured fail-open default was fixed to Prompt).
     let empty: HashMap<String, ToolPermission> = HashMap::new();
     assert_eq!(
         ToolPermission::resolve("bash", &empty),
-        ToolPermission::Allow
+        ToolPermission::Prompt
     );
     assert_eq!(
         ToolPermission::resolve("read_file", &empty),

@@ -1,0 +1,4 @@
+# The deterministic hard deny: `blocked` is the reserved attention mark no
+# authority can permit — measured DenyCall(offers=0), so no offer is taken.
+host/pawan/canary_write {}
+expect deny

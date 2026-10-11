@@ -22,8 +22,8 @@ use appa_runtime::api::{ExecuteRemedyPlanArgs, OpenError, RemedyOutcome, Runtime
 use appa_runtime::config::{Config, HostDefaults, HostedBattery};
 use appa_runtime::hooks;
 use appa_runtime_api::{
-    Actor, Adapter, AdapterName, CanonicalTool, HookDecision, HookEvent, IdentifiedTool, OutcomeBody,
-    ParseRefusal, ProposedCall, ToolOutcome, TrajectoryId, CONTROL_TOOL,
+    Actor, Adapter, AdapterName, CanonicalTool, HookDecision, HookEvent, IdentifiedTool,
+    OutcomeBody, ParseRefusal, ProposedCall, ToolOutcome, TrajectoryId, CONTROL_TOOL,
 };
 
 /// The advertised spelling of the runtime's control tool. The model quotes an
@@ -52,11 +52,16 @@ fn identify_tool(raw: &str) -> Result<IdentifiedTool, ParseRefusal> {
     let canonical = if is_control_tool_name(raw) {
         CanonicalTool::control()
     } else {
-        CanonicalTool::of("host", PAWAN_NAMESPACE, raw).map_err(|error| ParseRefusal::Malformed {
-            detail: error.to_string(),
+        CanonicalTool::of("host", PAWAN_NAMESPACE, raw).map_err(|error| {
+            ParseRefusal::Malformed {
+                detail: error.to_string(),
+            }
         })?
     };
-    Ok(IdentifiedTool { canonical, spawn: None })
+    Ok(IdentifiedTool {
+        canonical,
+        spawn: None,
+    })
 }
 
 fn spell(canonical: &CanonicalTool) -> Option<String> {
@@ -221,6 +226,14 @@ pub struct AppaGuard {
     start_failed: std::sync::atomic::AtomicBool,
 }
 
+impl std::fmt::Debug for AppaGuard {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AppaGuard")
+            .field("actor", &self.actor)
+            .finish()
+    }
+}
+
 impl AppaGuard {
     /// Open a guard from policy documents already in memory (tests, embedded
     /// hosts). `root` is the root policy TOML; each [`Battery`] composes
@@ -232,21 +245,29 @@ impl AppaGuard {
         timeout_ms: u64,
         max_body_bytes: usize,
     ) -> Result<Arc<Self>, GuardOpenError> {
+        let token_envs = batteries
+            .iter()
+            .map(|battery| {
+                battery
+                    .token_env
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
         let hosted = batteries
             .iter()
-            .map(|battery| HostedBattery {
+            .zip(token_envs.iter())
+            .map(|(battery, token_env)| HostedBattery {
                 name: &battery.name,
                 policy: &battery.policy,
-                token_env: &battery.token_env,
+                token_env,
             })
             .collect::<Vec<_>>();
         let config = Config::hosted_composed(
             root,
             &hosted,
-            HostDefaults::new(
-                std::time::Duration::from_millis(timeout_ms),
-                max_body_bytes,
-            ),
+            HostDefaults::new(std::time::Duration::from_millis(timeout_ms), max_body_bytes),
             |_| None,
         )
         .map_err(|e| GuardOpenError::Compose(e.to_string()))?;
@@ -279,8 +300,7 @@ impl AppaGuard {
 
     fn open_with(session_id: &str, config: Config) -> Result<Arc<Self>, GuardOpenError> {
         let store = Arc::new(
-            LogStore::open(Backend::Memory)
-                .map_err(|e| GuardOpenError::Open(e.to_string()))?,
+            LogStore::open(Backend::Memory).map_err(|e| GuardOpenError::Open(e.to_string()))?,
         );
         // `open_with_store_as` refuses an adapter that spells no control tool:
         // the open itself fails closed (OpenError::UnspelledControlTool).
@@ -302,10 +322,7 @@ impl AppaGuard {
     /// stops. `Context` (peer messages pawan has no channel for) is accepted
     /// and its text dropped.
     pub async fn ensure_started(&self) {
-        if self
-            .started
-            .swap(true, std::sync::atomic::Ordering::SeqCst)
-        {
+        if self.started.swap(true, std::sync::atomic::Ordering::SeqCst) {
             return;
         }
         let decision = hooks::handle(
@@ -334,17 +351,31 @@ impl AppaGuard {
     /// the tool; it crosses as its serialized bytes so the engine — not a
     /// parser — decides what the call is (duplicate keys and other refusable
     /// forms would be collapsed by a parse).
-    pub async fn check_call(&self, tool: &str, arguments: &serde_json::Value, call_id: &str) -> CallDecision {
+    pub async fn check_call(
+        &self,
+        tool: &str,
+        arguments: &serde_json::Value,
+        call_id: &str,
+        cwd: Option<&str>,
+    ) -> CallDecision {
         if self.start_failed.load(std::sync::atomic::Ordering::SeqCst) {
             return CallDecision::Refuse {
                 detail: "appa session start was refused; the guard fails closed".into(),
             };
         }
+        let call = match identified_call(tool, arguments, cwd) {
+            Ok(call) => call,
+            Err(refusal) => {
+                return CallDecision::Refuse {
+                    detail: format!("appa refused the tool spelling: {refusal:?}"),
+                }
+            }
+        };
         let decision = hooks::handle(
             &self.runtime,
             HookEvent::ToolCall {
                 actor: self.actor.clone(),
-                call: proposed(tool, arguments),
+                call,
                 call_id: Some(call_id.to_string()),
                 spawn: None,
                 prompt: None,
@@ -392,11 +423,19 @@ impl AppaGuard {
                 message: body.to_string(),
             }
         };
+        let call = match identified_call(tool, arguments, cwd) {
+            Ok(call) => call,
+            Err(refusal) => {
+                return ResultDecision::Refuse {
+                    detail: format!("appa refused the tool spelling: {refusal:?}"),
+                }
+            }
+        };
         let decision = hooks::handle(
             &self.runtime,
             HookEvent::ToolResult {
                 actor: self.actor.clone(),
-                call: proposed(tool, arguments).with_cwd(cwd),
+                call,
                 call_id: Some(call_id.to_string()),
                 outcome,
             },
@@ -410,19 +449,74 @@ impl AppaGuard {
             HookDecision::Block { reason } => ResultDecision::Refuse { detail: reason },
             HookDecision::Refuse { detail } => ResultDecision::Refuse { detail },
             other => ResultDecision::Refuse {
-                detail: format!("appa returned an impossible decision for a tool result: {other:?}"),
+                detail: format!(
+                    "appa returned an impossible decision for a tool result: {other:?}"
+                ),
             },
         }
     }
 
-    /// Execute a remedy plan the model quoted on the control tool. Returns
-    /// the runtime's outcome; `Refused` plans change nothing.
-    pub async fn execute_remedy(&self, args: ExecuteRemedyPlanArgs) -> RemedyOutcome {
-        self.runtime.execute_embedded_remedy(&self.actor, args).await
+    /// Take a remedy the model quoted on the control tool: the runtime
+    /// vouches the quoted offer first (the control call answers
+    /// `PassControl`), and only then does the plan execute — inside its
+    /// mandate envelope, where `rulings_cover` refuses a plan claiming a
+    /// gap outside its authority. Executing without the vouch reads as
+    /// `Refused { Unvouched }` (measured).
+    pub async fn take_remedy(
+        &self,
+        plan: &serde_json::Value,
+        vouch_call_id: &str,
+    ) -> Result<RemedyOutcome, String> {
+        let args: ExecuteRemedyPlanArgs = serde_json::from_value(plan.clone())
+            .map_err(|e| format!("the quoted plan is malformed: {e}"))?;
+        // The vouch carries the bytes the model quoted, unrewritten: the
+        // engine validates the plan, not this host's interpretation of it.
+        let bytes = serde_json::to_string(plan).unwrap_or_else(|_| "{}".to_string());
+        let decision = hooks::handle(
+            &self.runtime,
+            HookEvent::ToolCall {
+                actor: self.actor.clone(),
+                call: ProposedCall {
+                    tool: CONTROL_TOOL.to_string(),
+                    arguments: serde_json::value::RawValue::from_string(bytes)
+                        .map_err(|e| format!("the quoted plan is not one JSON value: {e}"))?,
+                    cwd: None,
+                },
+                call_id: Some(vouch_call_id.to_string()),
+                spawn: None,
+                prompt: None,
+                ruling: None,
+            },
+        )
+        .await;
+        if !matches!(decision, HookDecision::PassControl) {
+            return Err(format!(
+                "the runtime refused the control call: {decision:?}"
+            ));
+        }
+        Ok(self
+            .runtime
+            .execute_embedded_remedy(&self.actor, args)
+            .await)
     }
 }
 
-fn proposed(tool: &str, arguments: &serde_json::Value) -> ProposedCall {
+/// The call as the engine reads it: identified through the adapter first,
+/// the way the wire identifies a served host's calls. A spelling outside
+/// the adapter's domain is a parse refusal — the call fails closed.
+fn identified_call(
+    tool: &str,
+    arguments: &serde_json::Value,
+    cwd: Option<&str>,
+) -> Result<ProposedCall, ParseRefusal> {
+    let identified = identify_tool(tool)?;
+    let canonical = identified.canonical.into_string();
+    let mut call = proposed(&canonical, arguments, cwd);
+    call.tool = canonical;
+    Ok(call)
+}
+
+fn proposed(tool: &str, arguments: &serde_json::Value, cwd: Option<&str>) -> ProposedCall {
     // The engine canonicalizes; the runtime and adapter do not parse. pawan's
     // arguments arrive already parsed at the LLM client, so the bytes pawan
     // would execute are the serialization of that Value — the engine sees
@@ -430,15 +524,9 @@ fn proposed(tool: &str, arguments: &serde_json::Value) -> ProposedCall {
     let bytes = serde_json::to_string(arguments).unwrap_or_else(|_| "null".to_string());
     ProposedCall {
         tool: tool.to_string(),
-        arguments: serde_json::value::RawValue::from_string(bytes)
-            .unwrap_or_else(|_| serde_json::value::RawValue::from_string("null".to_string()).expect("null parses")),
-        cwd: None,
-    }
-}
-
-impl ProposedCall {
-    fn with_cwd(mut self, cwd: Option<&str>) -> Self {
-        self.cwd = cwd.map(|c| c.to_string());
-        self
+        arguments: serde_json::value::RawValue::from_string(bytes).unwrap_or_else(|_| {
+            serde_json::value::RawValue::from_string("null".to_string()).expect("null parses")
+        }),
+        cwd: cwd.map(|c| c.to_string()),
     }
 }
