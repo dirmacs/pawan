@@ -4,7 +4,7 @@
 //! The engine answers one question before every tool call — *is this data
 //! allowed to go to this destination?* — and one after — *may this result
 //! re-enter the conversation?* Both hooks are wired in
-//! [`crate::agent::execute`]: [`AppaGuard::check_call`] runs inside
+//! `crate::agent::execute`: [`AppaGuard::check_call`] runs inside
 //! `check_tool_permissions` (before the tool's execute path is ever entered)
 //! and [`AppaGuard::check_result`] runs after `tools.execute` returns, before
 //! the result is built into the `ToolCallRecord` that reaches the model.
@@ -12,7 +12,7 @@
 //! Fail-closed contract (measured against the engine, rev 1c52575): an
 //! unanswered battery is an operational [`CallDecision::Refuse`] — the call
 //! does not run — never an allow. A guard that fails to open denies every
-//! call; see [`AppaGuard::failed`].
+//! call — an unopened guard is itself a denying guard (see `open_guard`).
 
 use std::path::Path;
 use std::sync::Arc;
