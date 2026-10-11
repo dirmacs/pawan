@@ -204,6 +204,13 @@ impl Tool for EditFileLinesTool {
         "edit_file_lines"
     }
 
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
+    }
+
     fn description(&self) -> &str {
         "PREFERRED edit tool. Replace lines in a file. Two modes:\n\
          Mode 1 (line numbers): pass start_line + end_line (1-based, inclusive).\n\
@@ -485,6 +492,13 @@ impl Tool for InsertAfterTool {
         "insert_after"
     }
 
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
+    }
+
     fn description(&self) -> &str {
         "Insert text after a line matching a pattern. Finds the FIRST line containing \
          the anchor text. If that line opens a block (ends with '{'), inserts AFTER the \
@@ -653,6 +667,13 @@ impl AppendFileTool {
 impl Tool for AppendFileTool {
     fn name(&self) -> &str {
         "append_file"
+    }
+
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
     }
 
     fn description(&self) -> &str {

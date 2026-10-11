@@ -76,6 +76,35 @@ pub(crate) fn truncate_tool_result(value: Value, max_chars: usize) -> Value {
     }
 }
 
+/// A synthetic denial record: the tool's execute path is never entered and
+/// the model reads `reason` as the tool's result. Used by the permission
+/// gates and by the OpenAPPA pre-call check alike — a denied call is
+/// indistinguishable to the model from a tool that refused to run.
+pub(crate) fn synthetic_denial(tool_call: &ToolCallRequest, reason: String) -> ToolCallRecord {
+    ToolCallRecord {
+        id: tool_call.id.clone(),
+        name: tool_call.name.clone(),
+        arguments: tool_call.arguments.clone(),
+        result: json!({"error": reason}),
+        success: false,
+        duration_ms: 0,
+    }
+}
+
+/// The history message for a denied call: the reason is the result.
+pub(crate) fn denial_message(tool_call: &ToolCallRequest, reason: &str) -> Message {
+    Message {
+        role: Role::Tool,
+        content: serde_json::to_string(&json!({"error": reason})).unwrap_or_default(),
+        tool_calls: vec![],
+        tool_result: Some(ToolResultMessage {
+            tool_call_id: tool_call.id.clone(),
+            content: json!({"error": reason}),
+            success: false,
+        }),
+    }
+}
+
 /// Summarize tool arguments for permission requests
 pub(crate) fn summarize_args(args: &serde_json::Value) -> String {
     match args {
@@ -157,6 +186,17 @@ impl PawanAgent {
     ) -> Result<AgentResponse> {
         // Check if coordinator mode is enabled
         if self.config.use_coordinator {
+            // The coordinator runs its own tool loop with permission
+            // callbacks explicitly ignored (measured pawan defect). Under an
+            // active guardrail that is a silent bypass: the guard's hooks
+            // never see the calls. Fail closed rather than run unguarded.
+            if self.appa.guard().is_some() {
+                return Err(PawanError::Agent(
+                    "use_coordinator=true bypasses the OpenAPPA guardrail hooks; \
+                     disable coordinator mode or the guardrail"
+                        .to_string(),
+                ));
+            }
             // Coordinator mode does not support callbacks or permission prompts
             if on_token.is_some()
                 || on_tool.is_some()
@@ -313,6 +353,8 @@ impl PawanAgent {
                     self.config.max_result_chars,
                     pending,
                     on_tool.as_ref(),
+                    self.appa.guard(),
+                    self.workspace_root.to_str(),
                 )
                 .await;
                 for (idx, record, tool_msg, wrote_rs) in results {
@@ -677,6 +719,35 @@ impl PawanAgent {
         for (idx, tool_call) in tool_calls.iter().cloned().enumerate() {
             self.tools.activate(&tool_call.name);
 
+            // The runtime's own control tool is how the model takes a
+            // remedy: it routes to the guardrail runtime, never to pawan's
+            // registry. With no guard active there is no remedy to take.
+            if crate::agent::appa::is_control_tool_name(&tool_call.name) {
+                self.run_control_tool(
+                    idx,
+                    &tool_call,
+                    on_tool,
+                    &mut ordered_records,
+                    &mut ordered_tool_messages,
+                )
+                .await;
+                continue;
+            }
+
+            // OpenAPPA pre-call check — the information-flow authority runs
+            // in front of every permission layer: a call it denies never
+            // reaches the tool's execute path. A guard that failed to open
+            // denies every call (fail closed).
+            if let Some(reason) = self.appa_precall_denial(&tool_call).await {
+                let record = synthetic_denial(&tool_call, reason.clone());
+                if let Some(callback) = &on_tool {
+                    callback(&record);
+                }
+                ordered_records[idx] = Some(record);
+                ordered_tool_messages[idx] = Some(denial_message(&tool_call, &reason));
+                continue;
+            }
+
             let perm =
                 crate::config::ToolPermission::resolve(&tool_call.name, &self.config.permissions);
             let denied = match perm {
@@ -840,10 +911,26 @@ impl PawanAgent {
                         }
                     }
                 } else {
+                    // No approval channel is wired (headless run, MCP
+                    // server, the HTTP API, a subagent). A mutating tool is
+                    // a HARD DENY here — never an auto-approve: the
+                    // fail-open default is how an unauthenticated surface
+                    // used to run every write path unguarded.
+                    let reason = format!(
+                        "Tool denied: {} mutates state but no approval channel is wired (fail closed)",
+                        tool_call.name
+                    );
                     tracing::warn!(
                         tool = tool_call.name.as_str(),
-                        "No permission callback, auto-approving mutating tool"
+                        "mutating tool denied: no permission callback wired"
                     );
+                    let record = synthetic_denial(&tool_call, reason.clone());
+                    if let Some(callback) = &on_tool {
+                        callback(&record);
+                    }
+                    ordered_records[idx] = Some(record);
+                    ordered_tool_messages[idx] = Some(denial_message(&tool_call, &reason));
+                    continue;
                 }
             }
 
@@ -858,13 +945,126 @@ impl PawanAgent {
         )
     }
 
+    /// The OpenAPPA pre-call check for one proposed tool call.
+    ///
+    /// `None` = the call proceeds to the permission gates; `Some(reason)` =
+    /// the call is denied and the model reads `reason` as the tool's result.
+    /// The engine's own words cross to the model unchanged — pawan adds
+    /// nothing to a decision it did not make.
+    async fn appa_precall_denial(&self, tool_call: &ToolCallRequest) -> Option<String> {
+        match &self.appa {
+            crate::agent::appa::GuardState::Disabled => None,
+            crate::agent::appa::GuardState::Failed { reason } => Some(format!(
+                "Guardrail engine failed to open ({reason}); every tool call is denied (fail closed)"
+            )),
+            crate::agent::appa::GuardState::Active(guard) => {
+                guard.ensure_started().await;
+                match guard
+                    .check_call(&tool_call.name, &tool_call.arguments, &tool_call.id)
+                    .await
+                {
+                    crate::agent::appa::CallDecision::Allow => None,
+                    crate::agent::appa::CallDecision::Deny { feedback } => Some(feedback),
+                    crate::agent::appa::CallDecision::Stop { reason } => Some(reason),
+                    crate::agent::appa::CallDecision::Refuse { detail } => Some(detail),
+                }
+            }
+        }
+    }
+
+    /// The model quoted an `offer_id` on the runtime's control tool: the
+    /// plan executes only inside its mandate envelope, and the outcome
+    /// crosses back to the model as this call's result.
+    async fn run_control_tool(
+        &self,
+        idx: usize,
+        tool_call: &ToolCallRequest,
+        on_tool: Option<&ToolCallback>,
+        ordered_records: &mut [Option<ToolCallRecord>],
+        ordered_tool_messages: &mut [Option<Message>],
+    ) {
+        let (result_value, success) = match &self.appa {
+            crate::agent::appa::GuardState::Active(guard) => {
+                match serde_json::from_value::<appa_runtime::api::ExecuteRemedyPlanArgs>(
+                    tool_call.arguments.clone(),
+                ) {
+                    Ok(args) => {
+                        let outcome = guard.execute_remedy(args).await;
+                        match outcome {
+                            appa_runtime::api::RemedyOutcome::Authorized { .. } => (
+                                json!({
+                                    "status": "remedy accepted",
+                                    "hint": "Re-propose the same tool call; the policy now permits it."
+                                }),
+                                true,
+                            ),
+                            appa_runtime::api::RemedyOutcome::Declined { .. } => (
+                                json!({"status": "remedy declined", "error": "the authority declined this plan"}),
+                                false,
+                            ),
+                            appa_runtime::api::RemedyOutcome::NoAnswer { feedback } => (
+                                json!({"status": "remedy unanswered", "error": feedback}),
+                                false,
+                            ),
+                            appa_runtime::api::RemedyOutcome::Refused { reason } => (
+                                json!({"status": "remedy refused", "error": format!("{reason:?}")}),
+                                false,
+                            ),
+                            other => (
+                                json!({"status": "remedy not executed", "detail": format!("{other:?}")}),
+                                false,
+                            ),
+                        }
+                    }
+                    Err(e) => (
+                        json!({"error": format!("appa remedy plan is malformed: {e}")}),
+                        false,
+                    ),
+                }
+            }
+            _ => (
+                json!({"error": "no guardrail runtime is active; there is no remedy to take"}),
+                false,
+            ),
+        };
+        let record = ToolCallRecord {
+            id: tool_call.id.clone(),
+            name: tool_call.name.clone(),
+            arguments: tool_call.arguments.clone(),
+            result: result_value.clone(),
+            success,
+            duration_ms: 0,
+        };
+        if let Some(callback) = &on_tool {
+            callback(&record);
+        }
+        ordered_records[idx] = Some(record);
+        ordered_tool_messages[idx] = Some(Message {
+            role: Role::Tool,
+            content: serde_json::to_string(&result_value).unwrap_or_default(),
+            tool_calls: vec![],
+            tool_result: Some(ToolResultMessage {
+                tool_call_id: tool_call.id.clone(),
+                content: result_value,
+                success,
+            }),
+        });
+    }
+
     /// Execute pending tool calls in parallel with per-tool timeout handling.
+    ///
+    /// When a guard is active, every completed call crosses the OpenAPPA
+    /// post-call check before its result is built into the record: a
+    /// withheld or refused result never reaches the model, and a sanitized
+    /// derivation crosses in place of the raw body.
     async fn execute_pending_tools(
         tools: &ToolRegistry,
         bash_timeout_secs: u64,
         max_result_chars: usize,
         pending: Vec<(usize, ToolCallRequest)>,
         on_tool: Option<&ToolCallback>,
+        guard: Option<&crate::agent::appa::AppaGuard>,
+        cwd: Option<&str>,
     ) -> Vec<(usize, ToolCallRecord, Message, bool)> {
         use futures::{stream, StreamExt};
 
@@ -892,13 +1092,49 @@ impl PawanAgent {
                 };
 
                 let duration_ms = start.elapsed().as_millis() as u64;
-                let (mut result_value, success) = match result {
+                let (mut result_value, mut success) = match result {
                     Ok(v) => (v, true),
                     Err(e) => {
                         tracing::warn!(tool = tool_call.name.as_str(), error = %e, "Tool execution failed");
                         (json!({"error": e.to_string(), "tool": tool_call.name, "hint": "Try a different approach or tool"}), false)
                     }
                 };
+
+                // OpenAPPA post-call check — before the record is built and
+                // long before the model can read it. The engine sees the
+                // body the tool produced (its own cap bounds the consult);
+                // the decision decides what crosses:
+                //   Admit            the result stands as produced
+                //   Deliver{value}   the admitted derivation crosses, raw withheld
+                //   Replace{output}  the runtime's words cross, raw withheld
+                //   Refuse{detail}   nothing crosses — the flow stops closed
+                if let Some(guard) = guard {
+                    let body = serde_json::to_string(&result_value).unwrap_or_default();
+                    match guard
+                        .check_result(
+                            &tool_call.name,
+                            &tool_call.arguments,
+                            &tool_call.id,
+                            cwd,
+                            success,
+                            &body,
+                        )
+                        .await
+                    {
+                        crate::agent::appa::ResultDecision::Admit => {}
+                        crate::agent::appa::ResultDecision::Deliver { value } => {
+                            result_value = Value::String(value);
+                        }
+                        crate::agent::appa::ResultDecision::Replace { output } => {
+                            result_value = json!({"error": output});
+                            success = false;
+                        }
+                        crate::agent::appa::ResultDecision::Refuse { detail } => {
+                            result_value = json!({"error": detail});
+                            success = false;
+                        }
+                    }
+                }
 
                 result_value = truncate_tool_result(result_value, max_result_chars);
 

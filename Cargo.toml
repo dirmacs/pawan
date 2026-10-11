@@ -58,6 +58,16 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "str
 async-trait = "0.1"
 futures = "0.3"
 
+# OpenAPPA — deterministic information-flow guardrail engine, embedded at the
+# tool-execution seam. Git-pinned: every upstream member is publish=false, so
+# there is no crates.io path. All three pins share ONE rev (the runtime API
+# vocabulary and the in-memory log store are separate crates that the embed
+# needs directly); default-features=false drops the MCP/HTTP/CLI daemon stack.
+# The rev is the v0.31.1 tag + 20 commits (verified: git -C <clone> rev-parse HEAD).
+appa = { git = "https://github.com/archestra-ai/OpenAPPA", rev = "1c52575176330bc88a3c346abe678af5d42083b3", default-features = false }
+appa-runtime-api = { git = "https://github.com/archestra-ai/OpenAPPA", rev = "1c52575176330bc88a3c346abe678af5d42083b3" }
+appa-eventlog = { git = "https://github.com/archestra-ai/OpenAPPA", rev = "1c52575176330bc88a3c346abe678af5d42083b3" }
+
 # Error handling
 thiserror = "2.0"
 

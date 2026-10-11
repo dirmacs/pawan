@@ -472,6 +472,13 @@ impl Tool for SdTool {
         "sd"
     }
 
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
+    }
+
     fn description(&self) -> &str {
         "sd — fast find-and-replace across files. Like sed but simpler syntax and faster. \
          Use for bulk renaming, refactoring imports, changing patterns across entire codebase. \

@@ -261,6 +261,13 @@ impl Tool for WriteFileTool {
         "write_file"
     }
 
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
+    }
+
     fn description(&self) -> &str {
         "Write content to a file. Creates parent directories automatically. \
          PREFER edit_file or edit_file_lines for modifying existing files — \

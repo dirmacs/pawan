@@ -26,6 +26,9 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 tokio = { workspace = true }
 futures = { workspace = true }
 
+# HTTP client — the dims-auth validate call in the identity fence
+reqwest = { workspace = true }
+
 # Serialization
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -53,3 +56,4 @@ dirs = { workspace = true }
 tower = { version = "0.5", features = ["util"] }
 tempfile = { workspace = true }
 http-body-util = "0.1"
+mockito = "1.6"

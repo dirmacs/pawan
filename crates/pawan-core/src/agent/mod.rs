@@ -18,11 +18,13 @@ pub mod pool;
 mod preflight;
 pub mod session_store;
 
+pub mod appa;
 mod construction;
 mod execute;
 pub mod irc;
 pub mod session;
 
+pub use appa::{AppaGuard, GuardState};
 pub use irc::{IrcHub, IrcMessage, IrcRelay};
 
 // Re-export event types for public API
@@ -78,6 +80,11 @@ pub struct PawanAgent {
     arch_context_error: Option<String>,
     /// Timestamp of last tool call completion for idle timeout tracking
     last_tool_call_time: Option<Instant>,
+
+    /// The embedded OpenAPPA guard for this session. `Disabled` when the
+    /// config leaves the guard off; `Failed` when it was configured but did
+    /// not open — in which case every tool call stops.
+    appa: crate::agent::appa::GuardState,
 }
 
 pub(crate) fn sanitize_memory_content(content: &str) -> String {

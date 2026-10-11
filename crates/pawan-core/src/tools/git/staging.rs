@@ -26,6 +26,13 @@ impl Tool for GitAddTool {
         "git_add"
     }
 
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
+    }
+
     fn description(&self) -> &str {
         "Stage files for commit. Can stage specific files or all changes."
     }
@@ -138,6 +145,13 @@ impl GitCommitTool {
 impl Tool for GitCommitTool {
     fn name(&self) -> &str {
         "git_commit"
+    }
+
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
     }
 
     fn description(&self) -> &str {

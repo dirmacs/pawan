@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing;
 
+use super::appa::AppaConfig;
 use super::defaults::{default_config_version, default_tool_idle_timeout};
 use super::healing::HealingConfig;
 use super::mcp::McpServerEntry;
@@ -158,6 +159,11 @@ pub struct PawanConfig {
     /// Defaults to `http://localhost:11434/v1` (Ollama) when not set.
     #[serde(default)]
     pub local_endpoint: Option<String>,
+
+    /// OpenAPPA guardrail: the embedded information-flow engine wired at the
+    /// tool-execution seam. Off by default; see [`AppaConfig`].
+    #[serde(default)]
+    pub appa: AppaConfig,
 }
 
 impl Default for PawanConfig {
@@ -206,6 +212,7 @@ impl Default for PawanConfig {
             skills_repo: None,
             local_first: false,
             local_endpoint: None,
+            appa: AppaConfig::default(),
         }
     }
 }
