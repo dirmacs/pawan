@@ -478,7 +478,7 @@ impl BeadStore {
         self.conn
             .execute(
                 "INSERT INTO archives (summary, bead_count, archived_at) VALUES (?1, ?2, ?3)",
-                params![summary, count, now],
+                params![summary, count as i64, now],
             )
             .map_err(|e| PawanError::Config(format!("Archive: {}", e)))?;
 

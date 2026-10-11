@@ -6,6 +6,7 @@
 //! - Environment variables
 //! - Command line arguments
 
+mod appa;
 mod defaults;
 mod healing;
 mod mcp;
@@ -22,6 +23,7 @@ pub mod migration;
 #[cfg(test)]
 mod tests;
 
+pub use appa::{AppaBattery, AppaConfig};
 #[cfg(test)]
 use defaults::{default_config_version, default_tool_idle_timeout};
 pub use healing::HealingConfig;

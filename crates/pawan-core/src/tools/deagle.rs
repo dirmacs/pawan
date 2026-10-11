@@ -536,6 +536,13 @@ impl Tool for DeagleMapTool {
         "deagle_map"
     }
 
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
+    }
+
     fn description(&self) -> &str {
         "Index or re-index a codebase into the embedded deagle graph database. \
          Uses tree-sitter parsers for 9 languages (Rust, Python, Go, TypeScript, JavaScript, Java, C, C++, Ruby). \

@@ -253,6 +253,8 @@ impl PawanAgent {
             Ok(v) => (v, None),
             Err(e) => (None, Some(e.to_string())),
         };
+        let session_id = uuid::Uuid::new_v4().to_string();
+        let appa = crate::agent::appa::open_guard(&config.appa, &session_id);
 
         Self {
             config,
@@ -262,10 +264,11 @@ impl PawanAgent {
             backend,
             context_tokens_estimate: 0,
             eruka,
-            session_id: uuid::Uuid::new_v4().to_string(),
+            session_id,
             arch_context,
             arch_context_error,
             last_tool_call_time: None,
+            appa,
         }
     }
 

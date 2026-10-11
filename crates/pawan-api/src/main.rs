@@ -39,7 +39,10 @@ pub enum PeerConfigError {
     NoPeersTable,
 }
 
+mod identity;
 mod sessions;
+
+pub use identity::IdentityConfig;
 
 // ---------------------------------------------------------------------------
 // State
@@ -56,6 +59,8 @@ pub struct AppState {
     workspace: PathBuf,
     agent_id: String,
     start_time: std::time::Instant,
+    /// The identity fence every agent-running route sits behind.
+    identity: IdentityConfig,
 }
 // Request / Response types
 #[derive(Debug, Deserialize)]
@@ -130,7 +135,10 @@ async fn health_handler(State(state): State<AppState>) -> Json<HealthResponse> {
 /// successfully parsed config with no peers. When the config is unreadable,
 /// malformed, or lacks a `[peers]` table, `peers_error` carries the reason
 /// so an empty mesh is not mistaken for a partitioned one (pawan#99).
-async fn agents_handler(State(state): State<AppState>) -> Json<serde_json::Value> {
+async fn agents_handler(
+    State(state): State<AppState>,
+    _identity: identity::IdentityOf,
+) -> Json<serde_json::Value> {
     // Read aegis-net peers if available
     let (peers, peers_error) = match read_aegis_peers() {
         Ok(peers) => (peers, None),
@@ -183,7 +191,10 @@ fn read_aegis_peers() -> Result<Vec<serde_json::Value>, PeerConfigError> {
         .collect())
 }
 
-async fn models_handler(State(state): State<AppState>) -> Json<ModelsResponse> {
+async fn models_handler(
+    State(state): State<AppState>,
+    _identity: identity::IdentityOf,
+) -> Json<ModelsResponse> {
     let mut models = vec![ModelInfo {
         name: state.config.model.clone(),
         provider: format!("{:?}", state.config.provider),
@@ -203,6 +214,7 @@ async fn models_handler(State(state): State<AppState>) -> Json<ModelsResponse> {
 
 async fn chat_handler(
     State(state): State<AppState>,
+    _identity: identity::IdentityOf,
     Json(req): Json<ChatRequest>,
 ) -> Result<Json<ChatResponse>, (StatusCode, String)> {
     let session_id = req
@@ -228,6 +240,7 @@ async fn chat_handler(
 
 async fn chat_stream_handler(
     State(state): State<AppState>,
+    _identity: identity::IdentityOf,
     Json(req): Json<ChatRequest>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let session_id = req
@@ -309,14 +322,16 @@ async fn chat_stream_handler(
     Sse::new(stream)
 }
 
-async fn list_sessions_handler() -> Result<Json<Vec<sessions::SessionSummary>>, (StatusCode, String)>
-{
+async fn list_sessions_handler(
+    _identity: identity::IdentityOf,
+) -> Result<Json<Vec<sessions::SessionSummary>>, (StatusCode, String)> {
     sessions::list_sessions()
         .map(Json)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
 }
 
 async fn get_session_handler(
+    _identity: identity::IdentityOf,
     Path(id): Path<String>,
 ) -> Result<Json<sessions::SessionDetail>, (StatusCode, String)> {
     sessions::get_session(&id)
@@ -325,6 +340,7 @@ async fn get_session_handler(
 }
 
 async fn delete_session_handler(
+    _identity: identity::IdentityOf,
     Path(id): Path<String>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     sessions::delete_session(&id)
@@ -332,9 +348,51 @@ async fn delete_session_handler(
         .map_err(|e| (StatusCode::NOT_FOUND, e.to_string()))
 }
 
-async fn create_session_handler() -> Json<serde_json::Value> {
+async fn create_session_handler(_identity: identity::IdentityOf) -> Json<serde_json::Value> {
     let id = uuid::Uuid::new_v4().to_string();
     Json(serde_json::json!({"session_id": id}))
+}
+
+// ---------------------------------------------------------------------------
+// Main
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Router
+// ---------------------------------------------------------------------------
+
+/// The API surface. `/api/health` is the only unauthenticated route — it is
+/// a liveness probe by design and asserts nothing about the agent surface.
+/// Every other route sits behind the identity fence (see [`identity`]).
+fn app(state: AppState) -> Router {
+    // CORS is allow-list driven, defaulting to none: the historical
+    // allow-origin(Any) let any web page drive the agent surface. A browser
+    // origin is configured per deployment (PAWAN_API_CORS_ORIGIN).
+    let cors = std::env::var("PAWAN_API_CORS_ORIGIN")
+        .ok()
+        .filter(|o| !o.is_empty())
+        .and_then(|o| o.parse::<axum::http::HeaderValue>().ok())
+        .map(|origin| {
+            CorsLayer::new()
+                .allow_origin(origin)
+                .allow_methods(Any)
+                .allow_headers(Any)
+        })
+        .unwrap_or_default();
+
+    Router::new()
+        .route("/api/health", get(health_handler))
+        .route("/api/models", get(models_handler))
+        .route("/api/chat", post(chat_handler))
+        .route("/api/chat/stream", post(chat_stream_handler))
+        .route("/api/sessions", get(list_sessions_handler))
+        .route("/api/sessions", post(create_session_handler))
+        .route("/api/sessions/{id}", get(get_session_handler))
+        .route("/api/sessions/{id}", delete(delete_session_handler))
+        .route("/api/agents", get(agents_handler))
+        .layer(cors)
+        .layer(TraceLayer::new_for_http())
+        .with_state(state)
 }
 
 // ---------------------------------------------------------------------------
@@ -363,47 +421,46 @@ async fn main() {
         format!("pawan@{}", hostname)
     });
 
+    let identity = IdentityConfig::from_env();
+    if !identity.is_configured() {
+        // The historical surface was unauthenticated on 0.0.0.0; the fence
+        // refuses instead of silently serving. Say so loudly at startup.
+        tracing::error!(
+            "PAWAN_API_TOKEN / PAWAN_DIMS_AUTH_URL are unset: every route except /api/health \
+             refuses with 503. Set PAWAN_API_TOKEN or point PAWAN_DIMS_AUTH_URL at the auth \
+             service to serve the agent API."
+        );
+    }
+
     let state = AppState {
         agents: Arc::new(RwLock::new(HashMap::new())),
         config: Arc::new(config),
         workspace,
         agent_id: agent_id.clone(),
         start_time: std::time::Instant::now(),
+        identity,
     };
 
     tracing::info!("Agent identity: {}", agent_id);
-
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
-    let app = Router::new()
-        .route("/api/health", get(health_handler))
-        .route("/api/models", get(models_handler))
-        .route("/api/chat", post(chat_handler))
-        .route("/api/chat/stream", post(chat_stream_handler))
-        .route("/api/sessions", get(list_sessions_handler))
-        .route("/api/sessions", post(create_session_handler))
-        .route("/api/sessions/{id}", get(get_session_handler))
-        .route("/api/sessions/{id}", delete(delete_session_handler))
-        .route("/api/agents", get(agents_handler))
-        .layer(cors)
-        .layer(TraceLayer::new_for_http())
-        .with_state(state);
 
     let port = std::env::var("PAWAN_API_PORT")
         .ok()
         .and_then(|p| p.parse().ok())
         .unwrap_or(3300u16);
 
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
+    // The listener binds what the deployment configures; the fence — not
+    // the bind address — is what makes the surface safe. An interior bind
+    // is still recommended for defense in depth (PAWAN_API_BIND=127.0.0.1).
+    let bind = std::env::var("PAWAN_API_BIND").unwrap_or_else(|_| "0.0.0.0".to_string());
+    let listener = tokio::net::TcpListener::bind(format!("{}:{}", bind, port))
         .await
         .expect("failed to bind");
 
-    tracing::info!("pawan-api listening on port {}", port);
+    tracing::info!("pawan-api listening on {}:{}", bind, port);
 
-    axum::serve(listener, app).await.expect("server error");
+    axum::serve(listener, app(state))
+        .await
+        .expect("server error");
 }
 
 // ---------------------------------------------------------------------------
@@ -419,28 +476,33 @@ mod tests {
     use tower::ServiceExt;
 
     fn test_state() -> AppState {
+        test_state_with_identity(IdentityConfig::with_static_token("test-token"))
+    }
+
+    fn test_state_with_identity(identity: IdentityConfig) -> AppState {
         AppState {
             agents: Arc::new(RwLock::new(HashMap::new())),
             config: Arc::new(PawanConfig::default()),
             workspace: std::path::PathBuf::from("/tmp"),
             agent_id: "pawan@test".to_string(),
             start_time: std::time::Instant::now(),
+            identity,
         }
     }
 
+    /// The router under test is the real one: the fence is part of the
+    /// surface, not a test harness.
     fn build_test_router(state: AppState) -> Router {
-        Router::new()
-            .route("/api/health", get(health_handler))
-            .route("/api/models", get(models_handler))
-            .route("/api/sessions", get(list_sessions_handler))
-            .route("/api/sessions", post(create_session_handler))
-            .route("/api/agents", get(agents_handler))
-            .with_state(state)
+        app(state)
     }
 
     async fn body_json(resp: axum::response::Response) -> serde_json::Value {
         let bytes = resp.into_body().collect().await.unwrap().to_bytes();
         serde_json::from_slice(&bytes).unwrap()
+    }
+
+    fn authed(request: axum::http::request::Builder, token: &str) -> axum::http::request::Builder {
+        request.header("Authorization", format!("Bearer {token}"))
     }
 
     #[tokio::test]
@@ -460,7 +522,11 @@ mod tests {
     async fn test_models_returns_array() {
         let app = build_test_router(test_state());
         let resp = app
-            .oneshot(Request::get("/api/models").body(Body::empty()).unwrap())
+            .oneshot(
+                authed(Request::get("/api/models"), "test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -473,7 +539,11 @@ mod tests {
     async fn test_create_session_returns_id() {
         let app = build_test_router(test_state());
         let resp = app
-            .oneshot(Request::post("/api/sessions").body(Body::empty()).unwrap())
+            .oneshot(
+                authed(Request::post("/api/sessions"), "test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -486,7 +556,11 @@ mod tests {
     async fn test_agents_returns_self() {
         let app = build_test_router(test_state());
         let resp = app
-            .oneshot(Request::get("/api/agents").body(Body::empty()).unwrap())
+            .oneshot(
+                authed(Request::get("/api/agents"), "test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
@@ -499,7 +573,11 @@ mod tests {
     async fn test_list_sessions_returns_array() {
         let app = build_test_router(test_state());
         let resp = app
-            .oneshot(Request::get("/api/sessions").body(Body::empty()).unwrap())
+            .oneshot(
+                authed(Request::get("/api/sessions"), "test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
         // May return 200 with [] or 500 if no session dir — both acceptable
@@ -607,7 +685,7 @@ mod tests {
 
         let resp = app
             .oneshot(
-                Request::get("/api/sessions/nonexistent-id")
+                authed(Request::get("/api/sessions/nonexistent-id"), "test-token")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -626,9 +704,12 @@ mod tests {
 
         let resp = app
             .oneshot(
-                Request::delete("/api/sessions/nonexistent-id")
-                    .body(Body::empty())
-                    .unwrap(),
+                authed(
+                    Request::delete("/api/sessions/nonexistent-id"),
+                    "test-token",
+                )
+                .body(Body::empty())
+                .unwrap(),
             )
             .await
             .unwrap();
@@ -652,7 +733,11 @@ mod tests {
     async fn test_invalid_method_create_session() {
         let app = build_test_router(test_state());
         let resp = app
-            .oneshot(Request::get("/api/sessions").body(Body::empty()).unwrap())
+            .oneshot(
+                authed(Request::get("/api/sessions"), "test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -672,7 +757,7 @@ mod tests {
 
         let resp = app
             .oneshot(
-                Request::post("/api/chat")
+                authed(Request::post("/api/chat"), "test-token")
                     .header("content-type", "application/json")
                     .body(Body::from("{invalid json}"))
                     .unwrap(),
@@ -691,7 +776,7 @@ mod tests {
 
         let resp = app
             .oneshot(
-                Request::post("/api/chat")
+                authed(Request::post("/api/chat"), "test-token")
                     .body(Body::from(r#"{"message": "test"}"#))
                     .unwrap(),
             )
@@ -720,6 +805,7 @@ mod tests {
             workspace: std::path::PathBuf::from("/tmp"),
             agent_id: "test".to_string(),
             start_time: std::time::Instant::now(),
+            identity: IdentityConfig::with_static_token("test-token"),
         };
 
         let app = Router::new()
@@ -727,7 +813,11 @@ mod tests {
             .with_state(state);
 
         let resp = app
-            .oneshot(Request::get("/api/models").body(Body::empty()).unwrap())
+            .oneshot(
+                authed(Request::get("/api/models"), "test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -772,7 +862,11 @@ mod tests {
     async fn test_agents_returns_empty_peers() {
         let app = build_test_router(test_state());
         let resp = app
-            .oneshot(Request::get("/api/agents").body(Body::empty()).unwrap())
+            .oneshot(
+                authed(Request::get("/api/agents"), "test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -796,7 +890,11 @@ mod tests {
         // non-null reason while peers stays empty.
         let app = build_test_router(test_state());
         let resp = app
-            .oneshot(Request::get("/api/agents").body(Body::empty()).unwrap())
+            .oneshot(
+                authed(Request::get("/api/agents"), "test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
             .await
             .unwrap();
 
@@ -843,5 +941,166 @@ mod tests {
 
         // Preflight request should return OK
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Identity fence tests
+    // ---------------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn health_is_the_only_open_route() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(Request::get("/api/health").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn an_unauthenticated_agent_route_is_refused() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(
+                Request::post("/api/chat")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"message":"write a file"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_wrong_token_is_refused() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(
+                authed(Request::get("/api/sessions"), "not-the-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn the_right_token_is_admitted() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(
+                authed(Request::get("/api/sessions"), "test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            resp.status() == StatusCode::OK || resp.status() == StatusCode::INTERNAL_SERVER_ERROR,
+            "an admitted caller reaches the handler (its own errors aside)"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unconfigured_fence_refuses_instead_of_serving_open() {
+        // The measured defect was an unauthenticated 0.0.0.0 agent API.
+        // With no verifier configured the surface must refuse, never open.
+        let app = build_test_router(test_state_with_identity(IdentityConfig::unconfigured()));
+        let resp = app
+            .oneshot(
+                Request::post("/api/chat")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"message":"write a file"}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn an_x_api_key_header_admits_too() {
+        let app = build_test_router(test_state());
+        let resp = app
+            .oneshot(
+                Request::get("/api/sessions")
+                    .header("X-API-Key", "test-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            resp.status() == StatusCode::OK || resp.status() == StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[tokio::test]
+    async fn dims_auth_admits_a_valid_token() {
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("POST", "/v1/validate")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"user_id":"u-1","email":"a@corp.com","roles":[]}"#)
+            .create_async()
+            .await;
+        let app = build_test_router(test_state_with_identity(IdentityConfig::with_dims(
+            &server.url(),
+        )));
+        let resp = app
+            .oneshot(
+                authed(Request::get("/api/sessions"), "jwt-from-dims")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(
+            resp.status() == StatusCode::OK || resp.status() == StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+
+    #[tokio::test]
+    async fn dims_auth_rejects_an_invalid_token() {
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("POST", "/v1/validate")
+            .with_status(401)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"error":"invalid_token"}"#)
+            .create_async()
+            .await;
+        let app = build_test_router(test_state_with_identity(IdentityConfig::with_dims(
+            &server.url(),
+        )));
+        let resp = app
+            .oneshot(
+                authed(Request::get("/api/sessions"), "forged-jwt")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn a_dims_auth_outage_refuses_instead_of_passing() {
+        // No mock: the URL points at a closed port. An outage is never a pass.
+        let app = build_test_router(test_state_with_identity(IdentityConfig::with_dims(
+            "http://127.0.0.1:1",
+        )));
+        let resp = app
+            .oneshot(
+                authed(Request::get("/api/sessions"), "any-token")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
     }
 }

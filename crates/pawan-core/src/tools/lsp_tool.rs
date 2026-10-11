@@ -25,6 +25,13 @@ impl Tool for AstGrepTool {
         "ast_grep"
     }
 
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
+    }
+
     fn description(&self) -> &str {
         "ast-grep — structural code search and rewrite using AST patterns. \
          Unlike regex, this matches code by syntax tree structure. Use $NAME for \

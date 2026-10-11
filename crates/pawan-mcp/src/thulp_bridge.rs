@@ -70,6 +70,14 @@ impl Tool for ThulpMcpBridge {
         &self.tool_name
     }
 
+    /// An MCP tool executes on a foreign server with whatever authority its
+    /// session holds: from pawan's side it is a mutating call. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
+    }
+
     fn description(&self) -> &str {
         &self.description
     }

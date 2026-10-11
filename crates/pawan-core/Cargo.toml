@@ -73,7 +73,10 @@ rand = "0.8"
 gix = { version = "0.83", default-features = false, features = ["sha1", "tree-editor"], optional = true }
 
 # Beads-style task tracking (SQLite-backed)
-rusqlite = { optional = true, version = "0.34", features = ["bundled"] }
+# Pinned to the same rusqlite major as the OpenAPPA embed's appa-eventlog:
+# two rusqlite majors would pull two bundled libsqlite3-sys copies, and
+# cargo's `links = "sqlite3"` rule forbids that in one graph.
+rusqlite = { optional = true, version = "0.40", features = ["bundled"] }
 
 # Deagle code intelligence — embedded directly so pawan no longer
 # requires the `deagle` binary on PATH. Adds tree-sitter parsers for
@@ -81,8 +84,8 @@ rusqlite = { optional = true, version = "0.34", features = ["bundled"] }
 # `pattern` feature enables ast-grep structural search; `text-search`
 # enables FTS5 keyword indexing via the grep-* crates.
 # 0.1.5 adds tree-sitter-ruby for Ruby/Rake/gemspec files.
-deagle-core = { version = "0.1.5", optional = true }
-deagle-parse = { optional = true, version = "0.1.5", features = ["pattern", "text-search"] }
+deagle-core = { version = "0.3.1", optional = true }
+deagle-parse = { optional = true, version = "0.3.0", features = ["pattern", "text-search"] }
 
 # Parallel walking for the embedded deagle_map implementation
 rayon = { version = "1.10", optional = true }
@@ -113,6 +116,14 @@ keyring = "3.6"
 
 # Lancor — llama.cpp toolkit for local inference (optional, feature-gated)
 lancor = { workspace = true, optional = true }
+
+# OpenAPPA — embedded guardrail engine at the tool-execution seam.
+# `appa-runtime-api` and `appa-eventlog` are separate crates the embed links
+# directly (the wire vocabulary and the in-memory LogStore are not re-exported
+# by `appa`); they MUST stay on the same rev as `appa` (workspace pins).
+appa = { workspace = true }
+appa-runtime-api = { workspace = true }
+appa-eventlog = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

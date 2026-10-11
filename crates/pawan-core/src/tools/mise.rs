@@ -191,6 +191,13 @@ impl Tool for MiseTool {
         "mise"
     }
 
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
+    }
+
     fn description(&self) -> &str {
         "mise — polyglot tool manager, environment manager, and task runner. Replaces asdf, nvm, \
          pyenv, direnv, make, and npm scripts. Three powers: (1) install/manage any dev tool or \

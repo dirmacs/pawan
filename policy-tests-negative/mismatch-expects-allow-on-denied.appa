@@ -1,0 +1,5 @@
+# NEGATIVE control: this trace asserts the OPPOSITE of the policy's answer
+# (allow where the engine denies). The replay gate must FAIL on it (rc=1) —
+# a harness that cannot fail proves nothing.
+host/pawan/canary_write {}
+expect allow

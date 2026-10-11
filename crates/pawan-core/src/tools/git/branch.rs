@@ -21,6 +21,13 @@ impl Tool for GitBranchTool {
         "git_branch"
     }
 
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
+    }
+
     fn description(&self) -> &str {
         "List branches or get current branch name. Shows local and optionally remote branches."
     }
@@ -104,6 +111,13 @@ impl GitCheckoutTool {
 impl Tool for GitCheckoutTool {
     fn name(&self) -> &str {
         "git_checkout"
+    }
+
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
     }
 
     fn description(&self) -> &str {
@@ -216,6 +230,13 @@ impl GitStashTool {
 impl Tool for GitStashTool {
     fn name(&self) -> &str {
         "git_stash"
+    }
+
+    /// State-mutating: this tool writes, spawns, or rewrites. The
+    /// mutating-tool gate requires an approval callback for it; with none
+    /// wired the call is denied (fail closed), never auto-approved.
+    fn mutating(&self) -> bool {
+        true
     }
 
     fn description(&self) -> &str {
