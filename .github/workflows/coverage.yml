@@ -1,0 +1,218 @@
+name: Coverage + CRAP
+
+# Why this workflow exists
+# -----------------------
+# pawan's main-branch protection has ALWAYS required exactly one status check,
+# and its context is `Coverage + CRAP`:
+#
+#   gh api repos/dirmacs/pawan/branches/main/protection
+#     -> required_status_checks.checks = [{context: "Coverage + CRAP"}]
+#      (required_status_checks.contexts = ["Coverage + CRAP"], app_id 153068)
+#
+# No job with that name has ever existed on main, so the required check has never
+# been satisfied and every merge into main has been blocked by it. This workflow
+# is what finally supplies the check.
+#
+# The check-run context is the JOB `name:` below, NOT this workflow's `name:` and
+# not the job id. That mapping was verified empirically after the first run of
+# this workflow by reading `gh api repos/dirmacs/pawan/commits/<sha>/check-runs`
+# and comparing the `name` field character-for-character. Do not assume it: if
+# the observed name ever drifts from `Coverage + CRAP`, rename here, not in the
+# branch protection.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  # Recorded fleet remedy for the coverage jobs that died with ENOSPC and
+  # `ld signal 9` (linker OOM): full debug info is what fills the disk and the
+  # linker's RSS. Line tables only carry every coverage mapping tarpaulin needs.
+  # Deliberately NOT `-D warnings` here -- lint enforcement is the `Check & Lint`
+  # job in ci.yml; this job's exit code must mean "gate", not "lint".
+  RUSTFLAGS: -C debuginfo=line-tables-only
+
+jobs:
+  coverage-crap:
+    name: Coverage + CRAP
+    # Runner invocation copied verbatim from .github/workflows/ci.yml (same
+    # checkout / toolchain / apt deps / cache shape as its `test` job).
+    # Measured, not assumed: pawan's runs carry runner_group_name
+    # "GitHub Actions" and labels ["ubuntu-latest"] -- pawan's CI has never used
+    # the self-hosted runners registered on this repo (those are ARM64; this job
+    # is measured on x86_64 so the numbers below reproduce).
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # ---------------------------------------------------------------------
+      # MEASURED BASELINES (tarpaulin 0.37.5, --engine Llvm, stable, x86_64,
+      # `-C debuginfo=line-tables-only`). Both numbers were produced by running
+      # the exact command in the `coverage gate` step below, in a clean isolated
+      # worktree per base:
+      #
+      #   origin/main (e15a5d2) ......... 60.13%  (9168/15248 lines)
+      #   guardrail/appa-integration
+      #     (90f8a53, PR #140 head) ..... 60.76%  (9530/15685 lines)
+      #
+      # Lower of the two = 60.13% (origin/main). The floor is 58, i.e. ~1pp below
+      # the number the gate itself will see on that base:
+      # A GitHub-hosted ubuntu-latest runner measured 59.73% (9107/15248) on the
+      # origin/main base -- i.e. ~0.40pp BELOW this build host, with an identical
+      # line denominator. The floor is therefore set below the lower of the two
+      # measured bases by more than that 0.40pp runner delta.
+      #
+      # Denominator note: tarpaulin's `--workspace` walk also lists the SEPARATE
+      # `grind/` workspace (its own Cargo.lock, run by `mise grind-test`, never
+      # built or run by this job) at 489 lines / 0% -- a constant -3.2pp drag on
+      # the reported number. The five pawan crates alone measure 62.12%
+      # (9168/14759). Both figures are printed in the run summary.
+      #
+      # RATCHET: raise this floor as coverage improves. The only way it moves is
+      # a PR that (a) measures the new number in this job and (b) raises the
+      # floor to it minus the same ~1pp margin. Never lower it: a PR that drops
+      # coverage below the floor is a failing PR.
+      #
+      # Both gate directions were proven before this floor was committed: the same
+      # command on the origin/main base measured 60.13% and 60.09% on two runs
+      # (0.04pp run-to-run variance on one host), exits 0 at --fail-under 58, and
+      # exits 1 with "Coverage is below the failure threshold 60.09% < 99.00%" at
+      # --fail-under 99. The CRAP gate likewise exits 1 at --threshold 400
+      # (worst 431.04) and 0 at --threshold 510 on the same LCOV.
+      # ---------------------------------------------------------------------
+      COVERAGE_FLOOR: "58"
+      # ---------------------------------------------------------------------
+      # CRAP ceiling, same measured run. cargo-crap scores
+      # CRAP(m) = CC^2 * (1 - cov)^3 + CC  over every function of the five pawan
+      # crates, fed by this run's lcov.info.
+      #
+      # Measured worst on origin/main: 431.04 = `handle_session_browser_key`
+      # (crates/pawan-cli/src/tui/events/default.rs:36, CC 22, 1/22 lines covered
+      # = 5.45%). The worst on 90f8a53 is the same function at the same 431.04, so
+      # the ceiling clears both bases. 510 rather than 431 because that score is
+      # knife-edged: CC^3 + CC = 506 is what the same function scores if the llvm
+      # engine measures its single covered line as uncovered. 510 clears both
+      # outcomes on both bases.
+      #
+      # `--exclude '**/main.rs'` keeps the two binary entry points
+      # (crates/pawan-cli/src/main.rs, crates/pawan-api/src/main.rs: argument
+      # parsing, process wiring, setup -- 0% covered by design; worst measured CC
+      # 42 => CRAP 1806) out of the ceiling. Gate those numbers and the ceiling
+      # measures nothing; silence them and it is meaningful.
+      #
+      # The ceiling caps the single WORST function's score. It is not a cap on how
+      # many functions exceed a lower bar (60 of 1053 scored functions sit above
+      # the tool's default 30 on origin/main). Tightening that count is the next
+      # ratchet step.
+      #
+      # RATCHET: once `handle_session_browser_key` gains real coverage, re-measure
+      # and drop the ceiling toward the new worst + margin. Then start walking the
+      # 44 functions above 50 and the 20 above 100.
+      # ---------------------------------------------------------------------
+      CRAP_THRESHOLD: "510"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # llvm-tools-preview backs the `Llvm` engine (llvm-profdata / llvm-cov).
+          components: llvm-tools-preview
+      - name: Install CI deps (protoc + native CLI tools for tests)
+        # Same deps as ci.yml's `test` job: the suite shells out to rg and fd, and
+        # the workspace builds prost/tonic types, which needs protoc at build time.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler ripgrep fd-find
+          sudo ln -sf /usr/bin/fdfind /usr/local/bin/fd
+      - uses: Swatinem/rust-cache@v2
+      - name: Cargo.lock is committed, not generated
+        # --locked below exits non-zero if the lockfile is missing or would have to
+        # change; that mechanism needs the file to exist first.
+        run: git ls-files --error-unmatch Cargo.lock
+      - name: install pinned coverage + CRAP tools
+        # Pinned release binaries, not `actions-rs/tarpaulin`: that action is
+        # archived (the whole actions-rs org was archived 2023-10-13, last push
+        # 2023-02-04). Both tools below are actively maintained (cargo-tarpaulin
+        # 0.37.5 published 2026-09-27; cargo-crap 0.6.1 published 2026-09-29) and
+        # both ship an x86_64-unknown-linux-gnu asset, which is what this job's
+        # runner is. `cargo install` in CI would recompile tarpaulin from source
+        # on every run (~10 min) for a binary whose contents are already
+        # reproducible in the pinned release -- and the release is what these
+        # thresholds were measured with, so the two cannot drift.
+        run: |
+          set -euo pipefail
+          TARPAULIN_VERSION=0.37.5
+          CRAP_VERSION=0.6.1
+          case "$(uname -m)" in
+            aarch64) arch=aarch64 ;;
+            x86_64)  arch=x86_64 ;;
+            *) echo "::error::unsupported architecture $(uname -m)"; exit 1 ;;
+          esac
+          mkdir -p "$HOME/.local/bin"
+          # $GITHUB_PATH only affects LATER steps, not this one -- the version
+          # assertions below run here, so the dir must be on PATH inside this
+          # same script.
+          export PATH="$HOME/.local/bin:$PATH"
+          curl -sSLf "https://github.com/xd009642/tarpaulin/releases/download/${TARPAULIN_VERSION}/cargo-tarpaulin-${arch}-unknown-linux-gnu.tar.gz" \
+            | tar xz -C "$HOME/.local/bin"
+          curl -sSLf "https://github.com/minikin/cargo-crap/releases/download/v${CRAP_VERSION}/cargo-crap-${arch}-unknown-linux-gnu.tar.gz" \
+            | tar xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          cargo-tarpaulin --version | grep -qx "tarpaulin ${TARPAULIN_VERSION}"
+          cargo-crap --version | grep -qx "cargo-crap ${CRAP_VERSION}"
+      - name: coverage gate (tarpaulin, llvm engine)
+        # One instrumented run, two gates fed by it: tarpaulin runs the whole
+        # suite (it exits non-zero on any test failure, so the coverage run IS the
+        # test run) and writes lcov.info, which cargo-crap then scores. cargo-crap
+        # never runs tests itself -- it parses source with syn and reads the LCOV.
+        # With no coverage feed every function scores cov=0 and the CRAP ceiling
+        # measures nothing, which is why the two gates share one run.
+        #
+        # --engine Llvm is MEASURED, not preferred: tarpaulin's ptrace engine needs
+        # to disable ASLR and is blocked inside containerised runners, and `auto`
+        # would fall back silently. Llvm is the documented llvm-profdata path and
+        # is what llvm-tools-preview above installs. Both measured baselines in
+        # the env block were taken with this same engine, so the floor is on the
+        # engine that actually runs here.
+        run: >-
+          cargo tarpaulin --engine Llvm --workspace --locked
+          --out Lcov --fail-under "$COVERAGE_FLOOR" --timeout 600
+      - name: CRAP gate (fed by this run's coverage, CLI entry points excluded)
+        run: >-
+          cargo crap --lcov lcov.info --workspace
+          --exclude '**/main.rs' --threshold "$CRAP_THRESHOLD" --fail-above
+          --format json --output crap.json
+      - name: write the run summary
+        # Always runs, never fails the job, and needs no interpreter the runner may
+        # not carry -- this is what a human reads to know which way the gate went.
+        if: always()
+        run: |
+          set -uo pipefail
+          {
+            echo "### Coverage + CRAP gate"
+            echo
+            if [ -f lcov.info ]; then
+              awk -F: '/^LH:/{lh+=$2} /^LF:/{lf+=$2} END {if (lf>0) printf "Line coverage (gated): %.2f%% (%d/%d lines), floor %s%%\n", 100*lh/lf, lh, lf, "$COVERAGE_FLOOR"; else print "Line coverage: no LCOV data"}' lcov.info
+              awk '/^SF:/{f=substr($0,4)} /^LH:/{lh=substr($0,4)} /^LF:/{lf=substr($0,4)} /^end_of_record/{if (f !~ /\/grind\//) {c+=lh; t+=lf}; lh=0; lf=0} END {if (t>0) printf "  pawan crates only:   %.2f%% (%d/%d lines)\n", 100*c/t, c, t}' lcov.info
+              echo "  per crate:"
+              awk '/^SF:/{f=substr($0,4)} /^LH:/{lh=substr($0,4)} /^LF:/{lf=substr($0,4)} /^end_of_record/{if (f ~ /\/crates\//) {k=f; sub(/\/src\/.*/,"",k); sub(/.*\//,"",k); c[k]+=lh; t[k]+=lf}; lh=0; lf=0} END {for (k in c) printf "    %-12s %6d / %6d = %6.2f%%\n", k, c[k], t[k], 100*c[k]/t[k]}' lcov.info | sort
+              awk '/^SF:/{f=substr($0,4)} /^LH:/{lh=substr($0,4)} /^LF:/{lf=substr($0,4)} /^end_of_record/{if (f ~ /\/grind\//) {c+=lh; t+=lf}; lh=0; lf=0} END {if (t>0) printf "  separate grind/ workspace (not run by this job, listed by the tarpaulin walk): %.2f%% (%d/%d lines)\n", 100*c/t, c, t}' lcov.info
+            else
+              echo "Line coverage: no lcov.info (the coverage run did not complete)"
+            fi
+            if [ -f crap.json ]; then
+              # Shell-only parse: the summary must never fail the job, and it must
+              # not need an interpreter the runner does not carry.
+              vals=$(tr -d ' \n' < crap.json | grep -o '"crap":[0-9.]*' | cut -d: -f2)
+              if [ -n "$vals" ]; then
+                n=$(printf '%s\n' "$vals" | grep -c .)
+                worst=$(printf '%s\n' "$vals" | sort -g | tail -1)
+                echo "Functions scored: $n; worst CRAP: $worst; ceiling $CRAP_THRESHOLD"
+              else
+                echo "WARNING: crap.json present but no entries parsed"
+              fi
+            else
+              echo "CRAP: no crap.json (the CRAP step did not complete)"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
