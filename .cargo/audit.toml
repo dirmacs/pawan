@@ -63,9 +63,10 @@ ignore = [
   # in-repo bump clears it. Revisit when rs-utcp moves to tonic 0.12.
   "RUSTSEC-2026-0258", # dirmacs/pawan#129
 
-  # rustls 0.23.39 — externally blocked transitive via thulp-mcp → rs-utcp 0.3.2
-  # → dtls 0.13/webrtc, which pins rustls below the patched floor. Revisit when
-  # rs-utcp releases a compatible version.
-  "RUSTSEC-2026-0285", # dirmacs/pawan#130
+  # RUSTSEC-2026-0285 was removed from this list on 2026-10-21: the rustls 0.23
+  # copy now resolves to 0.23.46, which is above the 0.23.45 patched floor, so
+  # the advisory matches no locked copy. The "externally blocked" reason that
+  # was recorded here did not describe what the resolver does — the 0.23 copy
+  # was movable inside its own semver range the whole time.
 
 ]
